@@ -46,7 +46,8 @@ class FileSessionStore implements SessionStore {
   final File _file = File('${Directory.current.path}/$_fileName');
 
   @override
-  Future<String?> getAccessToken() async => _read()?['access_token'] as String?;
+  Future<String?> getAccessToken() async =>
+      (await _read())?['access_token'] as String?;
 
   @override
   Future<void> saveAccessToken(String token) async => _write(
@@ -55,7 +56,7 @@ class FileSessionStore implements SessionStore {
 
   @override
   Future<String?> getRefreshToken() async =>
-      _read()?['refresh_token'] as String?;
+      (await _read())?['refresh_token'] as String?;
 
   @override
   Future<void> saveRefreshToken(String? token) async => _write(

@@ -4,6 +4,7 @@ import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/models/conversation.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/services/profile_service.dart';
 
 /// Conversation business logic: listing, direct 1:1 creation (uniqueness
 /// enforced), group creation and membership management.
@@ -45,9 +46,15 @@ class ConversationService {
   /// Finds or creates a direct conversation between [currentUserId] and
   /// [otherUserId].
   ///
-  /// Duplicate direct conversations are prevented by a database-level unique
-  /// partial index on the sorted member pair (see migrations) and by checking
-  /// for an existing conversation before inserting.
+  /// Returns the 1:1 conversation between [currentUserId] and [otherUserId],
+  /// creating it if it does not exist.
+  ///
+  /// Delegates to the `get_or_create_direct_conversation` SECURITY DEFINER
+  /// function. Doing this client-side would fail under RLS: creating the
+  /// conversation requires `created_by = auth.uid()`, but inserting the *other*
+  /// user's membership row is not permitted to a plain client. The function
+  /// runs with elevated rights, verifies the caller is authenticated, and
+  /// takes an advisory lock so two devices cannot create duplicates.
   Future<Conversation> getOrCreateDirectConversation({
     required String currentUserId,
     required String otherUserId,
@@ -61,90 +68,31 @@ class ConversationService {
       throw NotFoundException('User not found');
     }
 
-    // 1. Look for an existing direct conversation shared by both users.
-    final existing = await _findExistingDirectConversation(currentUserId, otherUserId);
-    if (existing != null) {
-      AppLogger.info(
-        'direct_conversation_found',
-        details: {'conversationId': existing.id, 'otherUserId': otherUserId},
-      );
-      return existing;
+    final raw = await _supabase.rpc(
+      'get_or_create_direct_conversation',
+      params: {'other_user_id': otherUserId},
+    );
+
+    // PostgREST returns a bare uuid string for a scalar return type.
+    final conversationId =
+        raw is String ? raw : (raw is List && raw.isNotEmpty ? raw.first : null);
+    if (conversationId is! String || conversationId.isEmpty) {
+      throw AppException('Failed to open the conversation');
     }
 
-    // 2. Create the conversation + both memberships.
-    final memberIds = [currentUserId, otherUserId]..sort();
-    final inserted = await _supabase.insert(
+    final rows = await _supabase.select(
       'conversations',
-      data: {
-        'type': AppConstants.conversationTypeDirect,
-        'member_user_ids': memberIds,
-      },
-      select: '*',
+      filter: {'eq': 'id,$conversationId'},
+      limit: 1,
     );
-    if (inserted.isEmpty) {
-      throw AppException('Failed to create conversation');
+    if (rows.isEmpty) {
+      throw NotFoundException('Conversation not found');
     }
-    final conv = Conversation.fromJson(inserted.first);
-
-    await _supabase.insert(
-      'conversation_members',
-      data: {
-        'conversation_id': conv.id,
-        'user_id': currentUserId,
-        'role': AppConstants.memberRoleMember,
-      },
-    );
-    await _supabase.insert(
-      'conversation_members',
-      data: {
-        'conversation_id': conv.id,
-        'user_id': otherUserId,
-        'role': AppConstants.memberRoleMember,
-      },
-    );
-
-    AppLogger.info(
-      'direct_conversation_created',
-      details: {'conversationId': conv.id, 'memberIds': memberIds},
-    );
-    return conv;
-  }
-
-  Future<Conversation?> _findExistingDirectConversation(
-    String userA,
-    String userB,
-  ) async {
-    // Conversations where user A is a member.
-    final aConvs = await _supabase.select(
-      'conversation_members',
-      select: 'conversation_id',
-      filter: {'eq': 'user_id,$userA'},
-    );
-    if (aConvs.isEmpty) return null;
-
-    final conversationIds = aConvs.map((e) => e['conversation_id'] as String).toList();
-
-    // Among those, find direct conversations.
-    final data = await _supabase.select(
-      'conversations',
-      select: '*',
-      filter: {
-        'and': '(id.in.(${conversationIds.join(',')}),type.eq.${AppConstants.conversationTypeDirect})'
-      },
-      limit: 50,
-    );
-    for (final row in data) {
-      final conv = Conversation.fromJson(row);
-      if (!conv.isDirect) continue;
-      final members = await _supabase.select(
-        'conversation_members',
-        select: 'user_id',
-        filter: {'eq': 'conversation_id,user_id,${conv.id},$userB'},
-        limit: 1,
-      );
-      if (members.isNotEmpty) return conv;
-    }
-    return null;
+    AppLogger.info('direct_conversation_ready', details: {
+      'conversationId': conversationId,
+      'otherUserId': otherUserId,
+    });
+    return Conversation.fromJson(rows.first);
   }
 
   // ------------------------------------------------------------------
@@ -179,19 +127,20 @@ class ConversationService {
     if (inserted.isEmpty) throw AppException('Failed to create group');
     final conv = Conversation.fromJson(inserted.first);
 
-    final allMembers = <String>{ownerId, ...memberIds};
-    for (final userId in allMembers) {
+    // The `conversations_ensure_owner` trigger already inserted the owner's
+    // membership row; re-inserting it would violate the primary key.
+    final otherMembers = memberIds.where((id) => id != ownerId).toSet();
+    for (final userId in otherMembers) {
       await _supabase.insert(
         'conversation_members',
         data: {
           'conversation_id': conv.id,
           'user_id': userId,
-          'role': userId == ownerId
-              ? AppConstants.memberRoleOwner
-              : AppConstants.memberRoleMember,
+          'role': AppConstants.memberRoleMember,
         },
       );
     }
+    final allMembers = <String>{ownerId, ...otherMembers};
 
     AppLogger.info(
       'group_created',
@@ -213,10 +162,12 @@ class ConversationService {
       final userId = member['user_id'] as String;
       final profile = await _profileService.getProfile(userId);
       result.add({
-        'userId': userId,
+        'user_id': userId,
+        'username': profile?.username,
+        'display_name': profile?.displayName,
+        'avatar_path': profile?.avatarPath,
         'role': member['role'] as String,
-        'joinedAt': member['joined_at'] as String?,
-        'profile': profile,
+        'joined_at': member['joined_at'] as String?,
       });
     }
     return result;

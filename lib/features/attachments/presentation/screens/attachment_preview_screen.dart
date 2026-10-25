@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 
 /// Attachment preview before upload.
@@ -127,7 +126,3 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     );
   }
 }
-
-/// Unused import guard for AppException-based error handling parity.
-// ignore: unused_element
-AppException _exampleError() => AppException('placeholder');

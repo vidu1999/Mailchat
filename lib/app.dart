@@ -21,7 +21,7 @@ class MailChatApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       initialRoute: AppRoutes.splash,
       onGenerateRoute: AppRouter.onGenerateRoute,
-      navigatorObservers: [AppRouter.routeObserver],
+      navigatorObservers: [routeObserver],
     );
   }
 }

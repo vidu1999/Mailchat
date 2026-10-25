@@ -82,7 +82,7 @@ class AppInput extends StatelessWidget {
   }
 }
 
-/// Validates and returns a trimmed username, or throws [ValidationException].
+/// Returns a trimmed username when valid, or a human-readable error string.
 String validateUsernameInput(String? value) {
   final trimmed = (value ?? '').trim();
   if (trimmed.isEmpty) {

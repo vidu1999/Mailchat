@@ -4,6 +4,7 @@ import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/services/session_store.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/core/utils/validators.dart';
 
 /// Authentication business logic.
@@ -18,6 +19,8 @@ class AuthService {
   /// production mobile. Swap in a keychain/keystore-backed SessionStore
   /// (e.g. flutter_secure_storage) before shipping — see docs/security.md.
   static final SessionStore _defaultStore = FileSessionStore();
+
+  final SessionStore _store;
 
   final SupabaseClient _supabase = SupabaseClient.instance;
 
@@ -35,7 +38,7 @@ class AuthService {
     final accessToken = await _store.getAccessToken();
     final refreshToken = await _store.getRefreshToken();
     if (accessToken != null && accessToken.isNotEmpty) {
-      _supabase.setSession(
+      await _supabase.setSession(
         accessToken: accessToken,
         refreshToken: refreshToken,
       );
@@ -102,7 +105,7 @@ class AuthService {
     } on AppException {
       rethrow;
     } catch (e, st) {
-      AppLogger.error(e, st, details: {'where': 'register_profile', 'userId': response.user!.id});
+      AppLogger.error(e, st, {'where': 'register_profile', 'userId': response.user!.id});
       throw AppException('Account created but profile could not be completed. '
           'Please log in and finish your profile.');
     }

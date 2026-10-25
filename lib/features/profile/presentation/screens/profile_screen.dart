@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/core/theme/app_theme.dart';
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/services/auth_service.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
@@ -34,7 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfile() async {
     final userId = (widget.arguments?['userId'] as String?) ??
-        SupabaseClient.instance.userId ??
+        SupabaseClient.instance.userId;
     try {
       if (userId == null || userId.isEmpty) {
         throw AuthorizationException('Not signed in');
@@ -140,8 +142,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             title: const Text('Sign Out',
                 style: TextStyle(color: Colors.redAccent)),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // Sign out handled by auth provider; navigate to login.
+            onTap: () async {
+              // Clear the Supabase session and the persisted tokens, then
+              // leave no authenticated route on the stack.
+              try {
+                await AuthService().signOut();
+              } catch (e, st) {
+                AppLogger.error(e, st, {'where': 'profile_sign_out'});
+              }
+              if (!context.mounted) return;
               Navigator.of(context).pushNamedAndRemoveUntil(
                   AppRoutes.login, (route) => false);
             },

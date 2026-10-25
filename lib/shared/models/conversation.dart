@@ -1,4 +1,5 @@
 import 'package:mailchat/core/constants/app_constants.dart';
+import 'package:mailchat/shared/models/profile.dart';
 
 /// A conversation: either a direct 1:1 chat or a group chat.
 class Conversation {
@@ -140,9 +141,11 @@ class ConversationListItem {
 
   factory ConversationListItem.fromJson(Map<String, dynamic> json) {
     return ConversationListItem(
-      conversation: Conversation.fromJson(json['conversation'] as Map),
+      conversation: Conversation.fromJson(
+          Map<String, dynamic>.from(json['conversation'] as Map)),
       otherParticipant: json['other_participant'] != null
-          ? Profile.fromJson(json['other_participant'] as Map)
+          ? Profile.fromJson(
+              Map<String, dynamic>.from(json['other_participant'] as Map))
           : null,
       lastMessageText: json['last_message_text'] as String?,
       lastMessageAt: json['last_message_at'] != null

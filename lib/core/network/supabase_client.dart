@@ -56,10 +56,13 @@ class SupabaseClient {
 
   /// Sets the session from an existing access/refresh token pair (session
   /// restoration on app start).
-  void setSession({required String accessToken, String? refreshToken}) {
+  Future<void> setSession({
+    required String accessToken,
+    String? refreshToken,
+  }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
-    _loadCurrentUser();
+    await _loadCurrentUser();
   }
 
   Future<void> _loadCurrentUser() async {
@@ -155,8 +158,18 @@ class SupabaseClient {
     String? select,
   }) async {
     final uri = Uri.parse('$_restUrl/$table${select != null ? '?select=$select' : ''}');
-    final data = await _postUri(uri, body: data, authRequired: authRequired);
-    return (data as List).cast<Map<String, dynamic>>();
+    final response = await _postUri(uri, body: data, authRequired: authRequired);
+    return _asRowList(response);
+  }
+
+  /// Calls a Postgres function through PostgREST (`POST /rest/v1/rpc/<fn>`).
+  ///
+  /// Used for SECURITY DEFINER functions where the logic must run
+  /// server-side (e.g. atomic get-or-create of a direct conversation, which
+  /// RLS would otherwise block because it inserts another user's membership).
+  Future<dynamic> rpc(String function, {Map<String, dynamic>? params}) async {
+    final uri = Uri.parse('$_restUrl/rpc/$function');
+    return _postUri(uri, body: params ?? const {}, authRequired: true);
   }
 
   /// Selects rows from [table] with optional filters, ordering and pagination.
@@ -182,8 +195,8 @@ class SupabaseClient {
     if (offset != null) params['offset'] = offset.toString();
 
     final uri = Uri.parse('$_restUrl/$table').replace(queryParameters: params);
-    final data = await _getUri(uri, authRequired: authRequired);
-    return (data as List).cast<Map<String, dynamic>>();
+    final response = await _getRawUri(uri, authRequired: authRequired);
+    return _asRowList(response);
   }
 
   /// Updates rows matching [filter].
@@ -195,8 +208,8 @@ class SupabaseClient {
   }) async {
     final uri = Uri.parse('$_restUrl/$table')
         .replace(queryParameters: _expandFilter(filter));
-    final data = await _patchUri(uri, body: data, authRequired: authRequired);
-    return (data as List).cast<Map<String, dynamic>>();
+    final response = await _patchUri(uri, body: data, authRequired: authRequired);
+    return _asRowList(response);
   }
 
   /// Deletes rows matching [filter].
@@ -259,9 +272,23 @@ class SupabaseClient {
     return _getUri(uri, authRequired: authRequired);
   }
 
+  /// Applies the request headers. [HttpHeaders] exposes `add`, not `addAll`.
+  void _applyHeaders(HttpClientRequest request, {bool authRequired = false}) {
+    _headers(authRequired: authRequired).forEach((key, value) {
+      request.headers.add(key, value);
+    });
+  }
+
+  /// Map-returning GET, used by the auth endpoints (single-object payloads).
   Future<Map<String, dynamic>> _getUri(Uri uri, {bool authRequired = false}) async {
+    return _asMap(await _getRawUri(uri, authRequired: authRequired));
+  }
+
+  /// GET returning the decoded JSON exactly as sent (object or array).
+  Future<dynamic> _getRawUri(Uri uri, {bool authRequired = false}) async {
     try {
-      final request = await _http.getUrl(uri)..headers.addAll(_headers(authRequired: authRequired));
+      final request = await _http.getUrl(uri);
+      _applyHeaders(request, authRequired: authRequired);
       final response = await request.close();
       return await _decodeResponse(response);
     } on SocketException catch (e) {
@@ -270,7 +297,7 @@ class SupabaseClient {
       throw NetworkException('Request timed out', original: e);
     } catch (e, st) {
       if (e is AppException) rethrow;
-      AppLogger.error(e, st, details: {'where': 'supabase_get', 'uri': uri.toString()});
+      AppLogger.error(e, st, {'where': 'supabase_get', 'uri': uri.toString()});
       rethrow;
     }
   }
@@ -284,18 +311,18 @@ class SupabaseClient {
   Future<Map<String, dynamic>> _postUri(Uri uri,
       {required Map<String, dynamic> body, bool authRequired = false}) async {
     try {
-      final request = await _http.postUrl(uri)
-        ..headers.addAll(_headers(authRequired: authRequired));
+      final request = await _http.postUrl(uri);
+      _applyHeaders(request, authRequired: authRequired);
       request.add(utf8.encode(jsonEncode(body)));
       final response = await request.close();
-      return await _decodeResponse(response);
+      return _asMap(await _decodeResponse(response));
     } on SocketException catch (e) {
       throw NetworkException('Network request failed', original: e);
     } on TimeoutException catch (e) {
       throw NetworkException('Request timed out', original: e);
     } catch (e, st) {
       if (e is AppException) rethrow;
-      AppLogger.error(e, st, details: {'where': 'supabase_post', 'uri': uri.toString()});
+      AppLogger.error(e, st, {'where': 'supabase_post', 'uri': uri.toString()});
       rethrow;
     }
   }
@@ -303,27 +330,27 @@ class SupabaseClient {
   Future<Map<String, dynamic>> _patchUri(Uri uri,
       {required Map<String, dynamic> body, bool authRequired = false}) async {
     try {
-      final request = await _http.postUrl(uri)
-        ..headers.addAll(_headers(authRequired: authRequired))
-        ..headers.add('X-HTTP-Method-Override', 'PATCH');
+      final request = await _http.postUrl(uri);
+      _applyHeaders(request, authRequired: authRequired);
+      request.headers.add('X-HTTP-Method-Override', 'PATCH');
       request.add(utf8.encode(jsonEncode(body)));
       final response = await request.close();
-      return await _decodeResponse(response);
+      return _asMap(await _decodeResponse(response));
     } on SocketException catch (e) {
       throw NetworkException('Network request failed', original: e);
     } on TimeoutException catch (e) {
       throw NetworkException('Request timed out', original: e);
     } catch (e, st) {
       if (e is AppException) rethrow;
-      AppLogger.error(e, st, details: {'where': 'supabase_patch', 'uri': uri.toString()});
+      AppLogger.error(e, st, {'where': 'supabase_patch', 'uri': uri.toString()});
       rethrow;
     }
   }
 
   Future<void> _deleteUri(Uri uri, {bool authRequired = false}) async {
     try {
-      final request = await _http.deleteUrl(uri)
-        ..headers.addAll(_headers(authRequired: authRequired));
+      final request = await _http.deleteUrl(uri);
+      _applyHeaders(request, authRequired: authRequired);
       final response = await request.close();
       await _decodeResponse(response);
     } on SocketException catch (e) {
@@ -332,16 +359,18 @@ class SupabaseClient {
       throw NetworkException('Request timed out', original: e);
     } catch (e, st) {
       if (e is AppException) rethrow;
-      AppLogger.error(e, st, details: {'where': 'supabase_delete', 'uri': uri.toString()});
+      AppLogger.error(e, st, {'where': 'supabase_delete', 'uri': uri.toString()});
       rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> _decodeResponse(HttpClientResponse response) async {
+  /// Decodes a response body. PostgREST returns either an object or an array
+  /// depending on the endpoint, so the caller decides how to narrow the result.
+  Future<dynamic> _decodeResponse(HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (body.isEmpty) return {};
-      return jsonDecode(body) as Map<String, dynamic>;
+      if (body.isEmpty) return null;
+      return jsonDecode(body);
     }
     throw SupabaseException(
       'Request failed (${response.statusCode}): $body',
@@ -350,7 +379,7 @@ class SupabaseClient {
     );
   }
 
-  Future<AuthResponse> _handleAuthResponse(Map<String, dynamic> data) {
+  AuthResponse _handleAuthResponse(Map<String, dynamic> data) {
     final user = data['user'] != null ? AuthUser.fromJson(data['user']) : null;
     final session = data['session'] != null ? Session.fromJson(data['session']) : null;
     if (session != null) {
@@ -360,6 +389,68 @@ class SupabaseClient {
     _currentUser = user;
     _authStateController.add(user);
     return AuthResponse(user: user, session: session);
+  }
+
+  /// Expands MailChat's compact filter form into PostgREST query params.
+  ///
+  /// Input:  `{'eq': 'conversation_id,c1,user_id,u1', 'is': 'deleted_at,null'}`
+  /// Output: `{'conversation_id': 'eq.c1', 'user_id': 'eq.u1',
+  ///           'deleted_at': 'is.null'}`
+  ///
+  /// A single `column,value` pair and multiple comma-separated pairs are both
+  /// accepted. Malformed entries are passed through untouched so the server
+  /// returns an explicit error instead of the client silently dropping a
+  /// filter (which could widen what a query returns).
+  /// Operators whose values are a simple `column,value` list. Structural
+  /// operators (`and`, `or`, `not`) carry their own comma-separated grammar
+  /// and must be forwarded untouched.
+  static const Set<String> _scalarOperators = {
+    'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'is',
+  };
+
+  static Map<String, String> _expandFilter(Map<String, String> filter) {
+    final expanded = <String, String>{};
+    filter.forEach((operator, rawValue) {
+      if (!_scalarOperators.contains(operator)) {
+        expanded[operator] = rawValue;
+        return;
+      }
+      final parts = rawValue.split(',');
+      if (parts.length < 2 || parts.length.isOdd) {
+        // Not a column/value list (e.g. a raw PostgREST expression) — keep it.
+        expanded[operator] = rawValue;
+        return;
+      }
+      for (var i = 0; i < parts.length; i += 2) {
+        expanded[parts[i].trim()] = '$operator.${parts[i + 1]}';
+      }
+    });
+    return expanded;
+  }
+
+  /// Normalises a decoded payload into a single object.
+  static Map<String, dynamic> _asMap(dynamic decoded) {
+    if (decoded is Map) {
+      return decoded.map((key, value) => MapEntry(key.toString(), value));
+    }
+    if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+      return _asMap(decoded.first);
+    }
+    return <String, dynamic>{};
+  }
+
+  /// Normalises a PostgREST payload into a list of rows.
+  static List<Map<String, dynamic>> _asRowList(dynamic decoded) {
+    if (decoded == null) return const [];
+    if (decoded is List) {
+      return decoded.whereType<Map>().map((row) {
+        return row.map((key, value) => MapEntry(key.toString(), value));
+      }).toList();
+    }
+    if (decoded is Map) {
+      return [decoded.map((key, value) => MapEntry(key.toString(), value))];
+    }
+    return const [];
   }
 }
 
@@ -436,29 +527,5 @@ class AuthResponse {
 
   bool get isAuthenticated => user != null && session != null;
 
-  /// Expands MailChat's compact filter form into PostgREST query params.
-  ///
-  /// Input:  `{'eq': 'conversation_id,c1,user_id,u1', 'is': 'deleted_at,null'}`
-  /// Output: `{'conversation_id': 'eq.c1', 'user_id': 'eq.u1',
-  ///           'deleted_at': 'is.null'}`
-  ///
-  /// A single `column,value` pair and multiple comma-separated pairs are both
-  /// accepted. Malformed entries are passed through untouched so the server
-  /// returns an explicit error instead of the client silently dropping a
-  /// filter (which could widen what a query returns).
-  static Map<String, String> _expandFilter(Map<String, String> filter) {
-    final expanded = <String, String>{};
-    filter.forEach((operator, rawValue) {
-      final parts = rawValue.split(',');
-      if (parts.length < 2 || parts.length.isOdd) {
-        // Not a column/value list (e.g. a raw PostgREST expression) — keep it.
-        expanded[operator] = rawValue;
-        return;
-      }
-      for (var i = 0; i < parts.length; i += 2) {
-        expanded[parts[i].trim()] = '$operator.${parts[i + 1]}';
-      }
-    });
-    return expanded;
-  }
+
 }

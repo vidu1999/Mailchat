@@ -36,7 +36,9 @@ class AppText {
       text,
       style: TextStyle(
         fontSize: 11.5,
-        color: context?.colorScheme.onSurfaceVariant,
+        color: context == null
+            ? null
+            : Theme.of(context).colorScheme.onSurfaceVariant,
         fontWeight: FontWeight.w500,
       ),
     );

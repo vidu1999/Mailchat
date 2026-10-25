@@ -14,8 +14,10 @@ class Validators {
       return 'Email is required';
     }
     final trimmed = value.trim();
+    // Double-quoted raw string: the character class contains an apostrophe,
+    // which a single-quoted raw string cannot hold.
     final emailRegex = RegExp(
-      r'^[a-zA-Z0-9.!#$%&\'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$',
+      r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$",
     );
     if (!emailRegex.hasMatch(trimmed)) {
       return 'Enter a valid email address';

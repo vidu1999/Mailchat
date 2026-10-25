@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/auth/presentation/screens/forgot_password_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/login_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/registration_screen.dart';
@@ -77,7 +79,7 @@ class AppRouter {
       case AppRoutes.register:
         return _materialRoute(const RegistrationScreen(), settings);
       case AppRoutes.emailVerification:
-        return _materialRoute(EmailVerificationScreen(arguments: settings.arguments), settings);
+        return _materialRoute(EmailVerificationScreen(arguments: _args(settings)), settings);
       case AppRoutes.forgotPassword:
         return _materialRoute(const ForgotPasswordScreen(), settings);
       case AppRoutes.chatList:
@@ -87,19 +89,19 @@ class AppRouter {
       case AppRoutes.newConversation:
         return _materialRoute(const NewConversationScreen(), settings);
       case AppRoutes.directChat:
-        return _materialRoute(DirectChatScreen(arguments: settings.arguments), settings);
+        return _materialRoute(DirectChatScreen(arguments: _args(settings)), settings);
       case AppRoutes.profile:
-        return _materialRoute(ProfileScreen(arguments: settings.arguments), settings);
+        return _materialRoute(ProfileScreen(arguments: _args(settings)), settings);
       case AppRoutes.editProfile:
         return _materialRoute(const EditProfileScreen(), settings);
       case AppRoutes.mediaViewer:
         return _materialRoute(
-          MediaViewerScreen(arguments: settings.arguments),
+          MediaViewerScreen(arguments: _args(settings)),
           settings,
         );
       case AppRoutes.attachmentPreview:
         return _materialRoute(
-          AttachmentPreviewScreen(arguments: settings.arguments),
+          AttachmentPreviewScreen(arguments: _args(settings)),
           settings,
         );
       case AppRoutes.notificationSettings:
@@ -107,19 +109,19 @@ class AppRouter {
       case AppRoutes.privacySettings:
         return _materialRoute(const PrivacySettingsScreen(), settings);
       case AppRoutes.blockedUsers:
-        return _materialRoute(BlockedUsersScreen(arguments: settings.arguments), settings);
+        return _materialRoute(BlockedUsersScreen(arguments: _args(settings)), settings);
       case AppRoutes.reportUser:
-        return _materialRoute(ReportUserScreen(arguments: settings.arguments), settings);
+        return _materialRoute(ReportUserScreen(arguments: _args(settings)), settings);
       case AppRoutes.groupCreation:
-        return _materialRoute(GroupCreationScreen(arguments: settings.arguments), settings);
+        return _materialRoute(GroupCreationScreen(arguments: _args(settings)), settings);
       case AppRoutes.groupDetails:
-        return _materialRoute(GroupDetailsScreen(arguments: settings.arguments), settings);
+        return _materialRoute(GroupDetailsScreen(arguments: _args(settings)), settings);
       case AppRoutes.applicationSettings:
         return _materialRoute(const ApplicationSettingsScreen(), settings);
       case AppRoutes.incomingCall:
-        return _materialRoute(IncomingCallScreen(arguments: settings.arguments), settings);
+        return _materialRoute(IncomingCallScreen(arguments: _args(settings)), settings);
       case AppRoutes.activeCall:
-        return _materialRoute(ActiveCallScreen(arguments: settings.arguments), settings);
+        return _materialRoute(ActiveCallScreen(arguments: _args(settings)), settings);
       default:
         return MaterialPageRoute(
           builder: (_) => const Scaffold(
@@ -128,6 +130,14 @@ class AppRouter {
           settings: settings,
         );
     }
+  }
+
+  /// Screens accept a typed argument map; [RouteSettings.arguments] is Object?.
+  static Map<String, dynamic>? _args(RouteSettings settings) {
+    final raw = settings.arguments;
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return null;
   }
 
   static MaterialPageRoute<void> _materialRoute(

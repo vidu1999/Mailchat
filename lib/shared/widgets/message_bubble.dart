@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/utils/formatters.dart';
+import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/shared/models/message.dart';
 
 /// A single message bubble in a direct chat.
@@ -62,7 +63,10 @@ class MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (message.text != null && message.text!.isNotEmpty)
+                // Soft-deleted messages must never render their old content.
+                if (!message.isDeleted &&
+                    message.text != null &&
+                    message.text!.isNotEmpty)
                   Text(
                     message.text!,
                     style: TextStyle(color: textColor, fontSize: 15, height: 1.4),

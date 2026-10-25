@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show VoidCallback;
+
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
@@ -43,39 +45,45 @@ class SupabaseRealtimeClient {
 
   bool get isConnected => _socket != null && _socket!.readyState == WebSocket.open;
 
-  void connect({VoidCallback? onConnected}) {
-    if (isConnected || _socket != null) {
+  /// Opens the WebSocket. Safe to call repeatedly; concurrent calls await the
+  /// same connection attempt.
+  Future<void> connect({VoidCallback? onConnected}) {
+    if (isConnected) {
       onConnected?.call();
-      return;
+      return Future<void>.value();
     }
+    return _connecting ??= _openSocket(onConnected);
+  }
+
+  Future<void>? _connecting;
+
+  Future<void> _openSocket(VoidCallback? onConnected) async {
     AppLogger.info('realtime_connect');
-    final uri = Uri.parse(
-      '${AppConfig.instance.supabaseUrl.replaceFirst('https://', 'wss://')}'
-      '/realtime/v1/websocket?apikey=${AppConfig.instance.supabaseAnonKey}&vsn=1.0.0',
-    );
+    final uri =
+        '${AppConfig.instance.supabaseUrl.replaceFirst('https://', 'wss://')}'
+        '/realtime/v1/websocket'
+        '?apikey=${AppConfig.instance.supabaseAnonKey}&vsn=1.0.0';
 
     try {
-      _socket = WebSocket.connect(uri).then((ws) {
-        _socket = ws;
-        _socketSubscription = ws.listen(
-          _onMessage,
-          onError: _onError,
-          onDone: _onDone,
-          cancelOnError: false,
-        );
-        _connectionStateController.add(true);
-        _startHeartbeat();
-        onConnected?.call();
-        AppLogger.info('realtime_connected');
-      }).catchError((e) {
-        AppLogger.error('realtime_connect_error: $e');
-        _connectionStateController.add(false);
-        _scheduleReconnect();
-      });
+      final ws = await WebSocket.connect(uri).timeout(_connectTimeout);
+      _socket = ws;
+      _socketSubscription = ws.listen(
+        _onMessage,
+        onError: _onError,
+        onDone: _onDone,
+        cancelOnError: false,
+      );
+      _connectionStateController.add(true);
+      _startHeartbeat();
+      onConnected?.call();
+      AppLogger.info('realtime_connected');
     } catch (e, st) {
-      AppLogger.error(e, st);
+      AppLogger.error(e, st, {'where': 'realtime_connect'});
+      _socket = null;
       _connectionStateController.add(false);
       _scheduleReconnect();
+    } finally {
+      _connecting = null;
     }
   }
 
@@ -107,12 +115,12 @@ class SupabaseRealtimeClient {
         channel._dispatch(event, payload ?? {});
       }
     } catch (e, st) {
-      AppLogger.error(e, st, details: {'raw': raw.toString()});
+      AppLogger.error(e, st, {'raw': raw.toString()});
     }
   }
 
   void _onError(Object error, StackTrace? stackTrace) {
-    AppLogger.error(error, stackTrace, details: {'where': 'realtime_socket'});
+    AppLogger.error(error, stackTrace, {'where': 'realtime_socket'});
     _connectionStateController.add(false);
   }
 
@@ -171,7 +179,7 @@ class SupabaseRealtimeClient {
       channel._sendJoin();
     } else {
       // Join once the socket opens.
-      connect().then((_) => channel._sendJoin());
+      unawaited(connect().then((_) => channel._sendJoin()));
     }
     return channel;
   }
@@ -257,7 +265,7 @@ class _Channel implements Channel {
       }));
       _joined = true;
     } catch (e, st) {
-      AppLogger.error(e, st, details: {'where': 'channel_join', 'topic': _topic});
+      AppLogger.error(e, st, {'where': 'channel_join', 'topic': _topic});
       rethrow;
     }
   }

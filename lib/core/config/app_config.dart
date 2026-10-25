@@ -74,9 +74,10 @@ class AppConfig {
       'SUPABASE_ANON_KEY',
       defaultValue: 'dev-anon-key-placeholder',
     );
-    supabaseServiceRoleKey = const String.fromEnvironment(
-      'SUPABASE_SERVICE_ROLE_KEY',
-      defaultValue: null,
+    // fromEnvironment cannot hold a null default, so an absent value is
+    // mapped to null explicitly.
+    supabaseServiceRoleKey = _emptyToNull(
+      const String.fromEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
     );
 
     authRedirectUrl = const String.fromEnvironment(
@@ -84,8 +85,8 @@ class AppConfig {
       defaultValue: 'mailchat://auth/callback',
     );
 
-    fcmProjectId = const String.fromEnvironment('FCM_PROJECT_ID', defaultValue: null);
-    fcmVapidKey = const String.fromEnvironment('FCM_VAPID_KEY', defaultValue: null);
+    fcmProjectId = _emptyToNull(const String.fromEnvironment('FCM_PROJECT_ID'));
+    fcmVapidKey = _emptyToNull(const String.fromEnvironment('FCM_VAPID_KEY'));
 
     avatarsBucket = const String.fromEnvironment(
       'STORAGE_BUCKET_AVATARS',
@@ -153,4 +154,8 @@ class ConfigurationException implements Exception {
 
   @override
   String toString() => 'ConfigurationException: $message';
+
+  /// Treats an empty compile-time constant as "not configured".
+  static String? _emptyToNull(String value) =>
+      value.trim().isEmpty ? null : value.trim();
 }

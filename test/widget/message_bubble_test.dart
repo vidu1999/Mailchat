@@ -52,12 +52,14 @@ void main() {
   testWidgets('shows a delivery status icon only for own messages',
       (tester) async {
     await tester.pumpWidget(
-      _wrap(MessageBubble(message: _message(status: 'read'), isMe: true)),
+      _wrap(MessageBubble(
+          message: _message(status: 'read'), isMe: true, showStatus: true)),
     );
     final ownIcons = tester.widgetList<Icon>(find.byType(Icon)).length;
 
     await tester.pumpWidget(
-      _wrap(MessageBubble(message: _message(status: 'read'), isMe: false)),
+      _wrap(MessageBubble(
+          message: _message(status: 'read'), isMe: false, showStatus: false)),
     );
     final otherIcons = tester.widgetList<Icon>(find.byType(Icon)).length;
 

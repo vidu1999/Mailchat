@@ -5,6 +5,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/message.dart';
+import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
@@ -31,9 +32,10 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   final _scrollController = ScrollController();
   final _messageService = MessageService();
 
-  late final String _conversationId;
+  late String _conversationId;
   late final String _title;
   late final String _currentUserId;
+  final String? _otherUserId;
 
   List<Message> _messages = const [];
   bool _loading = true;
@@ -45,6 +47,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     super.initState();
     final args = widget.arguments ?? const <String, dynamic>{};
     _conversationId = (args['conversationId'] as String?) ?? '';
+    _otherUserId = args['otherUserId'] as String?;
     _title = (args['title'] as String?) ?? 'Chat';
     _currentUserId =
         (args['currentUserId'] as String?) ??
@@ -61,14 +64,20 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   }
 
   Future<void> _loadMessages() async {
-    if (_conversationId.isEmpty) {
-      setState(() {
-        _loading = false;
-        _error = AppException('No conversation selected.');
-      });
-      return;
-    }
     try {
+      // Opened from user search: no conversation id yet, so resolve (or
+      // create) the 1:1 conversation first.
+      if (_conversationId.isEmpty) {
+        if (_otherUserId == null || _otherUserId!.isEmpty) {
+          throw AppException('No conversation selected.');
+        }
+        final conversation = await ConversationService()
+            .getOrCreateDirectConversation(
+          currentUserId: _currentUserId,
+          otherUserId: _otherUserId!,
+        );
+        _conversationId = conversation.id;
+      }
       final messages =
           await _messageService.getMessages(conversationId: _conversationId);
       if (!mounted) return;

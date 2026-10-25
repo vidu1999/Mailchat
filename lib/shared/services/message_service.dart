@@ -70,15 +70,15 @@ class MessageService {
     try {
       final inserted = await _supabase.insert(
         'messages',
+        // `id` is left to the database (uuid). `client_id` provides send
+        // idempotency, and there is no `status` column — status is client-side.
         data: {
-          'id': clientId,
           'conversation_id': conversationId,
           'sender_id': senderId,
           'type': 'text',
           'text': text.trim(),
           'reply_to_message_id': replyToMessageId,
           'client_id': clientId,
-          'status': 'sent',
         },
         select: '*',
       );
@@ -89,9 +89,6 @@ class MessageService {
           .copyWith(status: AppConstants.messageStatusSent);
       _localMessages[clientId] = saved;
 
-      // Mark the sender's own receipt as read (sender has "read" their own message).
-      await _upsertReceipt(saved.id, senderId, delivered: true, read: true);
-
       AppLogger.info('message_sent', details: {
         'messageId': saved.id,
         'conversationId': conversationId,
@@ -100,7 +97,7 @@ class MessageService {
     } catch (e, st) {
       _localMessages[clientId] = pending.copyWith(
           status: AppConstants.messageStatusFailed);
-      AppLogger.error(e, st, details: {
+      AppLogger.error(e, st, {
         'where': 'send_text',
         'clientId': clientId,
         'conversationId': conversationId,
@@ -193,7 +190,7 @@ class MessageService {
     await _assertSender(messageId, senderId);
     await _supabase.update(
       'messages',
-      filter: {'eq': 'id,user_id,$messageId,$senderId'},
+      filter: {'eq': 'id,$messageId'},
       data: {
         'text': newText.trim(),
         'edited_at': DateTime.now().toIso8601String(),
@@ -215,7 +212,7 @@ class MessageService {
     await _assertSender(messageId, senderId);
     await _supabase.update(
       'messages',
-      filter: {'eq': 'id,user_id,$messageId,$senderId'},
+      filter: {'eq': 'id,$messageId'},
       data: {'deleted_at': DateTime.now().toIso8601String()},
     );
     final cached = _localMessages[messageId];
@@ -234,7 +231,9 @@ class MessageService {
     final existing = await _supabase.select(
       'message_reactions',
       select: 'id',
-      filter: {'eq': 'message_id,user_id,$messageId,$userId', 'eq2': 'reaction,$reaction'},
+      filter: {
+        'eq': 'message_id,$messageId,user_id,$userId,reaction,$reaction',
+      },
       limit: 1,
     );
     if (existing.isNotEmpty) {
@@ -283,14 +282,24 @@ class MessageService {
       if (delivered) 'delivered_at': now,
       if (read) 'read_at': now,
     };
-    // Upsert via PostgREST: insert on conflict (message_id, recipient_id) update.
-    await _supabase.insert(
+    // Update-then-insert: (message_id, recipient_id) is unique, so a blind
+    // insert would raise a duplicate-key error on the second receipt event.
+    final updated = await _supabase.update(
       'message_receipts',
+      filter: {'eq': 'message_id,$messageId,recipient_id,$recipientId'},
       data: data,
-      select: 'id',
     );
-    // Note: Supabase/PostgREST upsert requires a unique constraint on
-    // (message_id, recipient_id) — see migrations.
+    if (updated.isEmpty) {
+      await _supabase.insert(
+        'message_receipts',
+        data: {
+          'message_id': messageId,
+          'recipient_id': recipientId,
+          ...data,
+        },
+        select: 'id',
+      );
+    }
     AppLogger.info('receipt_upserted', details: {
       'messageId': messageId,
       'recipientId': recipientId,
@@ -324,6 +333,11 @@ class MessageService {
   void subscribeToConversation(String conversationId) {
     _conversationId = conversationId;
     _realtimeSubscription?.cancel();
+    // NOTE: Supabase postgres_changes requires the channel join payload to
+    // declare `{config: {postgres_changes: [{event: '*', schema: 'public',
+    // table: 'messages', filter: 'conversation_id=eq.<id>'}]}}`. This client
+    // joins the topic but does not yet send that config, so delivery of live
+    // events is UNVERIFIED. See docs/testing.md.
     final channel = _realtime.join(
       'realtime:public:messages',
       (event, payload) {
@@ -346,7 +360,7 @@ class MessageService {
             break;
         }
         // Subclasses/UI listen via [messageEvents].
-        messageEvents.add(message);
+        _messageEventController.add(message);
       },
     );
     // Keep a reference so unsubscribe works.
@@ -362,6 +376,8 @@ class MessageService {
     _realtimeSubscription = null;
     _channel?.unsubscribe();
     _channel = null;
-    _messageEventController.close();
+    if (!_messageEventController.isClosed) {
+      _messageEventController.close();
+    }
   }
 }

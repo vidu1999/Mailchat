@@ -55,7 +55,7 @@ class ProfileService {
     final trimmed = username.trim().toLowerCase();
     final existing = await getProfileByUsername(trimmed);
     if (existing != null) {
-      return const UsernameCheckResult.unavailable('Username is already taken');
+      return UsernameCheckResult.unavailable('Username is already taken');
     }
     return UsernameCheckResult.available();
   }
