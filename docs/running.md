@@ -302,6 +302,25 @@ If you reach the host and get `SupabaseException: Request failed (401)`, that is
 means a captive portal, a VPN, or a firewall. Test in a browser on the device
 with `https://YOUR-PROJECT.supabase.co/auth/v1/health`.
 
+### Registration outcomes
+
+Registration has two successful results, and which one you get depends purely
+on a project setting:
+
+| Project setting | Result | What you see |
+|---|---|---|
+| **Confirm email ON** (Supabase default) | `confirmationRequired` | "Check your inbox" screen. The account exists but cannot sign in until the link is followed. |
+| **Confirm email OFF** | `signedIn` | Straight to the chat list. |
+
+If registration appears to do nothing, check **Authentication → Providers →
+Email → Confirm email**. With it on, no session can be returned by design, and
+there is no way for the app to skip the confirmation step.
+
+The profile row is created server-side by the `handle_new_user` trigger from the
+`username` and `display_name` sent at signup, so it exists even for an
+unconfirmed account. That is why the client never inserts the profile itself:
+before confirmation there is no session, and RLS would reject the insert.
+
 ## 6. Known limitations on a first run
 
 - **Session persistence is fragile.** The session is stored as a plaintext JSON

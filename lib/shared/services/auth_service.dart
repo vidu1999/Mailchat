@@ -57,7 +57,23 @@ class AuthService {
   /// The profile row is created in the same transaction-like flow; if profile
   /// creation fails the auth account is left intact (the user can log in and
   /// complete their profile later).
-  Future<Profile> register({
+  /// Creates an account.
+  ///
+  /// There are two successful outcomes, and only the second returns a profile:
+  ///
+  ///  * [RegistrationOutcome.signedIn] — the project has email confirmation
+  ///    disabled, so GoTrue returns a session and the caller can go straight to
+  ///    the app.
+  ///  * [RegistrationOutcome.confirmationRequired] — the project requires email
+  ///    confirmation, so GoTrue returns the user with `session: null`. The
+  ///    caller must show "check your inbox" instead of treating this as a
+  ///    failure. This is the default configuration, so it is the common path.
+  ///
+  /// The profile row itself is created by the `handle_new_user` database
+  /// trigger from the `username` / `display_name` metadata sent here. The client
+  /// deliberately does not insert it: before confirmation there is no session,
+  /// so any insert would be rejected by RLS.
+  Future<RegistrationResult> register({
     required String email,
     required String password,
     required String displayName,
@@ -81,33 +97,58 @@ class AuthService {
       },
     );
 
-    if (!response.isAuthenticated) {
-      throw AppException('Registration failed: no session returned');
+    final user = response.user;
+    if (user == null) {
+      throw AppException('Registration could not be completed. Please try again.');
     }
+
+    // No session: confirmation email sent, account not yet active.
+    if (!response.isAuthenticated) {
+      AppLogger.info('auth_registration_awaiting_confirmation', details: {
+        'userId': user.id,
+      });
+      return RegistrationResult(
+        user: user,
+        outcome: RegistrationOutcome.confirmationRequired,
+        email: email,
+      );
+    }
+
+    final session = response.session!;
+    await _store.saveAccessToken(session.accessToken);
+    await _store.saveRefreshToken(session.refreshToken);
 
     AppLogger.info('auth_registered', details: {
-      'userId': response.user!.id,
-      'emailConfirmed': response.user!.emailConfirmed,
+      'userId': user.id,
+      'emailConfirmed': user.emailConfirmed,
     });
 
-    // Create/complete the profile. A duplicate username raises a unique
-    // violation from the database; translate into a friendly error.
+    // The trigger has already inserted the profile. Read it back, and if the
+    // trigger had to fall back to a derived username, align it with the one the
+    // user chose. A failure here must not block an already-created account.
+    Profile? profile;
     try {
-      final profile = await ProfileService().createProfile(
-        userId: response.user!.id,
-        username: username,
-        displayName: displayName.trim(),
-      );
-      await _store.saveAccessToken(response.session!.accessToken);
-      await _store.saveRefreshToken(response.session!.refreshToken);
-      return profile;
-    } on AppException {
-      rethrow;
+      profile = await ProfileService().getProfile(user.id);
+      if (profile != null && profile.username != username) {
+        profile = await ProfileService().updateProfile(
+          userId: user.id,
+          displayName: displayName.trim(),
+        );
+        AppLogger.warning('profile_username_differs', details: {
+          'requested': username,
+          'actual': profile.username,
+        });
+      }
     } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'register_profile', 'userId': response.user!.id});
-      throw AppException('Account created but profile could not be completed. '
-          'Please log in and finish your profile.');
+      AppLogger.error(e, st, {'where': 'register_profile_read', 'userId': user.id});
     }
+
+    return RegistrationResult(
+      user: user,
+      outcome: RegistrationOutcome.signedIn,
+      profile: profile,
+      email: email,
+    );
   }
 
   // ------------------------------------------------------------------
@@ -148,4 +189,36 @@ class AuthService {
 
   /// Returns true when the current user has confirmed their email address.
   bool get isEmailConfirmed => currentUser?.emailConfirmed ?? false;
+}
+
+/// How a registration call finished.
+enum RegistrationOutcome {
+  /// A session was returned; the user is signed in.
+  signedIn,
+
+  /// Confirmation is required; a verification email was sent and the user must
+  /// follow the link before signing in.
+  confirmationRequired,
+}
+
+/// Result of [AuthService.register].
+class RegistrationResult {
+  final AuthUser user;
+  final RegistrationOutcome outcome;
+
+  /// Present only for [RegistrationOutcome.signedIn].
+  final Profile? profile;
+
+  /// Address the confirmation email was sent to.
+  final String email;
+
+  const RegistrationResult({
+    required this.user,
+    required this.outcome,
+    required this.email,
+    this.profile,
+  });
+
+  bool get requiresConfirmation =>
+      outcome == RegistrationOutcome.confirmationRequired;
 }

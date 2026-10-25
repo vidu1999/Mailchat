@@ -114,10 +114,10 @@ class SupabaseClient {
     };
     if (metadata != null) body['data'] = metadata;
     final data = await _post('/auth/v1/signup', body: body, authRequired: false);
-    return AuthResponse(
-      user: data['user'] != null ? AuthUser.fromJson(data['user']) : null,
-      session: data['session'] != null ? Session.fromJson(data['session']) : null,
-    );
+    // When email confirmation is enabled GoTrue returns the user with a null
+    // session. That is a success, not a failure. _handleAuthResponse stores the
+    // tokens only when a session is actually present.
+    return _handleAuthResponse(data);
   }
 
   /// Signs in with email + password.
@@ -423,8 +423,11 @@ class SupabaseClient {
       _accessToken = session.accessToken;
       _refreshToken = session.refreshToken;
     }
-    _currentUser = user;
-    _authStateController.add(user);
+    // Only an authenticated session counts as a signed-in user. Signup with
+    // email confirmation enabled returns a user and no session; treating that
+    // as "signed in" would report an authenticated client with no token.
+    _currentUser = session != null ? user : null;
+    _authStateController.add(_currentUser);
     return AuthResponse(user: user, session: session);
   }
 

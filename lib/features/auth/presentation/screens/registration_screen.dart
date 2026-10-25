@@ -81,18 +81,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     });
 
     try {
-      await AuthService().register(
+      final result = await AuthService().register(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         displayName: _displayNameController.text.trim(),
         username: _usernameController.text.trim().toLowerCase(),
       );
       if (!mounted) return;
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoutes.emailVerification,
-        (route) => false,
-        arguments: {'email': _emailController.text.trim()},
-      );
+
+      final navigator = Navigator.of(context);
+
+      if (result.requiresConfirmation) {
+        // Confirmation email sent; the account is not usable until the link is
+        // followed. This is the normal path when the project requires it.
+        navigator.pushNamedAndRemoveUntil(
+          AppRoutes.emailVerification,
+          (route) => false,
+          arguments: {'email': result.email},
+        );
+        return;
+      }
+
+      // Confirmation disabled: the account is live and already signed in.
+      navigator.pushNamedAndRemoveUntil(AppRoutes.chatList, (route) => false);
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'register'});
       if (!mounted) return;

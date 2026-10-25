@@ -63,6 +63,11 @@ class ProfileService {
   /// Creates — or, if the signup trigger already did, completes — the profile
   /// row for a newly registered user.
   ///
+  /// Normally unnecessary: the `handle_new_user` trigger inserts the row from
+  /// the signup metadata. Kept as a repair path for the case where the trigger
+  /// is missing (e.g. migrations applied out of order) or a profile row was
+  /// deleted. Requires an authenticated session.
+  ///
   /// The `handle_new_user` database trigger inserts a profile row as soon as
   /// the auth user exists, so a blind INSERT here would fail with a duplicate
   /// key. Upsert semantics keep both paths working.
