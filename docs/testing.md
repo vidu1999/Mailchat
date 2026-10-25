@@ -112,11 +112,13 @@ select * from public.user_reports;
 
 ## Known functional gaps (verified by reading the code, not by running it)
 
-- **Realtime delivery is unverified.** `SupabaseRealtimeClient` joins the
-  `realtime:public:messages` topic but does not yet send the
-  `postgres_changes` config in the join payload. Without that config Supabase
-  will not stream row changes, so live message updates may not arrive even
-  though the socket connects. Check this first when testing two devices.
+- **Realtime delivery is implemented but unverified.** The channel join now
+  sends a `postgres_changes` config scoped to `conversation_id` plus the access
+  token, and the client normalises both known payload shapes. This has never
+  run against a live Supabase project. Verify it first with two devices: send
+  from one, confirm the other appends without a manual refresh. If nothing
+  arrives, check that `messages` is in the `supabase_realtime` publication
+  (migration 0004) and that the Realtime service is enabled in the dashboard.
 - **Session tokens** are stored by `FileSessionStore` in the current working
   directory. This is not secure storage on Android/iOS and must be replaced
   before release.

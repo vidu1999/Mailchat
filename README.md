@@ -22,6 +22,7 @@ on anything below.
 | Blocking, reporting, privacy + notification settings | Partially implemented |
 | Profile / search / settings screens | Implemented |
 | Database schema, RLS policies, triggers, seed | Written |
+| Debug APK build | **Compiles** — `flutter build apk --debug` succeeds |
 | Unit + widget tests | Written, **never executed** |
 | GitHub Actions CI (analyze, test, build APK) | Written |
 | Attachments (upload/preview) | **Stubbed** — needs a file picker + Storage wiring |
@@ -29,10 +30,14 @@ on anything below.
 | Voice / video calls | **UI only** — see `docs/calls.md` |
 | End-to-end encryption | **Not implemented** — and not claimed |
 
-**Nothing in this repository has been compiled, analyzed or tested.** The
-environment it was written in had no Flutter SDK and no package registry
-access. Expect to fix compile errors on first build. Do not report it as
-working until `flutter analyze` and `flutter test` pass on a real machine.
+**The app compiles; it has never been run.** `flutter build apk --debug`
+produces a working APK as of the commit that added realtime subscriptions. That
+proves the code type-checks — it does **not** prove any feature works. No
+database has been provisioned, no test has been executed, and no screen has
+been rendered on a device.
+
+Do not describe this as a working app until `flutter analyze`, `flutter test`
+and the manual checklist in `docs/testing.md` all pass.
 
 ## Requirements
 

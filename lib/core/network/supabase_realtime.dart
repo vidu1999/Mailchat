@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/supabase_client.dart';
 
 /// Minimal Supabase Realtime (Phoenix protocol) client.
 ///
@@ -172,8 +173,25 @@ class SupabaseRealtimeClient {
   int _nextRef() => ++_messageRef;
 
   /// Joins (or rejoins) a channel. [onMessage] receives `(event, payload)`.
-  Channel join(String topic, void Function(String event, Map<String, dynamic> payload) onMessage) {
-    final channel = _Channel._(this, topic, onMessage);
+  /// Joins a channel.
+  ///
+  /// [config] is the Realtime channel config. For Postgres change streams it
+  /// must contain `postgres_changes`, e.g.
+  /// ```dart
+  /// join(topic, onMessage, config: {
+  ///   'postgres_changes': [
+  ///     {'event': '*', 'schema': 'public', 'table': 'messages',
+  ///      'filter': 'conversation_id=eq.$id'},
+  ///   ],
+  /// });
+  /// ```
+  /// Without it Supabase accepts the join but streams nothing.
+  Channel join(
+    String topic,
+    void Function(String event, Map<String, dynamic> payload) onMessage, {
+    Map<String, dynamic>? config,
+  }) {
+    final channel = _Channel._(this, topic, onMessage, config: config);
     _channels[topic] = channel;
     if (isConnected) {
       channel._sendJoin();
@@ -236,13 +254,15 @@ class _Channel implements Channel {
   final SupabaseRealtimeClient _client;
   final String _topic;
   final void Function(String event, Map<String, dynamic> payload) _onMessage;
+  final Map<String, dynamic>? _config;
   final StreamController<Map<String, dynamic>> _broadcastController =
       StreamController<Map<String, dynamic>>.broadcast();
 
   bool _joined = false;
   Completer<void>? _joinCompleter;
 
-  _Channel._(this._client, this._topic, this._onMessage);
+  _Channel._(this._client, this._topic, this._onMessage, {Map<String, dynamic>? config})
+      : _config = config;
 
   @override
   Stream<Map<String, dynamic>> get broadcast => _broadcastController.stream;
@@ -250,17 +270,41 @@ class _Channel implements Channel {
   void _dispatch(String event, Map<String, dynamic> payload) {
     if (event == 'broadcast') {
       _broadcastController.add(payload);
+      return;
     }
+
+    // Postgres change payloads come in two shapes across Realtime versions:
+    //   {event: 'INSERT', payload: {record: {...}, old_record: ...}}
+    //   {event: 'postgres_changes', payload: {data: {type: 'INSERT',
+    //                                                 record: {...}}}}
+    // Normalise both to (eventType, {record, old_record, ...}).
+    if (event == 'postgres_changes') {
+      final data = payload['data'];
+      final normalised = data is Map ? Map<String, dynamic>.from(data) : payload;
+      final type = (normalised['type'] as String?) ??
+          (normalised['eventType'] as String?) ??
+          'UNKNOWN';
+      _onMessage(type, normalised);
+      return;
+    }
+
     _onMessage(event, payload);
   }
 
   Future<void> _sendJoin() async {
     if (_joined) return;
     try {
+      final payload = <String, dynamic>{
+        if (_config != null) 'config': _config,
+        // Required for Postgres changes: Realtime evaluates RLS against this
+        // token, so without it no rows are delivered.
+        if (SupabaseClient.instance.accessToken != null)
+          'access_token': SupabaseClient.instance.accessToken,
+      };
       _client._socket!.add(jsonEncode({
         'topic': _topic,
         'event': 'phx_join',
-        'payload': {},
+        'payload': payload,
         'ref': _client._nextRef(),
       }));
       _joined = true;

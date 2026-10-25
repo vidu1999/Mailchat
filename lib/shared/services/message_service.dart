@@ -17,7 +17,6 @@ class MessageService {
   final SupabaseRealtimeClient _realtime = SupabaseRealtimeClient.instance;
 
   String? _conversationId;
-  StreamSubscription<Map<String, dynamic>>? _realtimeSubscription;
   final Map<String, Message> _localMessages = {};
 
   /// Messages for the current conversation (cached).
@@ -28,8 +27,7 @@ class MessageService {
   void setConversation(String? conversationId) {
     _conversationId = conversationId;
     _localMessages.clear();
-    _realtimeSubscription?.cancel();
-    _realtimeSubscription = null;
+    unsubscribe();
   }
 
   /// Sends a text message optimistically.
@@ -328,52 +326,73 @@ class MessageService {
   // Real-time
   // ------------------------------------------------------------------
 
-  /// Subscribes to real-time events for [conversationId]: new messages,
-  /// receipts, reactions and edits/deletes.
+  /// Subscribes to real-time events for [conversationId].
+  ///
+  /// Sends a `postgres_changes` config scoped to this conversation, plus the
+  /// access token so Realtime evaluates RLS. Events are normalised by the
+  /// client to `(type, {record, ...})` where type is INSERT/UPDATE/DELETE.
   void subscribeToConversation(String conversationId) {
     _conversationId = conversationId;
-    _realtimeSubscription?.cancel();
-    // NOTE: Supabase postgres_changes requires the channel join payload to
-    // declare `{config: {postgres_changes: [{event: '*', schema: 'public',
-    // table: 'messages', filter: 'conversation_id=eq.<id>'}]}}`. This client
-    // joins the topic but does not yet send that config, so delivery of live
-    // events is UNVERIFIED. See docs/testing.md.
-    final channel = _realtime.join(
-      'realtime:public:messages',
-      (event, payload) {
-        // Payload shape for postgres_changes: { eventType, schema, table, record: {...} }
-        final record = payload['record'] as Map<String, dynamic>?;
-        if (record == null) return;
-        final recordConvId = record['conversation_id'] as String?;
-        if (recordConvId != conversationId) return;
+    _ensureEventController();
 
-        final message = Message.fromJson(record);
-        switch (event) {
+    final topic = 'realtime:mailchat:messages:$conversationId';
+    final channel = _realtime.join(
+      topic,
+      (type, payload) {
+        final record = payload['record'];
+        if (record is! Map) return;
+        final row = Map<String, dynamic>.from(record);
+
+        // Rows are already filtered server-side, but a misconfigured channel
+        // must not leak another conversation's messages into this thread.
+        if (row['conversation_id'] != conversationId) return;
+
+        switch (type) {
           case 'INSERT':
-            _localMessages[message.id] = message;
-            break;
           case 'UPDATE':
+            final message = Message.fromJson(row);
             _localMessages[message.id] = message;
+            if (!_messageEventController.isClosed) {
+              _messageEventController.add(message);
+            }
             break;
           case 'DELETE':
-            _localMessages.remove(message.id);
+            final oldRecord = payload['old_record'];
+            if (oldRecord is Map) {
+              _localMessages.remove(oldRecord['id']);
+            }
             break;
         }
-        // Subclasses/UI listen via [messageEvents].
-        _messageEventController.add(message);
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': '*',
+            'schema': 'public',
+            'table': 'messages',
+            'filter': 'conversation_id=eq.$conversationId',
+          },
+        ],
       },
     );
-    // Keep a reference so unsubscribe works.
+
     _channel = channel;
   }
 
   Channel? _channel;
-  final _messageEventController = StreamController<Message>.broadcast();
+  // Recreated on demand: closing it in unsubscribe() would otherwise make a
+  // second subscribe on the same service instance throw.
+  StreamController<Message> _messageEventController =
+      StreamController<Message>.broadcast();
+
+  void _ensureEventController() {
+    if (_messageEventController.isClosed) {
+      _messageEventController = StreamController<Message>.broadcast();
+    }
+  }
   Stream<Message> get messageEvents => _messageEventController.stream;
 
   void unsubscribe() {
-    _realtimeSubscription?.cancel();
-    _realtimeSubscription = null;
     _channel?.unsubscribe();
     _channel = null;
     if (!_messageEventController.isClosed) {

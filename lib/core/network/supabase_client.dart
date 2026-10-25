@@ -28,6 +28,10 @@ class SupabaseClient {
   /// Currently authenticated user id, or null when not signed in.
   String? get userId => _currentUser?.id;
 
+  /// Current access token. Needed by the Realtime client: channel joins must
+  /// carry the JWT or Postgres changes are not filtered by RLS.
+  String? get accessToken => _accessToken;
+
   AuthUser? _currentUser;
 
   /// Current session user, or null.

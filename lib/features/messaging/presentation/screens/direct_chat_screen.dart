@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 
@@ -38,6 +40,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   String? _otherUserId;
 
   List<Message> _messages = const [];
+  StreamSubscription<Message>? _messageEvents;
   bool _loading = true;
   bool _sending = false;
   AppException? _error;
@@ -55,8 +58,28 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     _loadMessages();
   }
 
+  /// Merges a realtime message into the list, replacing any optimistic copy
+  /// that carries the same client id.
+  void _onMessageEvent(Message message) {
+    if (!mounted) return;
+    setState(() {
+      final withoutDuplicate = _messages.where((m) {
+        if (m.id == message.id) return false;
+        if (message.clientId != null && m.clientId == message.clientId) {
+          return false;
+        }
+        return true;
+      }).toList()
+        ..add(message);
+      withoutDuplicate.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _messages = withoutDuplicate;
+    });
+    _scrollToBottom();
+  }
+
   @override
   void dispose() {
+    _messageEvents?.cancel();
     _messageService.unsubscribe();
     _messageController.dispose();
     _scrollController.dispose();
@@ -85,6 +108,9 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         _messages = messages;
         _loading = false;
       });
+      // Live updates: the service keeps its cache current; this listener
+      // merges incoming messages into the rendered list.
+      _messageEvents ??= _messageService.messageEvents.listen(_onMessageEvent);
       _messageService.subscribeToConversation(_conversationId);
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_load'});
