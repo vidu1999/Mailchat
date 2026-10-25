@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
-import 'package:mailchat/core/routing/app_router.dart';
-import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_button.dart';

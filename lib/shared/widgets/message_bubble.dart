@@ -31,7 +31,7 @@ class MessageBubble extends StatelessWidget {
     final alignment = isMyOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final bubbleColor = isMyOwn
         ? colorScheme.primary
-        : colorScheme.surfaceVariant;
+        : colorScheme.surfaceContainerHighest;
     final textColor = isMyOwn ? Colors.white : colorScheme.onSurface;
 
     Widget content = Column(

@@ -15,36 +15,35 @@ class AppException implements Exception {
 
 /// Thrown when validation of user input fails.
 class ValidationException extends AppException {
-  ValidationException(String message, {String? code, Object? original})
-      : super(message, code: code, original: original);
+  ValidationException(super.message, {super.code, super.original});
 }
 
 /// Thrown when the requested resource does not exist.
 class NotFoundException extends AppException {
-  NotFoundException(String message, {Object? original})
-      : super(message, code: 'not_found', original: original);
+  NotFoundException(super.message, {super.original}) : super(code: 'not_found');
 }
 
 /// Thrown when the caller is not authorized to perform an operation.
 class AuthorizationException extends AppException {
-  AuthorizationException(String message, {Object? original})
-      : super(message, code: 'unauthorized', original: original);
+  AuthorizationException(super.message, {super.original})
+      : super(code: 'unauthorized');
 }
 
 /// Thrown when a network request fails or times out.
 class NetworkException extends AppException {
-  NetworkException(String message, {Object? original})
-      : super(message, code: 'network_error', original: original);
+  NetworkException(super.message, {super.original})
+      : super(code: 'network_error');
 }
 
 /// Thrown when Supabase returns an error response.
 class SupabaseException extends AppException {
-  SupabaseException(String message, {int? statusCode, Object? original})
-      : super(message, code: 'supabase_error', original: original);
+  // `statusCode` is kept for call-site compatibility but is already embedded in
+  // the message; it is not stored separately.
+  SupabaseException(super.message, {int? statusCode, super.original})
+      : super(code: 'supabase_error');
 }
 
 /// Thrown when a file operation (upload/download/storage) fails.
 class StorageException extends AppException {
-  StorageException(String message, {Object? original})
-      : super(message, code: 'storage_error', original: original);
+  StorageException(super.message, {super.original}) : super(code: 'storage_error');
 }

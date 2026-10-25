@@ -41,7 +41,8 @@ and the manual checklist in `docs/testing.md` all pass.
 
 ## Requirements
 
-- Flutter 3.16+ (stable), Dart 3.3+
+- Flutter 3.22+ (stable), Dart 3.3+
+  (the theme uses `surfaceContainerHighest`; older SDKs do not have it)
 - A Supabase project
 - Android Studio / Xcode for device builds
 

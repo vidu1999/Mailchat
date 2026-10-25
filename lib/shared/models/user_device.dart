@@ -1,5 +1,3 @@
-import 'package:mailchat/core/constants/app_constants.dart';
-
 /// A device registered for push notifications.
 class UserDevice {
   final String id;

@@ -259,7 +259,6 @@ class _Channel implements Channel {
       StreamController<Map<String, dynamic>>.broadcast();
 
   bool _joined = false;
-  Completer<void>? _joinCompleter;
 
   _Channel._(this._client, this._topic, this._onMessage, {Map<String, dynamic>? config})
       : _config = config;

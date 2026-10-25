@@ -64,7 +64,12 @@ class _AppAvatarState extends State<AppAvatar> {
       avatar = CircleAvatar(
         radius: widget.radius,
         backgroundImage: NetworkImage(_avatarPath!),
-        backgroundColor: theme.colorScheme.surfaceVariant,
+        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        // Without this the documented initials fallback never triggers: a
+        // failed load silently renders an empty circle.
+        onBackgroundImageError: (_, __) {
+          if (mounted) setState(() => _imageFailed = true);
+        },
         child: widget.child ?? const SizedBox.shrink(),
       );
     } else {

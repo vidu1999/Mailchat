@@ -72,7 +72,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: colors.surfaceVariant,
+                    color: colors.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: colors.outlineVariant),
                   ),

@@ -3,7 +3,6 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/models/conversation.dart';
-import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 
 /// Conversation business logic: listing, direct 1:1 creation (uniqueness

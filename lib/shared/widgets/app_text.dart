@@ -1,5 +1,6 @@
-/// Typography helpers so screens use consistent text styles.
 import 'package:flutter/material.dart';
+
+/// Typography helpers so screens use consistent text styles.
 
 class AppText {
   AppText._();

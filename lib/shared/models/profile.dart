@@ -1,5 +1,3 @@
-import 'package:mailchat/core/constants/app_constants.dart';
-
 /// Public profile of a user. Authentication identity lives in
 /// `auth.users`; this table only holds profile data.
 class Profile {

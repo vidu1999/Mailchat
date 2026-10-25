@@ -11,12 +11,11 @@ import 'package:mailchat/shared/models/message.dart';
 /// Message business logic: sending, pagination, edit/delete, receipts,
 /// reactions and real-time subscription lifecycle.
 class MessageService {
-  MessageService({String? conversationId}) : _conversationId = conversationId;
+  MessageService();
 
   final SupabaseClient _supabase = SupabaseClient.instance;
   final SupabaseRealtimeClient _realtime = SupabaseRealtimeClient.instance;
 
-  String? _conversationId;
   final Map<String, Message> _localMessages = {};
 
   /// Messages for the current conversation (cached).
@@ -25,7 +24,7 @@ class MessageService {
 
   /// Sets the active conversation and resets the local cache.
   void setConversation(String? conversationId) {
-    _conversationId = conversationId;
+    // The id is only needed while subscribing; the cache is per-instance.
     _localMessages.clear();
     unsubscribe();
   }
@@ -63,7 +62,6 @@ class MessageService {
 
     // Optimistic update.
     _localMessages[clientId] = pending;
-    _conversationId = conversationId;
 
     try {
       final inserted = await _supabase.insert(
@@ -332,7 +330,6 @@ class MessageService {
   /// access token so Realtime evaluates RLS. Events are normalised by the
   /// client to `(type, {record, ...})` where type is INSERT/UPDATE/DELETE.
   void subscribeToConversation(String conversationId) {
-    _conversationId = conversationId;
     _ensureEventController();
 
     final topic = 'realtime:mailchat:messages:$conversationId';

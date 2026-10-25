@@ -53,7 +53,7 @@ class EmailVerificationScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: colors.surfaceVariant,
+                  color: colors.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(

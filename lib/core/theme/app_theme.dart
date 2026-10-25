@@ -20,7 +20,7 @@ class AppTheme {
   // Light theme
   // ------------------------------------------------------------------
   static ThemeData get lightTheme {
-    final colorScheme = ColorScheme.light(
+    const colorScheme = ColorScheme.light(
       brightness: Brightness.light,
       primary: _brand,
       onPrimary: Colors.white,
@@ -30,10 +30,8 @@ class AppTheme {
       onSecondary: Colors.white,
       surface: Colors.white,
       onSurface: const Color(0xFF0F172A),
-      surfaceVariant: const Color(0xFFF1F5F9),
+      surfaceContainerHighest: const Color(0xFFF1F5F9),
       onSurfaceVariant: const Color(0xFF334155),
-      background: const Color(0xFFFAFAFA),
-      onBackground: const Color(0xFF0F172A),
       error: _errorColor,
       onError: Colors.white,
       surfaceTint: _brand,
@@ -45,7 +43,7 @@ class AppTheme {
   // Dark theme
   // ------------------------------------------------------------------
   static ThemeData get darkTheme {
-    final colorScheme = ColorScheme.dark(
+    const colorScheme = ColorScheme.dark(
       brightness: Brightness.dark,
       primary: _brandDark,
       onPrimary: Colors.white,
@@ -55,10 +53,8 @@ class AppTheme {
       onSecondary: Colors.white,
       surface: _surfaceDark,
       onSurface: Colors.white,
-      surfaceVariant: _surfaceDarkElevated,
+      surfaceContainerHighest: _surfaceDarkElevated,
       onSurfaceVariant: const Color(0xFFCBD5E1),
-      background: _surfaceDark,
-      onBackground: Colors.white,
       error: const Color(0xFFF87171),
       onError: Colors.black,
       surfaceTint: _brandDark,
@@ -73,7 +69,7 @@ class AppTheme {
             brightness: colorScheme.brightness,
           )
       .copyWith(
-        scaffoldBackgroundColor: colorScheme.background,
+        scaffoldBackgroundColor: colorScheme.surface,
         cardColor: colorScheme.surface,
         dividerColor: colorScheme.outlineVariant.withOpacity(0.5),
 
@@ -89,7 +85,7 @@ class AppTheme {
         // Inputs
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: colorScheme.surfaceVariant,
+          fillColor: colorScheme.surfaceContainerHighest,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 14,

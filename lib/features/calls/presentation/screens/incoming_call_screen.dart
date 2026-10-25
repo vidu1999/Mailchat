@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'package:mailchat/features/calls/domain/call_model.dart';
 import 'package:mailchat/features/calls/presentation/screens/active_call_screen.dart';
-import 'package:mailchat/core/theme/app_theme.dart';
 
 /// Incoming call screen.
 ///

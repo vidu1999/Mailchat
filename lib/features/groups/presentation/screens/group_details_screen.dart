@@ -146,7 +146,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                       ListTile(
                         leading: CircleAvatar(
                           radius: 20,
-                          backgroundColor: colors.surfaceVariant,
+                          backgroundColor: colors.surfaceContainerHighest,
                           child: Text(
                             (member['username'] as String? ?? '?')
                                 .substring(0, 1)

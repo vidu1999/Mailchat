@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/core/theme/app_theme.dart';
-import 'package:mailchat/features/auth/presentation/screens/splash_screen.dart';
 
 /// Root widget of MailChat.
 ///

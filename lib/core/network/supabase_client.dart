@@ -32,6 +32,13 @@ class SupabaseClient {
   /// carry the JWT or Postgres changes are not filtered by RLS.
   String? get accessToken => _accessToken;
 
+  /// Current refresh token, kept for the token-refresh flow.
+  ///
+  /// NOT used yet: when an access token expires the user is signed out rather
+  /// than silently refreshed. Implementing refresh (POST /auth/v1/token with
+  /// grant_type=refresh_token) is tracked in docs/security.md.
+  String? get refreshToken => _refreshToken;
+
   AuthUser? _currentUser;
 
   /// Current session user, or null.
@@ -41,9 +48,6 @@ class SupabaseClient {
   final StreamController<AuthUser?> _authStateController =
       StreamController<AuthUser?>.broadcast();
   Stream<AuthUser?> get authStateChanges => _authStateController.stream;
-
-  /// Base auth URL.
-  String get _authUrl => '${AppConfig.instance.supabaseUrl}/auth/v1';
 
   Map<String, String> _headers({bool authRequired = false}) {
     final headers = <String, String>{
@@ -81,6 +85,9 @@ class SupabaseClient {
       _authStateController.add(_currentUser);
     } catch (e, st) {
       AppLogger.warning('supabase_load_user_failed', details: {'error': e.toString()});
+      if (st != null) {
+        AppLogger.info('supabase_load_user_stack', details: {'stack': st.toString()});
+      }
       _currentUser = null;
       _authStateController.add(null);
     }

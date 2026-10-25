@@ -1,10 +1,6 @@
 import 'dart:async';
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
-
-import 'package:mailchat/features/calls/domain/call_model.dart';
-import 'package:mailchat/core/theme/app_theme.dart';
 
 /// Active call screen.
 ///
@@ -193,7 +189,7 @@ class _CallControl extends StatelessWidget {
               decoration: BoxDecoration(
                 color: active
                     ? colors.primary.withOpacity(0.15)
-                    : colors.surfaceVariant,
+                    : colors.surfaceContainerHighest,
                 shape: BoxShape.circle,
               ),
               child: Icon(

@@ -344,7 +344,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                 decoration: InputDecoration(
                   hintText: 'Message',
                   filled: true,
-                  fillColor: colors.surfaceVariant,
+                  fillColor: colors.surfaceContainerHighest,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   border: OutlineInputBorder(

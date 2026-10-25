@@ -3,8 +3,6 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
-import 'package:mailchat/core/theme/app_theme.dart';
-import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/services/auth_service.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
@@ -63,9 +61,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
     return Scaffold(
       appBar: AppBar(title: const Text('Profile'), centerTitle: true),
       body: _loading
@@ -143,15 +138,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: TextStyle(color: Colors.redAccent)),
             trailing: const Icon(Icons.chevron_right),
             onTap: () async {
-              // Clear the Supabase session and the persisted tokens, then
-              // leave no authenticated route on the stack.
+              // Capture the navigator before awaiting so the build context is
+              // not used across an async gap.
+              final navigator = Navigator.of(context);
               try {
                 await AuthService().signOut();
               } catch (e, st) {
                 AppLogger.error(e, st, {'where': 'profile_sign_out'});
               }
-              if (!context.mounted) return;
-              Navigator.of(context).pushNamedAndRemoveUntil(
+              navigator.pushNamedAndRemoveUntil(
                   AppRoutes.login, (route) => false);
             },
           ),
