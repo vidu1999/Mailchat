@@ -95,6 +95,17 @@ flutter build apk --debug
 # build/app/outputs/flutter-apk/app-debug.apk
 ```
 
+The default debug APK bundles the Flutter engine for every ABI and is large
+(100–200 MB), which can fail to install on a phone with little free space. For
+a phone, build a single-ABI APK instead:
+
+```powershell
+flutter build apk --debug --split-per-abi
+adb install -r build\app\outputs\flutter-apk\app-arm64-v8a-debug.apk
+```
+
+See `docs/running.md` for install troubleshooting.
+
 A debug APK is signed with the debug keystore and is **not** suitable for
 distribution. For a release build you need a signing keystore
 (`android/key.properties`, which is git-ignored) and

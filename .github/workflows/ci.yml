@@ -81,15 +81,18 @@ jobs:
             flutter create --platforms=android --org com.mailchat --project-name mailchat .
           fi
 
-      - name: Build debug APK
+      # Split per ABI: a fat debug APK bundles the engine for every
+      # architecture (100-200 MB). Splitting keeps artifacts small enough to
+      # install on a phone with limited free space.
+      - name: Build debug APKs
         run: |
-          flutter build apk --debug \
+          flutter build apk --debug --split-per-abi \
             --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
             --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
 
-      - name: Upload APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: mailchat-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: mailchat-debug-apks
+          path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error

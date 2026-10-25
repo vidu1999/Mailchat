@@ -134,7 +134,86 @@ web, so `flutter run -d chrome` fails to compile. Do not spend time on it
 unless the networking layer is rewritten on `package:http` and
 `package:web_socket_channel`.
 
-## 4. Known limitations on a first run
+## 4. Troubleshooting installs
+
+### `INSTALL_FAILED_INSUFFICIENT_STORAGE`
+
+Seen on a physical device with:
+
+```
+adb: failed to install app-debug.apk: Failure
+[INSTALL_FAILED_INSUFFICIENT_STORAGE: Failed to override installation location]
+```
+
+The build succeeded; the **phone** ran out of space while installing. A debug
+Flutter APK bundles the debug engine for every ABI and is large (often
+100–200 MB), and Android needs roughly double that free to unpack and
+optimise it.
+
+Check the device first:
+
+```powershell
+adb shell df -h /data
+```
+
+As a rule of thumb, keep at least 1 GB free.
+
+**Fix 1 — remove previous installs.** Repeated `flutter run` attempts leave
+stale copies behind. Find the package id:
+
+```powershell
+adb shell pm list packages | findstr mailchat
+```
+
+Then uninstall it (the id is `com.mailchat.mailchat` when the project was
+created with `--org com.mailchat --project-name mailchat`):
+
+```powershell
+adb uninstall com.mailchat.mailchat
+```
+
+**Fix 2 — free space on the phone.** Clear app caches from
+**Settings → Apps → Storage**, move photos off the device, or empty
+**Downloads**. This is the usual root cause; installing a large APK is what
+surfaced it.
+
+**Fix 3 — build a single-ABI APK.** Much smaller than the default fat APK:
+
+```powershell
+flutter build apk --debug --split-per-abi
+```
+
+The output folder then contains `app-armeabi-v7a-debug.apk`,
+`app-arm64-v8a-debug.apk` and `app-x86_64-debug.apk`. Install only the one
+matching the phone (arm64 for essentially every device since 2017):
+
+```powershell
+adb install -r build\app\outputs\flutter-apk\app-arm64-v8a-debug.apk
+```
+
+With the binary already installed, attach the debugger instead of reinstalling:
+
+```powershell
+flutter run --use-application-binary=build\app\outputs\flutter-apk\app-arm64-v8a-debug.apk
+```
+
+**Fix 4 — clean the build directory.** Stale intermediates occasionally inflate
+the APK:
+
+```powershell
+flutter clean
+flutter pub get
+```
+
+### `ADB exited with exit code 1` for other reasons
+
+- **Device offline / unauthorised** — reconnect USB and accept the *Allow USB
+  debugging?* prompt; check with `adb devices` showing `device`, not
+  `unauthorized`.
+- **Version downgrade** — an installed copy has a higher `versionCode`. Run
+  `adb uninstall <package>` and install again.
+
+## 5. Known limitations on a first run
 
 - **Session persistence is fragile.** The session is stored as a plaintext JSON
   file in the app's temp directory. Android may clear it, and it is not
@@ -144,7 +223,7 @@ unless the networking layer is rewritten on `package:http` and
 - **No push notifications.** No FCM credentials are configured.
 - **Realtime is unverified.** Implemented, never executed.
 
-## 5. First-run checklist
+## 6. First-run checklist
 
 Work through this in order; each step exercises a different layer.
 
