@@ -4,6 +4,11 @@ name: CI
 # The APK is unsigned (debug-signed) and is NOT a Play Store release — see
 # docs/release.md for signing and release steps.
 
+permissions:
+  contents: read
+  # Needed to publish analyzer findings as a check run (see below).
+  checks: write
+
 on:
   push:
     branches: [main, "arena/**"]
@@ -52,7 +57,8 @@ jobs:
           flutter analyze --no-pub 2>&1 | tee analyze.log
 
       # A failing analyze step otherwise shows only "exit code 1"; the findings
-      # live in the log, so keep it as an artifact.
+      # live in the log, so keep it as an artifact and — so the findings are
+      # readable from the API without downloading anything — as a check run.
       - name: Keep analyzer output
         if: failure()
         uses: actions/upload-artifact@v4
@@ -60,6 +66,22 @@ jobs:
           name: analyze-log
           path: analyze.log
           if-no-files-found: ignore
+
+      - name: Publish analyzer findings
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -s analyze.log ]; then
+            echo "analyze.log is empty or missing"
+            exit 0
+          fi
+          jq -Rs --arg sha "$GITHUB_SHA" \
+            '{name: "analyze-findings", head_sha: $sha, status: "completed",
+              conclusion: "neutral",
+              output: {title: "flutter analyze", summary: "Analyzer findings from the failing Analyze step", text: .}}' \
+            analyze.log > check-payload.json
+          gh api "repos/${{ github.repository }}/check-runs" --input check-payload.json > /dev/null
 
       - name: Run unit & widget tests
         run: flutter test --coverage
