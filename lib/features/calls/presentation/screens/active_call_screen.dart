@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mailchat/core/theme/color_alpha.dart';
 
 /// Active call screen.
 ///
@@ -188,7 +189,7 @@ class _CallControl extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 color: active
-                    ? colors.primary.withOpacity(0.15)
+                    ? colors.primary.withAlphaFactor(0.15)
                     : colors.surfaceContainerHighest,
                 shape: BoxShape.circle,
               ),

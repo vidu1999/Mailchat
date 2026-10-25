@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mailchat/core/theme/color_alpha.dart';
 
 /// Centered loading indicator with an optional message.
 class AppLoading extends StatelessWidget {
@@ -43,7 +44,7 @@ class AppPageLoading extends StatelessWidget {
         child,
         if (loading)
           Container(
-            color: Colors.black.withOpacity(0.35),
+            color: Colors.black.withAlphaFactor(0.35),
             child: const Center(child: CircularProgressIndicator()),
           ),
       ],

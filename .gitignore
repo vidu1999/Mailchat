@@ -53,3 +53,6 @@ fastlane/test_output
 
 # Dart analyzer
 .analysis_options.local
+
+# CI analyzer output (uploaded as an artifact instead)
+analyze.log

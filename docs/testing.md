@@ -131,3 +131,21 @@ select * from public.user_reports;
 - No tests for the Realtime subscription path.
 - No golden-file tests for the design system.
 - No performance or battery tests.
+
+## Why `flutter analyze` is a hard gate
+
+CI fails the build on any analyzer finding, including deprecation warnings that
+only exist on newer Flutter releases than the one installed locally. That is
+intentional — but it means "clean on my machine" is not proof that the CI
+`Analyze` step passes.
+
+Two consequences:
+
+- Do not call an SDK API that is deprecated on the newest stable, even if it
+  compiles locally. `Color.withOpacity` is the current example: use
+  `withAlphaFactor` from `lib/core/theme/color_alpha.dart` instead, which maps
+  onto `withAlpha` and is valid on every SDK this project supports.
+- If `Analyze` fails, open the run and download the `analyze-log` artifact:
+  the workflow tees the analyzer output there, because the step summary only
+  shows "exit code 1". The `Toolchain versions` step prints the exact Flutter
+  version that produced the findings, which is what makes them reproducible.

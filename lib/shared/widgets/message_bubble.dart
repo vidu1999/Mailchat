@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/shared/models/message.dart';
+import 'package:mailchat/core/theme/color_alpha.dart';
 
 /// A single message bubble in a direct chat.
 class MessageBubble extends StatelessWidget {
@@ -75,7 +76,7 @@ class MessageBubble extends StatelessWidget {
                   Text(
                     'This message was deleted',
                     style: TextStyle(
-                      color: textColor.withOpacity(0.7),
+                      color: textColor.withAlphaFactor(0.7),
                       fontSize: 13,
                       fontStyle: FontStyle.italic,
                     ),
@@ -93,7 +94,7 @@ class MessageBubble extends StatelessWidget {
                       AppFormatters.chatTimestamp(message.createdAt),
                       style: TextStyle(
                         fontSize: 11,
-                        color: textColor.withOpacity(0.7),
+                        color: textColor.withAlphaFactor(0.7),
                       ),
                     ),
                     if (isMyOwn && showStatus) ...[

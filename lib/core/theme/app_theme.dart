@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mailchat/core/theme/color_alpha.dart';
 
 /// MailChat design system.
 ///
@@ -71,7 +72,7 @@ class AppTheme {
       .copyWith(
         scaffoldBackgroundColor: colorScheme.surface,
         cardColor: colorScheme.surface,
-        dividerColor: colorScheme.outlineVariant.withOpacity(0.5),
+        dividerColor: colorScheme.outlineVariant.withAlphaFactor(0.5),
 
         // Bottom navigation (used by MainChatList bottom bar)
         bottomNavigationBarTheme: BottomNavigationBarThemeData(
@@ -97,7 +98,7 @@ class AppTheme {
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(
-              color: colorScheme.outlineVariant.withOpacity(0.6),
+              color: colorScheme.outlineVariant.withAlphaFactor(0.6),
               width: 1,
             ),
           ),
