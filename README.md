@@ -1,5 +1,7 @@
 # MailChat
 
+[![CI](https://github.com/vidu1999/Mailchat/actions/workflows/ci.yml/badge.svg?branch=arena%2F3c0fee10-mailchat)](https://github.com/vidu1999/Mailchat/actions/workflows/ci.yml)
+
 Email-based real-time messaging. Users register and chat with an email address
 and a username — **no phone number, no SMS OTP, no SIM card**.
 
@@ -15,29 +17,30 @@ on anything below.
 | Area | State |
 |---|---|
 | Design system, routing, theme | Implemented |
-| Auth screens + `AuthService` (Supabase Auth) | Implemented, never compiled |
-| Chat list, direct chat, message send/receive | Implemented, never compiled |
-| Groups (create, members, roles, leave) | Implemented, never compiled |
-| Reactions, receipts, edit/delete | Implemented, never compiled |
+| Auth screens + `AuthService` (Supabase Auth) | Implemented; **registration verified against a live project**, sign-in not yet exercised end to end |
+| Chat list, direct chat, message send/receive | Implemented; compiles, never exercised against a live database |
+| Groups (create, members, roles, leave) | Implemented; never exercised |
+| Reactions, receipts, edit/delete | Implemented; never exercised |
 | Blocking, reporting, privacy + notification settings | Partially implemented |
-| Profile / search / settings screens | Implemented |
-| Database schema, RLS policies, triggers, seed | Written |
-| Debug APK build | **Compiles** — `flutter build apk --debug` succeeds |
-| Unit + widget tests | Written, **never executed** |
-| GitHub Actions CI (analyze, test, build APK) | Written |
+| Profile / search / settings screens | Implemented; never exercised |
+| Database schema, RLS policies, triggers, seed | Written; migrations must be applied by hand (see `docs/running.md` §2) |
+| `flutter analyze` | **Clean** — locally and in CI |
+| Registration against a live Supabase project | Reaches GoTrue; confirms/existing-account/signed-in paths handled |
+| Unit + widget tests | **54 cases, passing in CI** (the last local run, 38 cases, predates the SDK-config and registration suites) |
+| GitHub Actions CI (analyze, test, build APK) | **Green** |
+| Debug APK build | **Builds in CI and locally; installs and launches on a physical Android device** |
 | Attachments (upload/preview) | **Stubbed** — needs a file picker + Storage wiring |
 | Push notifications (FCM) | **Not implemented** — no credentials, no sender |
 | Voice / video calls | **UI only** — see `docs/calls.md` |
 | End-to-end encryption | **Not implemented** — and not claimed |
 
-**The app compiles; it has never been run.** `flutter build apk --debug`
-produces a working APK as of the commit that added realtime subscriptions. That
-proves the code type-checks — it does **not** prove any feature works. No
-database has been provisioned, no test has been executed, and no screen has
-been rendered on a device.
-
-Do not describe this as a working app until `flutter analyze`, `flutter test`
-and the manual checklist in `docs/testing.md` all pass.
+**Where the evidence stops.** The app builds, installs, launches and completes a
+real signup request against Supabase Auth; analysis and the test suite pass in
+CI. That is the whole of the verified surface. Nothing has been exercised
+against a database with the migrations applied — realtime delivery, sending a
+message, groups, uploads and settings are all untested on a device. Do not
+describe this as a working app until the manual checklist in `docs/testing.md`
+passes.
 
 ## Requirements
 
