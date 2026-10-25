@@ -1,0 +1,23 @@
+# Static analysis configuration.
+#
+# Deliberately strict about correctness, lenient about documentation so CI
+# fails on real bugs rather than on missing doc comments.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Treat these as build failures, not warnings.
+    unused_import: error
+    unused_local_variable: error
+    dead_code: error
+    invalid_use_of_protected_member: error
+  exclude:
+    - build/**
+    - "**/*.g.dart"
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_print
+    - prefer_const_constructors
+    - unnecessary_const

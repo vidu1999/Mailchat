@@ -1,0 +1,55 @@
+# Dart/Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.gitignore.local
+.pub-cache/
+build/
+web/
+*.imap
+*.local
+GeneratedPluginRegistrant.dart
+
+# Android
+android/app/google-services.json
+android/key.properties
+android/keystore.jks
+android/key.keystore
+android/local.properties
+
+# iOS
+ios/GoogleService-Info.plist
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.flx
+ios/Flutter/Generated.xcconfig
+ios/*.p8
+ios/*.p12
+ios/*.mobileprovision
+ios/Symlinks
+ios/Runner/GeneratedPluginRegistrant.*
+
+# Environment
+.env
+.env.production
+.env.staging
+*.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Dart analyzer
+.analysis_options.local

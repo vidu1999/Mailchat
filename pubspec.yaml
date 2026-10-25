@@ -1,0 +1,27 @@
+name: mailchat
+description: >
+  MailChat — a professional, secure, real-time messaging application with
+  email-based identity. Users register and communicate without phone numbers,
+  SMS OTP, or a SIM card. Built with Flutter and Supabase.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
