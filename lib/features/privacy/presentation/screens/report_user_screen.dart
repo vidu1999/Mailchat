@@ -101,15 +101,26 @@ class _ReportUserScreenState extends State<ReportUserScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          // Deliberately not `RadioListTile`: its `groupValue`/`onChanged` were
+          // deprecated in Flutter 3.32 in favour of the `RadioGroup` ancestor,
+          // which does not exist on the older SDKs this project supports.
+          // A plain selectable tile has no deprecated surface on any version
+          // and gives the same affordance.
           for (final reason in _reasons)
-            RadioListTile<String>(
-              value: reason,
-              groupValue: _reason,
-              title: Text(reason),
-              onChanged: (value) {
-                if (value != null) setState(() => _reason = value);
-              },
+            ListTile(
               contentPadding: EdgeInsets.zero,
+              title: Text(reason),
+              leading: Icon(
+                _reason == reason
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: _reason == reason ? colors.primary : colors.outline,
+              ),
+              selected: _reason == reason,
+              onTap: () => setState(() => _reason = reason),
+              trailing: _reason == reason
+                  ? Icon(Icons.check, size: 18, color: colors.primary)
+                  : null,
             ),
           const SizedBox(height: 12),
           AppInput(
