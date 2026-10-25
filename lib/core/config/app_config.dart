@@ -104,16 +104,16 @@ class AppConfig {
 
   void _loadFromEnvironment() {
     // System environment variables override defaults/dart-defines when present.
-    final env = const String.fromEnvironment('APP_ENV');
+    const env = String.fromEnvironment('APP_ENV');
     if (env.isNotEmpty) environment = env;
 
-    final url = const String.fromEnvironment('SUPABASE_URL');
+    const url = String.fromEnvironment('SUPABASE_URL');
     if (url.isNotEmpty) supabaseUrl = url;
 
-    final key = const String.fromEnvironment('SUPABASE_ANON_KEY');
+    const key = String.fromEnvironment('SUPABASE_ANON_KEY');
     if (key.isNotEmpty) supabaseAnonKey = key;
 
-    final redirect = const String.fromEnvironment('AUTH_REDIRECT_URL');
+    const redirect = String.fromEnvironment('AUTH_REDIRECT_URL');
     if (redirect.isNotEmpty) authRedirectUrl = redirect;
   }
 

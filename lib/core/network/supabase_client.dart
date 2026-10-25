@@ -84,10 +84,10 @@ class SupabaseClient {
       _currentUser = AuthUser.fromJson(user);
       _authStateController.add(_currentUser);
     } catch (e, st) {
-      AppLogger.warning('supabase_load_user_failed', details: {'error': e.toString()});
-      if (st != null) {
-        AppLogger.info('supabase_load_user_stack', details: {'stack': st.toString()});
-      }
+      AppLogger.warning('supabase_load_user_failed', details: {
+        'error': e.toString(),
+        'stack': st.toString(),
+      });
       _currentUser = null;
       _authStateController.add(null);
     }
