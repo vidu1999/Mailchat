@@ -116,6 +116,8 @@ database are in `docs/testing.md`.
 
 ## Documentation
 
+- `docs/running.md` — setup, applying migrations without the Supabase CLI,
+  device options, first-run checklist
 - `docs/security.md` — threat model, key handling, RLS, known gaps
 - `docs/calls.md` — why calling is UI-only and what it needs
 - `docs/testing.md` — test strategy + SQL policy verification

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:mailchat/app.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
@@ -8,13 +9,89 @@ import 'package:mailchat/core/logging/app_logger.dart';
 /// Initialization order:
 /// 1. Ensure the Flutter binding is initialized.
 /// 2. Load application configuration (environment / dart-defines).
-/// 3. Initialize structured logging.
-/// 4. Run the application widget.
-void main() async {
+/// 3. Validate it. Supabase cannot be reached with placeholder values, so
+///    failing here produces an actionable message instead of every request
+///    failing later with a confusing network error.
+/// 4. Initialize structured logging.
+/// 5. Run the application widget.
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await AppConfig.load();
   AppLogger.init();
 
+  try {
+    AppConfig.instance.validate();
+  } on ConfigurationException catch (error) {
+    AppLogger.error(error, StackTrace.current, {'where': 'startup_config'});
+    runApp(_ConfigurationErrorApp(message: error.message));
+    return;
+  }
+
   runApp(const MailChatApp());
+}
+
+/// Shown instead of the app when required configuration is missing.
+///
+/// This exists so a misconfigured build says exactly what is wrong. Without it
+/// the app launched fine and then failed on every network call, which reads as
+/// a bug in the app rather than a missing `--dart-define`.
+class _ConfigurationErrorApp extends StatelessWidget {
+  final String message;
+
+  const _ConfigurationErrorApp({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6366F1)),
+      ),
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(Icons.settings_suggest_outlined, size: 64),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Configuration required',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Pass the values at build time, for example:\n\n'
+                      'flutter run \\\n'
+                      '  --dart-define=SUPABASE_URL=https://xxx.supabase.co \\\n'
+                      '  --dart-define=SUPABASE_ANON_KEY=eyJ...',
+                      style: TextStyle(fontSize: 12, height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

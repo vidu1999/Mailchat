@@ -41,9 +41,38 @@ class MemorySessionStore implements SessionStore {
   }
 }
 
+/// Stores the session as a JSON file in an app-private, writable directory.
+///
+/// IMPORTANT: this is a stop-gap, not production storage.
+///  * The file is plaintext, not encrypted.
+///  * `Directory.current` is NOT writable on Android/iOS (it is often `/`),
+///    so the previous implementation silently failed to persist anything and
+///    every launch sent the user back to the login screen. `Directory.systemTemp`
+///    maps to the app's private cache directory on Android, which is writable,
+///    but the OS may clear it.
+///
+/// Before shipping, replace this with a keychain/keystore-backed store
+/// (`flutter_secure_storage`). See docs/security.md.
 class FileSessionStore implements SessionStore {
-  static const _fileName = '.mailchat_session.json';
-  final File _file = File('${Directory.current.path}/$_fileName');
+  static const _fileName = 'mailchat_session.json';
+
+  /// Resolved lazily and cached: `Directory.systemTemp` is created on demand
+  /// and throws on platforms without a temp dir.
+  File? _resolved;
+
+  File get _file {
+    final cached = _resolved;
+    if (cached != null) return cached;
+    Directory base;
+    try {
+      base = Directory.systemTemp;
+    } catch (_) {
+      base = Directory.current;
+    }
+    final file = File('${base.path}${Platform.pathSeparator}$_fileName');
+    _resolved = file;
+    return file;
+  }
 
   @override
   Future<String?> getAccessToken() async =>

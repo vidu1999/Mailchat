@@ -57,10 +57,13 @@ Verify policies with the queries in `docs/testing.md`.
 
 These are real and should block a production launch:
 
-1. **Session storage.** `FileSessionStore` writes a JSON file to the current
-   working directory. On Android/iOS this is not secure storage and may not
-   even be writable. Replace with `flutter_secure_storage` (Keychain /
-   Keystore) before shipping.
+1. **Session storage.** `FileSessionStore` writes a plaintext JSON file to
+   `Directory.systemTemp` (the app's private cache directory on Android). The
+   previous implementation used `Directory.current`, which is not writable on
+   Android/iOS, so it silently persisted nothing and every launch returned the
+   user to the login screen. The current version fixes persistence but is
+   **not encrypted** and the OS may clear the cache. Replace with
+   `flutter_secure_storage` (Keychain / Keystore) before shipping.
 2. **Token refresh.** Access tokens are persisted but the refresh flow is not
    implemented; sessions expire and the user is silently logged out.
 3. **Attachments.** Storage buckets are private and policies exist, but the
