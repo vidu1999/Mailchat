@@ -47,3 +47,13 @@ class SupabaseException extends AppException {
 class StorageException extends AppException {
   StorageException(super.message, {super.original}) : super(code: 'storage_error');
 }
+
+/// Thrown when registration targets an email that already has an account.
+///
+/// GoTrue deliberately does not confirm whether an address exists, so this is
+/// inferred from the shape of its response (a user with an empty `identities`
+/// array) rather than from an error code. The UI uses the type to offer a
+/// "sign in instead" action rather than a dead end.
+class EmailAlreadyRegisteredException extends AppException {
+  EmailAlreadyRegisteredException(super.message) : super(code: 'email_taken');
+}

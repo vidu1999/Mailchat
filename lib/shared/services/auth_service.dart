@@ -99,7 +99,20 @@ class AuthService {
 
     final user = response.user;
     if (user == null) {
-      throw AppException('Registration could not be completed. Please try again.');
+      throw AppException(
+        'Registration could not be completed. Please try again.',
+      );
+    }
+
+    // GoTrue answers an existing address with a placeholder user that has no
+    // identities, rather than an error, so callers cannot enumerate accounts.
+    // Surface it so the UI can offer sign-in instead of a dead end.
+    if (user.isPlaceholderForExistingAccount) {
+      AppLogger.info('auth_registration_existing_account');
+      throw EmailAlreadyRegisteredException(
+        'This email is already registered. Sign in instead, or check your '
+        'inbox for the confirmation link.',
+      );
     }
 
     // No session: confirmation email sent, account not yet active.

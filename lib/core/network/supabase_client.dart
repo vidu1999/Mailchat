@@ -113,7 +113,40 @@ class SupabaseClient {
       },
     };
     if (metadata != null) body['data'] = metadata;
-    final data = await _post('/auth/v1/signup', body: body, authRequired: false);
+
+    Map<String, dynamic> data;
+    try {
+      data = await _post('/auth/v1/signup', body: body, authRequired: false);
+    } on SupabaseException catch (e) {
+      // Depending on project configuration GoTrue reports a duplicate address
+      // as HTTP 422 `user_already_exists` instead of the 200 placeholder user.
+      // Map both shapes onto the same typed error so the UI can offer sign-in.
+      final raw = e.original?.toString().toLowerCase() ?? '';
+      if (raw.contains('user_already_exists') ||
+          raw.contains('already registered') ||
+          raw.contains('already been registered')) {
+        AppLogger.warning('signup_existing_account_http',
+            details: {'body': e.original.toString()});
+        throw EmailAlreadyRegisteredException(
+          'This email is already registered. Sign in instead, or use '
+          '"Forgot password" if you do not remember it.',
+        );
+      }
+      rethrow;
+    }
+
+    final userJson = data['user'];
+    if (userJson is! Map) {
+      // GoTrue returned neither a user nor an error. Surface everything it did
+      // say instead of a bare "please try again" — without the response shape
+      // there is nothing to act on.
+      AppLogger.warning('signup_no_user', details: {
+        'keys': data.keys.toList(),
+        'msg': data['msg'] ?? data['message'] ?? data['error_description'],
+      });
+      throw AppException(_signupFailureMessage(data));
+    }
+
     // When email confirmation is enabled GoTrue returns the user with a null
     // session. That is a success, not a failure. _handleAuthResponse stores the
     // tokens only when a session is actually present.
@@ -283,6 +316,22 @@ class SupabaseClient {
     return _getUri(uri, authRequired: authRequired);
   }
 
+
+  /// Explains a signup response that contained no usable user.
+  static String _signupFailureMessage(Map<String, dynamic> data) {
+    final serverMessage = (data['msg'] ??
+            data['message'] ??
+            data['error_description'] ??
+            data['error'])
+        ?.toString();
+    const base = 'Registration could not be completed.';
+    if (serverMessage != null && serverMessage.isNotEmpty) {
+      return '$base $serverMessage';
+    }
+    return '$base Supabase returned no user. This usually means the address is '
+        'already registered, or sign-ups are disabled for this project '
+        '(Authentication > Providers > Email).';
+  }
 
   /// Builds an actionable error for a transport failure.
   ///
@@ -504,6 +553,13 @@ class AuthUser {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  /// Number of linked identities reported by GoTrue.
+  ///
+  /// A brand-new signup returns one identity. When the address already exists,
+  /// GoTrue returns a placeholder user with **zero** identities so callers
+  /// cannot enumerate accounts. That is the only signal available.
+  final int identityCount;
+
   AuthUser({
     required this.id,
     required this.email,
@@ -512,6 +568,7 @@ class AuthUser {
     this.userMetadata,
     this.createdAt,
     this.updatedAt,
+    this.identityCount = 1,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
@@ -521,6 +578,9 @@ class AuthUser {
       phone: json['phone'] as String?,
       emailConfirmed: json['email_confirmed_at'] != null,
       userMetadata: json['user_metadata'] as Map<String, dynamic>?,
+      identityCount: json['identities'] is List
+          ? (json['identities'] as List).length
+          : 1,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -533,6 +593,10 @@ class AuthUser {
   String? get username => userMetadata?['username'] as String?;
   String? get displayName => userMetadata?['display_name'] as String?;
   String? get avatarUrl => userMetadata?['avatar_url'] as String?;
+
+  /// True when GoTrue returned its anti-enumeration placeholder, meaning the
+  /// address already has an account.
+  bool get isPlaceholderForExistingAccount => identityCount == 0;
 }
 
 /// Session returned by Supabase Auth.

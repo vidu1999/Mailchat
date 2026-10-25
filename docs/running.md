@@ -316,6 +316,38 @@ If registration appears to do nothing, check **Authentication → Providers →
 Email → Confirm email**. With it on, no session can be returned by design, and
 there is no way for the app to skip the confirmation step.
 
+### "This email is already registered"
+
+The account exists from an earlier attempt. GoTrue never says so directly — it
+returns a placeholder user with an empty `identities` array — which the client
+now detects and reports with a "sign in instead" shortcut.
+
+Confirm it locally (SQL editor; development databases only):
+
+```sql
+select id, email, email_confirmed_at, created_at
+from auth.users
+order by created_at desc;
+```
+
+Then pick one:
+
+```sql
+-- Mark the account confirmed so you can sign in without an email round-trip.
+update auth.users
+set email_confirmed_at = now()
+where email = 'you@example.com';
+```
+
+Or delete it and retry the whole flow:
+
+```sql
+delete from auth.users where email = 'you@example.com';
+```
+
+Profiles and conversation rows cascade from `auth.users`, so the delete is
+clean. Do not run either statement against a database with real accounts.
+
 The profile row is created server-side by the `handle_new_user` trigger from the
 `username` and `display_name` sent at signup, so it exists even for an
 unconfirmed account. That is why the client never inserts the profile itself:

@@ -34,6 +34,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _errorMessage;
+  bool _suggestSignIn = false;
   String? _usernameError;
 
   @override
@@ -78,6 +79,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     setState(() {
       _loading = true;
       _errorMessage = null;
+      _suggestSignIn = false;
     });
 
     try {
@@ -112,6 +114,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         _errorMessage = e is AppException
             ? e.message
             : 'Registration failed. Please try again.';
+        _suggestSignIn = e is EmailAlreadyRegisteredException;
       });
     }
   }
@@ -200,6 +203,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     _errorMessage!,
                     style: TextStyle(color: colors.error, fontSize: 13),
                   ),
+                  if (_suggestSignIn)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: AppTextButton(
+                        text: 'Sign in instead',
+                        onPressed: () => Navigator.of(context)
+                            .pushNamedAndRemoveUntil(
+                              AppRoutes.login,
+                              (route) => false,
+                            ),
+                      ),
+                    ),
                 ],
                 const SizedBox(height: 24),
                 AppButton(
