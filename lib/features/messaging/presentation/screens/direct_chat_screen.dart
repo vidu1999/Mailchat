@@ -35,7 +35,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   late String _conversationId;
   late final String _title;
   late final String _currentUserId;
-  final String? _otherUserId;
+  String? _otherUserId;
 
   List<Message> _messages = const [];
   bool _loading = true;

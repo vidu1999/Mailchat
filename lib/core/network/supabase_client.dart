@@ -230,10 +230,10 @@ class SupabaseClient {
   }) async {
     final url = '${AppConfig.instance.supabaseUrl}/storage/v1/object/$bucket/$path';
     final uri = Uri.parse(url);
-    final request = await _http.openUrl('POST', uri)
-      ..headers.addAll(_headers(authRequired: true))
-      ..headers.add('Content-Type', contentType)
-      ..headers.add('x-upsert', upsert.toString());
+    final request = await _http.openUrl('POST', uri);
+    _applyHeaders(request, authRequired: true);
+    request.headers.add('Content-Type', contentType);
+    request.headers.add('x-upsert', upsert.toString());
     request.add(bytes);
     final response = await request.close();
     final body = await response.transform(utf8.decoder).join();

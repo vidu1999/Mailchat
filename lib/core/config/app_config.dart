@@ -145,6 +145,10 @@ class AppConfig {
       throw ConfigurationException(errors.join('; '));
     }
   }
+
+  /// Treats an empty compile-time constant as "not configured".
+  static String? _emptyToNull(String value) =>
+      value.trim().isEmpty ? null : value.trim();
 }
 
 /// Thrown when application configuration is missing or invalid.
@@ -154,8 +158,4 @@ class ConfigurationException implements Exception {
 
   @override
   String toString() => 'ConfigurationException: $message';
-
-  /// Treats an empty compile-time constant as "not configured".
-  static String? _emptyToNull(String value) =>
-      value.trim().isEmpty ? null : value.trim();
 }
