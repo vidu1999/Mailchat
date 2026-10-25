@@ -55,10 +55,43 @@ class AppConfig {
   static Future<void> load() async {
     _instance = AppConfig._()
       .._loadDefaults()
-      .._loadFromEnvironment();
+      .._loadFromEnvironment()
+      .._normalize();
     if (kDebugMode) {
       _instance!._logConfiguration();
     }
+  }
+
+  /// Normalises the base URL so every request path is appended safely.
+  ///
+  /// Handles the three mistakes that produce an opaque "Network request
+  /// failed": a missing scheme, a trailing slash (which yields `//auth/v1/...`),
+  /// and stray whitespace from copy-paste.
+  void _normalize() {
+    var url = supabaseUrl.trim();
+
+    // Strip trailing slashes: 'https://x.supabase.co/' + '/auth/v1' would
+    // otherwise become 'https://x.supabase.co//auth/v1'.
+    while (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+
+    // A host without a scheme is parsed as a relative reference, so
+    // HttpClient throws instead of connecting.
+    if (url.isNotEmpty && !url.contains('://')) {
+      url = 'https://$url';
+    }
+
+    supabaseUrl = url;
+    supabaseAnonKey = supabaseAnonKey.trim();
+  }
+
+  /// Host[:port] of the configured Supabase project, for diagnostics.
+  /// Safe to display and to log: it contains no credential.
+  String get supabaseHost {
+    final uri = Uri.tryParse(supabaseUrl);
+    if (uri == null || uri.host.isEmpty) return supabaseUrl;
+    return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
   }
 
   void _loadDefaults() {
@@ -120,18 +153,30 @@ class AppConfig {
   void _logConfiguration() {
     debugPrint(
       '[AppConfig] environment=$environment appName=$appName '
-      'supabaseUrl=$supabaseUrl emailConfirmationRequired=$emailConfirmationRequired',
+      'supabaseHost=$supabaseHost emailConfirmationRequired=$emailConfirmationRequired',
     );
-    // Secrets are intentionally never logged.
+    // Secrets are intentionally never logged: only the host, not the URL or key.
   }
 
   /// Validates that required configuration is present before the app starts.
   /// Throws [ConfigurationException] if critical values are missing or invalid.
   void validate() {
     final errors = <String>[];
-    if (supabaseUrl.isEmpty ||
-        supabaseUrl.contains('your-project-ref')) {
+    if (supabaseUrl.isEmpty || supabaseUrl.contains('your-project-ref')) {
       errors.add('SUPABASE_URL is not configured');
+    } else {
+      final uri = Uri.tryParse(supabaseUrl);
+      if (uri == null ||
+          !(uri.scheme == 'https' || uri.scheme == 'http') ||
+          uri.host.isEmpty ||
+          !uri.host.contains('.')) {
+        // Catches 'xyz' or 'xyz.supabase.co' style mistakes and typos that
+        // would otherwise surface as an unexplained SocketException.
+        errors.add(
+          'SUPABASE_URL is not a valid URL (got "$supabaseUrl"; expected '
+          'https://YOUR-PROJECT.supabase.co)',
+        );
+      }
     }
     if (supabaseAnonKey.isEmpty ||
         supabaseAnonKey.contains('placeholder')) {

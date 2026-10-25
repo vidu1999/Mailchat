@@ -213,7 +213,96 @@ flutter pub get
 - **Version downgrade** — an installed copy has a higher `versionCode`. Run
   `adb uninstall <package>` and install again.
 
-## 5. Known limitations on a first run
+## 5. Troubleshooting network calls
+
+### `NetworkException: Could not reach <host>`
+
+Symptoms in `flutter run`:
+
+```
+I/flutter: ERROR AppException(code: network_error, message: Network request failed)
+  #0 SupabaseClient._postUri (supabase_client.dart)
+  #1 SupabaseClient.signUp
+  #2 AuthService.register
+```
+
+The request never left the device. Work through these in order — the cause is
+almost always one of the first two.
+
+**1. The project URL is wrong or the project does not exist.**
+
+Check what the app actually resolved. The startup log prints the host (never
+the key):
+
+```
+[AppConfig] environment=development appName=MailChat supabaseHost=xxxx.supabase.co ...
+```
+
+Compare it to **Supabase Dashboard → Project Settings → API → Project URL**.
+Common mistakes:
+
+| Mistake | Symptom |
+|---|---|
+| Placeholder like `https://your-project-ref.supabase.co` | DNS failure |
+| Copied the dashboard URL (`supabase.com/dashboard/project/xxx`) | DNS failure |
+| Project was paused (free tier pauses after inactivity) | Connection refused / DNS failure |
+| Trailing slash or missing `https://` | Now normalised automatically |
+| A deleted or mistyped project ref | DNS failure |
+
+Confirm the host resolves from your machine:
+
+```powershell
+nslookup YOUR-PROJECT.supabase.co
+```
+
+If that fails, the URL is wrong — nothing in the app can fix it.
+
+**2. The phone has no working connection.**
+
+The device is not automatically on your PC's network path. Check:
+
+```powershell
+adb shell ping -c 3 8.8.8.8
+adb shell ping -c 3 YOUR-PROJECT.supabase.co
+```
+
+If the IP pings but the hostname does not, it is a DNS problem on the device:
+disable private DNS, reconnect Wi-Fi, or test on mobile data.
+
+**3. INTERNET permission is missing (release builds only).**
+
+`flutter create` puts `<uses-permission android:name="android.permission.INTERNET"/>`
+in `android/app/src/debug/AndroidManifest.xml` and
+`android/app/src/profile/AndroidManifest.xml` — **not** in the main manifest.
+A debug build therefore works, and a release build silently loses all
+networking.
+
+Before shipping, add it to `android/app/src/main/AndroidManifest.xml`, just
+above `<application>`:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET"/>
+```
+
+Verify on a device:
+
+```powershell
+adb shell dumpsys package com.mailchat.mailchat | findstr INTERNET
+```
+
+**4. The project exists but returns an error instead of connecting.**
+
+If you reach the host and get `SupabaseException: Request failed (401)`, that is
+`SUPABASE_ANON_KEY` being wrong — a different problem. Check that the key is the
+`anon` / `public` key from Project Settings → API.
+
+### `Request timed out`
+
+`HttpClient.connectionTimeout` is 30 seconds. A timeout with a valid URL usually
+means a captive portal, a VPN, or a firewall. Test in a browser on the device
+with `https://YOUR-PROJECT.supabase.co/auth/v1/health`.
+
+## 6. Known limitations on a first run
 
 - **Session persistence is fragile.** The session is stored as a plaintext JSON
   file in the app's temp directory. Android may clear it, and it is not
@@ -223,7 +312,7 @@ flutter pub get
 - **No push notifications.** No FCM credentials are configured.
 - **Realtime is unverified.** Implemented, never executed.
 
-## 6. First-run checklist
+## 7. First-run checklist
 
 Work through this in order; each step exercises a different layer.
 

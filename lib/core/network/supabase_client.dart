@@ -283,6 +283,32 @@ class SupabaseClient {
     return _getUri(uri, authRequired: authRequired);
   }
 
+
+  /// Builds an actionable error for a transport failure.
+  ///
+  /// A bare "Network request failed" gives the user nothing to act on: it can
+  /// mean a wrong project URL, no connectivity, a blocked network, or a missing
+  /// INTERNET permission. The message names the host being contacted and the
+  /// OS-level cause, and never includes the API key.
+  NetworkException _networkError(String where, Uri uri, Object cause) {
+    final host = uri.host.isEmpty ? AppConfig.instance.supabaseUrl : uri.host;
+    final detail = cause is SocketException
+        ? (cause.osError?.message ?? cause.message)
+        : cause.toString();
+
+    AppLogger.error(cause, StackTrace.current, {
+      'where': where,
+      'host': host,
+      'detail': detail,
+    });
+
+    return NetworkException(
+      'Could not reach $host. Check your internet connection, and confirm '
+      'SUPABASE_URL points at a live Supabase project. ($detail)',
+      original: cause,
+    );
+  }
+
   /// Applies the request headers. [HttpHeaders] exposes `add`, not `addAll`.
   void _applyHeaders(HttpClientRequest request, {bool authRequired = false}) {
     _headers(authRequired: authRequired).forEach((key, value) {
@@ -303,9 +329,9 @@ class SupabaseClient {
       final response = await request.close();
       return await _decodeResponse(response);
     } on SocketException catch (e) {
-      throw NetworkException('Network request failed', original: e);
+      throw _networkError('supabase_get', uri, e);
     } on TimeoutException catch (e) {
-      throw NetworkException('Request timed out', original: e);
+      throw _networkError('supabase_get_timeout', uri, e);
     } catch (e, st) {
       if (e is AppException) rethrow;
       AppLogger.error(e, st, {'where': 'supabase_get', 'uri': uri.toString()});
@@ -328,9 +354,9 @@ class SupabaseClient {
       final response = await request.close();
       return _asMap(await _decodeResponse(response));
     } on SocketException catch (e) {
-      throw NetworkException('Network request failed', original: e);
+      throw _networkError('supabase_post', uri, e);
     } on TimeoutException catch (e) {
-      throw NetworkException('Request timed out', original: e);
+      throw _networkError('supabase_post_timeout', uri, e);
     } catch (e, st) {
       if (e is AppException) rethrow;
       AppLogger.error(e, st, {'where': 'supabase_post', 'uri': uri.toString()});
@@ -348,9 +374,9 @@ class SupabaseClient {
       final response = await request.close();
       return _asMap(await _decodeResponse(response));
     } on SocketException catch (e) {
-      throw NetworkException('Network request failed', original: e);
+      throw _networkError('supabase_patch', uri, e);
     } on TimeoutException catch (e) {
-      throw NetworkException('Request timed out', original: e);
+      throw _networkError('supabase_patch_timeout', uri, e);
     } catch (e, st) {
       if (e is AppException) rethrow;
       AppLogger.error(e, st, {'where': 'supabase_patch', 'uri': uri.toString()});
@@ -365,9 +391,9 @@ class SupabaseClient {
       final response = await request.close();
       await _decodeResponse(response);
     } on SocketException catch (e) {
-      throw NetworkException('Network request failed', original: e);
+      throw _networkError('supabase_delete', uri, e);
     } on TimeoutException catch (e) {
-      throw NetworkException('Request timed out', original: e);
+      throw _networkError('supabase_delete_timeout', uri, e);
     } catch (e, st) {
       if (e is AppException) rethrow;
       AppLogger.error(e, st, {'where': 'supabase_delete', 'uri': uri.toString()});
