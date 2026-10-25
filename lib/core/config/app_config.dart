@@ -1,17 +1,23 @@
-
 import 'package:flutter/foundation.dart';
 
-/// Application configuration loaded from environment variables / dart-defines.
+/// Application configuration resolved from `--dart-define` build arguments.
 ///
-/// Values are resolved in this order (lowest to highest priority):
-///   1. Development defaults below
-///   2. System environment variables
-///   3. `--dart-define` build arguments (recommended for CI/CD and releases)
+/// Values are resolved once, in a single pass: each setting uses the compile
+/// time constant when provided, otherwise the development default below.
+/// `String.fromEnvironment` only reads `--dart-define` values — process
+/// environment variables and `.env` files are NOT consulted at runtime, so a
+/// credential must reach the build as a define (or through CI secrets that are
+/// passed as defines).
 ///
-/// Never hard-code real secrets here. Use `.env` locally (git-ignored) and
-/// CI secrets for staging/production builds.
+/// Never hard-code real secrets here.
 class AppConfig {
   AppConfig._();
+
+  /// Placeholder kept so a misconfigured build produces a clear validation
+  /// error instead of contacting a random host.
+  static const String _defaultSupabaseUrl =
+      'https://your-project-ref.supabase.co';
+  static const String _defaultSupabaseAnonKey = 'dev-anon-key-placeholder';
 
   static AppConfig? _instance;
   static AppConfig get instance => _instance!;
@@ -53,13 +59,59 @@ class AppConfig {
   late final bool emailConfirmationRequired;
 
   static Future<void> load() async {
-    _instance = AppConfig._()
-      .._loadDefaults()
-      .._loadFromEnvironment()
-      .._normalize();
+    _instance = AppConfig._().._resolve();
     if (kDebugMode) {
       _instance!._logConfiguration();
     }
+  }
+
+  /// Resolves every configuration value, assigning each field exactly once.
+  ///
+  /// Deliberately a single pass. The previous implementation layered
+  /// `_loadDefaults()` then `_loadFromEnvironment()` on top of `late final`
+  /// fields, which threw `LateInitializationError: Field 'supabaseUrl' has
+  /// already been initialized` as soon as a `--dart-define` actually supplied
+  /// a value — i.e. on every correctly configured build.
+  void _resolve() {
+    const envValue = String.fromEnvironment('APP_ENV');
+    environment = envValue.isEmpty ? 'development' : envValue;
+
+    const nameValue = String.fromEnvironment('APP_NAME');
+    appName = nameValue.isEmpty ? 'MailChat' : nameValue;
+
+    const urlValue = String.fromEnvironment('SUPABASE_URL');
+    supabaseUrl = normalizeUrl(
+      urlValue.isEmpty ? _defaultSupabaseUrl : urlValue,
+    );
+
+    const keyValue = String.fromEnvironment('SUPABASE_ANON_KEY');
+    supabaseAnonKey =
+        keyValue.isEmpty ? _defaultSupabaseAnonKey : keyValue.trim();
+
+    // Absent unless explicitly provided; never required by the client.
+    supabaseServiceRoleKey = _emptyToNull(
+      const String.fromEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
+    );
+
+    const redirectValue = String.fromEnvironment('AUTH_REDIRECT_URL');
+    authRedirectUrl =
+        redirectValue.isEmpty ? 'mailchat://auth/callback' : redirectValue;
+
+    fcmProjectId = _emptyToNull(const String.fromEnvironment('FCM_PROJECT_ID'));
+    fcmVapidKey = _emptyToNull(const String.fromEnvironment('FCM_VAPID_KEY'));
+
+    const avatarsValue = String.fromEnvironment('STORAGE_BUCKET_AVATARS');
+    avatarsBucket = avatarsValue.isEmpty ? 'avatars' : avatarsValue;
+
+    const attachmentsValue =
+        String.fromEnvironment('STORAGE_BUCKET_ATTACHMENTS');
+    attachmentsBucket =
+        attachmentsValue.isEmpty ? 'attachments' : attachmentsValue;
+
+    emailConfirmationRequired = const bool.fromEnvironment(
+      'EMAIL_CONFIRMATION_REQUIRED',
+      defaultValue: true,
+    );
   }
 
   /// Normalises the base URL so every request path is appended safely.
@@ -67,8 +119,11 @@ class AppConfig {
   /// Handles the three mistakes that produce an opaque "Network request
   /// failed": a missing scheme, a trailing slash (which yields `//auth/v1/...`),
   /// and stray whitespace from copy-paste.
-  void _normalize() {
-    var url = supabaseUrl.trim();
+  ///
+  /// Public (rather than private) so it can be unit tested directly; the
+  /// values it normalises are compile-time constants and cannot be injected.
+  static String normalizeUrl(String raw) {
+    var url = raw.trim();
 
     // Strip trailing slashes: 'https://x.supabase.co/' + '/auth/v1' would
     // otherwise become 'https://x.supabase.co//auth/v1'.
@@ -81,9 +136,7 @@ class AppConfig {
     if (url.isNotEmpty && !url.contains('://')) {
       url = 'https://$url';
     }
-
-    supabaseUrl = url;
-    supabaseAnonKey = supabaseAnonKey.trim();
+    return url;
   }
 
   /// Host[:port] of the configured Supabase project, for diagnostics.
@@ -92,62 +145,6 @@ class AppConfig {
     final uri = Uri.tryParse(supabaseUrl);
     if (uri == null || uri.host.isEmpty) return supabaseUrl;
     return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
-  }
-
-  void _loadDefaults() {
-    environment = const String.fromEnvironment('APP_ENV', defaultValue: 'development');
-    appName = const String.fromEnvironment('APP_NAME', defaultValue: 'MailChat');
-
-    supabaseUrl = const String.fromEnvironment(
-      'SUPABASE_URL',
-      defaultValue: 'https://your-project-ref.supabase.co',
-    );
-    supabaseAnonKey = const String.fromEnvironment(
-      'SUPABASE_ANON_KEY',
-      defaultValue: 'dev-anon-key-placeholder',
-    );
-    // fromEnvironment cannot hold a null default, so an absent value is
-    // mapped to null explicitly.
-    supabaseServiceRoleKey = _emptyToNull(
-      const String.fromEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-    );
-
-    authRedirectUrl = const String.fromEnvironment(
-      'AUTH_REDIRECT_URL',
-      defaultValue: 'mailchat://auth/callback',
-    );
-
-    fcmProjectId = _emptyToNull(const String.fromEnvironment('FCM_PROJECT_ID'));
-    fcmVapidKey = _emptyToNull(const String.fromEnvironment('FCM_VAPID_KEY'));
-
-    avatarsBucket = const String.fromEnvironment(
-      'STORAGE_BUCKET_AVATARS',
-      defaultValue: 'avatars',
-    );
-    attachmentsBucket = const String.fromEnvironment(
-      'STORAGE_BUCKET_ATTACHMENTS',
-      defaultValue: 'attachments',
-    );
-
-    emailConfirmationRequired = const bool.fromEnvironment(
-      'EMAIL_CONFIRMATION_REQUIRED',
-      defaultValue: true,
-    );
-  }
-
-  void _loadFromEnvironment() {
-    // System environment variables override defaults/dart-defines when present.
-    const env = String.fromEnvironment('APP_ENV');
-    if (env.isNotEmpty) environment = env;
-
-    const url = String.fromEnvironment('SUPABASE_URL');
-    if (url.isNotEmpty) supabaseUrl = url;
-
-    const key = String.fromEnvironment('SUPABASE_ANON_KEY');
-    if (key.isNotEmpty) supabaseAnonKey = key;
-
-    const redirect = String.fromEnvironment('AUTH_REDIRECT_URL');
-    if (redirect.isNotEmpty) authRedirectUrl = redirect;
   }
 
   void _logConfiguration() {
