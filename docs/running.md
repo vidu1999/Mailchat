@@ -452,6 +452,19 @@ The `auth_registration_awaiting_confirmation` log line includes
 not dispatch an email — usually a project with no SMTP configured (the built-in
 service is rate-limited and only delivers to team addresses).
 
+### What do I put in Site URL?
+
+Any stable `https://` address — it is only the fallback destination, not the
+app's URL (an app has none). With no website, use your own project host:
+
+```
+https://xcokviruqhnxbshadahp.supabase.co   (replace with your project ref)
+```
+
+Your ref is the `<ref>` in `https://<ref>.supabase.co`, and `dart run
+tool/check_config.dart` prints it from your anon key. `docs/auth-links.md` has
+the full explanation and the other options (GitHub Pages, own domain).
+
 ### The confirmation link opens "null is unreachable" / "localhost unreachable"
 
 Chrome's page, not the app's — the verify URL had no host the phone could reach.

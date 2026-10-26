@@ -37,13 +37,43 @@ accident.
 
 | Field | Value |
 |---|---|
-| Site URL | `https://YOUR-SITE` — a real `https://` address you control. Never `null`, never `localhost`, never a LAN IP. |
-| Redirect URLs | `mailchat://auth/callback` **and** `https://YOUR-SITE/auth/callback` |
+| Site URL | Any stable `https://` address. Not `null`, not `localhost`, not a LAN IP. See below for what to use. |
+| Redirect URLs | `mailchat://auth/callback` |
 
-The Site URL is only where verification *lands* before redirecting; it does not
-have to host the app, but it must be a valid https URL. `localhost` works on one
-machine and nowhere else — which is exactly why a link that worked with the app
-running locally failed on the phone.
+### What Site URL actually does
+
+It is the **fallback destination**, not the app's address. The flow is:
+
+1. GoTrue emails `<project>/auth/v1/verify?token=…&redirect_to=…`.
+2. The `redirect_to` is the `email_redirect_to` the app sent — **but only if it
+   is in Redirect URLs**. If it is not, GoTrue substitutes the Site URL.
+3. After verifying, GoTrue redirects to that destination with the session in the
+   URL fragment, and the app picks it up.
+
+So for this app the Site URL is only reached when the allow-list is wrong. Once
+`mailchat://auth/callback` is listed, a confirmation lands straight in the app
+and the Site URL is never used. It still has to be a valid https URL, because
+Supabase requires one and some email templates interpolate `{{ .SiteURL }}`.
+
+That is why it is *not* where the app lives — an app has no URL. Setting it to
+your website, or to a page that says "open the app to continue", is correct.
+
+### Which value to use
+
+Any of these is valid. Pick the first that applies.
+
+| Situation | Site URL |
+|---|---|
+| No website, just want it to work | `https://<PROJECT-REF>.supabase.co` — your own project host. Always valid, no domain needed. It resolves to a JSON 404 if reached, which is harmless because a correctly configured app never goes there. |
+| Have a GitHub account | `https://<username>.github.io/mailchat/` after enabling GitHub Pages for the repo. Costs nothing and gives a page you control. |
+| Own a domain | `https://mailchat.example.com` — the right answer for anything public. |
+
+Never `http://localhost:3000`: that is the local-development default, and on a
+phone `localhost` means the phone itself, which is exactly how a confirmation
+email ends up on "site can't be reached".
+
+Changing the Site URL does not repair links already in an inbox — request a new
+email after saving.
 
 ### 2. `assets/config/env`
 
