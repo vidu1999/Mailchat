@@ -192,6 +192,22 @@ jobs:
       - name: Prepare the Android project
         run: dart run tool/fix_android_build.dart
 
+      # The step above scaffolds android/ when it is missing. Running the tool
+      # again is the path a developer hits: the folder already exists, so the
+      # tool scaffolds a throwaway reference project from the same SDK and must
+      # agree that android/ is current. That is the check that turns a stale
+      # folder left behind by an older Flutter into one sentence instead of
+      # eight minutes of Gradle output ending in "Your project's Gradle version
+      # ... is lower than Flutter's minimum supported version".
+      - name: Check the generated android/ matches this SDK
+        run: |
+          set -o pipefail
+          dart run tool/fix_android_build.dart 2>&1 | tee /tmp/current.log
+          grep -q "android/ is current for this SDK" /tmp/current.log || {
+            echo "::error::the existing android/ was not recognised as current"
+            exit 1
+          }
+
       # Split per ABI: a fat debug APK bundles the engine for every
       # architecture (100-200 MB). Splitting keeps artifacts small enough to
       # install on a phone with limited free space.

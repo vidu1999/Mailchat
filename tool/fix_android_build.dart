@@ -23,6 +23,20 @@
 // Also note the plugin's own pubspec says `flutter: ">=1.22.0"`, which is why
 // `flutter pub get` never warns about any of this.
 //
+//   3. `flutter upgrade` replaces the SDK but leaves an existing `android/`
+//      folder alone, so the Gradle wrapper keeps the version the *old* SDK
+//      wrote (e.g. 8.3). Newer Flutter then refuses to apply its Gradle plugin:
+//
+//        Your project's Gradle version (8.3.0) is lower than Flutter's
+//        minimum supported version of 8.14.0.
+//
+//      That arrives after minutes of Gradle output. This script compares the
+//      folder against a throwaway scaffold of the installed SDK and says so
+//      immediately. Bumping the numbers by hand is not a fix: newer Android
+//      Gradle Plugin releases only read the new DSL, so `--reset --yes`
+//      regenerates the folder instead — which is safe here, because `android/`
+//      is generated, not committed (CI scaffolds it on every run).
+//
 // Idempotent: running it twice changes nothing.
 
 import 'dart:convert';
@@ -59,16 +73,28 @@ void main(List<String> args) {
     stderr.writeln('  Then: dart run tool/fix_android_build.dart --reset --yes');
     exit(2);
   }
+  final androidDir = Directory('${root.path}/android');
+  final androidWasPresent = androidDir.existsSync();
+
+  // ---- 2. a generated android/ folder older than this SDK -----------------
+  //
+  // `flutter upgrade` never rewrites an existing android/ folder, so its Gradle
+  // wrapper stays where the previous SDK put it. The versions to compare
+  // against come from a throwaway scaffold of the *installed* SDK: any number
+  // hardcoded here would be wrong on the next Flutter release.
+  if (androidWasPresent && !reset) {
+    _checkGeneratedToolchain(androidDir);
+  }
+
   if (checkOnly) {
-    // CI and pre-flight use: the SDK is the only thing that can make the build
-    // fail in a way a patch cannot fix.
-    stdout.writeln('Flutter SDK is new enough for call media.');
+    // CI and pre-flight use: these are the two things a patch cannot fix — the
+    // SDK itself, and a generated project that predates it.
+    stdout.writeln('Flutter SDK and android/ are usable for call media.');
     return;
   }
 
-  // ---- 2. android/ exists? ------------------------------------------------
-  final androidDir = Directory('${root.path}/android');
-  if (!androidDir.existsSync()) {
+  // ---- 3. scaffold android/ when it is missing or being reset -------------
+  if (!androidWasPresent) {
     stdout.writeln('android/ is missing — scaffolding it...');
     final result = _run('flutter', [
       'create',
@@ -103,7 +129,7 @@ void main(List<String> args) {
     if (result != 0) exit(result);
   }
 
-  // ---- 3. compileSdk -----------------------------------------------------
+  // ---- 4. compileSdk -----------------------------------------------------
   final gradleFiles = [
     File('${androidDir.path}/app/build.gradle'),
     File('${androidDir.path}/app/build.gradle.kts'),
@@ -127,7 +153,7 @@ void main(List<String> args) {
     }
   }
 
-  // ---- 4. the two platform patchers --------------------------------------
+  // ---- 5. the two platform patchers --------------------------------------
   for (final tool in [
     'tool/enable_deep_links.dart',
     'tool/enable_call_permissions.dart',
@@ -151,8 +177,225 @@ void main(List<String> args) {
 }
 
 // ---------------------------------------------------------------------------
+// The generated Android toolchain
+// ---------------------------------------------------------------------------
+
+/// The Android toolchain versions a generated project pins.
+///
+/// Held as strings because they are compared as versions and printed back to
+/// the user; nothing here knows what a good number is.
+class AndroidToolchain {
+  const AndroidToolchain({this.gradle, this.agp, this.kotlin});
+
+  /// The `distributionUrl` version from `gradle-wrapper.properties`.
+  final String? gradle;
+
+  /// The Android Gradle Plugin version from `settings.gradle(.kts)`.
+  final String? agp;
+
+  /// The Kotlin Gradle plugin version from `settings.gradle(.kts)`.
+  final String? kotlin;
+
+  bool get isEmpty => gradle == null && agp == null && kotlin == null;
+
+  /// e.g. `Gradle 8.3, AGP 8.1.0, Kotlin 1.8.22`.
+  String describe() {
+    final parts = <String>[
+      if (gradle != null) 'Gradle $gradle',
+      if (agp != null) 'AGP $agp',
+      if (kotlin != null) 'Kotlin $kotlin',
+    ];
+    return parts.isEmpty ? 'no versions found' : parts.join(', ');
+  }
+
+  /// One line per component older than the same component in [reference].
+  ///
+  /// A component that is absent on either side is skipped rather than guessed
+  /// at: the older templates express AGP as a `buildscript` classpath, and
+  /// reporting "AGP missing → 9.1.0" for that would be noise, not a finding.
+  List<String> gapsAgainst(AndroidToolchain reference) {
+    final gaps = <String>[];
+    void compare(String name, String? mine, String? theirs) {
+      if (mine == null || theirs == null) return;
+      if (versionAtLeast(mine, theirs)) return;
+      gaps.add('$name $mine → $theirs');
+    }
+
+    compare('Gradle', gradle, reference.gradle);
+    compare('AGP', agp, reference.agp);
+    compare('Kotlin', kotlin, reference.kotlin);
+    return gaps;
+  }
+}
+
+/// Compares the project's generated Android toolchain with what the installed
+/// Flutter SDK scaffolds, and refuses to continue when the folder is stale.
+///
+/// Exits 2 rather than patching: raising Gradle and AGP to current versions
+/// while `app/build.gradle` still uses the old DSL just moves the failure to
+/// "only the new DSL interface will be read". The folder is generated, so the
+/// fix is to generate it again.
+void _checkGeneratedToolchain(Directory androidDir) {
+  final actual = _readToolchain(androidDir);
+  if (actual.isEmpty) {
+    stderr.writeln('✗ android/ has no Gradle wrapper or settings file, so it is '
+        'not usable.');
+    stderr.writeln('  Regenerate it: dart run tool/fix_android_build.dart '
+        '--reset --yes');
+    exit(2);
+  }
+  final reference = _referenceToolchain();
+  if (reference == null || reference.isEmpty) {
+    stdout.writeln('• Could not scaffold a reference project, so the age of '
+        'android/ was not checked.');
+    return;
+  }
+  final gaps = actual.gapsAgainst(reference);
+  if (gaps.isEmpty) {
+    stdout.writeln('• android/ is current for this SDK (${actual.describe()})');
+    return;
+  }
+
+  stderr.writeln('');
+  stderr.writeln('✗ android/ was generated by an older Flutter SDK.');
+  stderr.writeln('');
+  stderr.writeln('    this project: ${actual.describe()}');
+  stderr.writeln('    this SDK:     ${reference.describe()}');
+  for (final gap in gaps) {
+    stderr.writeln('    older:        $gap');
+  }
+  stderr.writeln('');
+  stderr.writeln('  `flutter upgrade` replaces the SDK but never rewrites an existing');
+  stderr.writeln('  android/ folder, so Gradle stays behind and Flutter refuses to apply');
+  stderr.writeln('  its Gradle plugin:');
+  stderr.writeln('');
+  stderr.writeln("    Your project's Gradle version (${actual.gradle ?? '?'}) is lower than");
+  stderr.writeln("    Flutter's minimum supported version of ${reference.gradle}.");
+  stderr.writeln('');
+  stderr.writeln('  Editing those version numbers by hand is not a fix: an app/build.gradle');
+  stderr.writeln('  written for the old Android Gradle Plugin does not apply under the new');
+  stderr.writeln('  one. android/ is generated here, not committed — CI scaffolds it on every');
+  stderr.writeln("  run — so generate it again:");
+  stderr.writeln('');
+  stderr.writeln('    dart run tool/fix_android_build.dart --reset --yes');
+  stderr.writeln('');
+  stderr.writeln('  That deletes android/, scaffolds it with your SDK, pins compileSdk, and');
+  stderr.writeln('  re-applies the deep-link and call-permission patches. Then:');
+  stderr.writeln('');
+  stderr.writeln('    flutter clean && flutter run');
+  stderr.writeln('');
+  stderr.writeln('  If you edited android/ for release signing, back those files up first');
+  stderr.writeln('  (docs/release.md). The versions live in '
+      'android/gradle/wrapper/ and android/settings.gradle.kts.');
+  exit(2);
+}
+
+/// Reads the versions a project pins in its generated files.
+AndroidToolchain _readToolchain(Directory android) {
+  final wrapper =
+      File('${android.path}/gradle/wrapper/gradle-wrapper.properties');
+  final gradle = wrapper.existsSync()
+      ? gradleWrapperVersion(wrapper.readAsStringSync())
+      : null;
+
+  String? agp;
+  String? kotlin;
+  for (final name in const ['settings.gradle.kts', 'settings.gradle']) {
+    final file = File('${android.path}/$name');
+    if (!file.existsSync()) continue;
+    final text = file.readAsStringSync();
+    agp ??= pluginVersion(text, 'com.android.application');
+    kotlin ??= pluginVersion(text, 'org.jetbrains.kotlin.android');
+  }
+  if (agp == null) {
+    final legacy = File('${android.path}/build.gradle');
+    if (legacy.existsSync()) {
+      agp = classpathAgpVersion(legacy.readAsStringSync());
+    }
+  }
+  return AndroidToolchain(gradle: gradle, agp: agp, kotlin: kotlin);
+}
+
+/// Scaffolds a throwaway project with the installed SDK and reads its toolchain.
+///
+/// `flutter create` is the only authoritative source for these versions: they
+/// change with every Flutter release, and the alternative — hardcoding today's
+/// numbers — silently rots. Returns null when scaffolding fails, in which case
+/// the check is skipped rather than guessed.
+AndroidToolchain? _referenceToolchain() {
+  Directory? temp;
+  try {
+    temp = Directory.systemTemp.createTempSync('mailchat_toolchain');
+    final code = _runQuiet('flutter', [
+      'create',
+      '--no-pub',
+      '--platforms=android',
+      '--org',
+      'com.mailchat',
+      '--project-name',
+      'mailchat',
+      temp.path,
+    ]);
+    if (code != 0) return null;
+    final android = Directory('${temp.path}/android');
+    if (!android.existsSync()) return null;
+    return _readToolchain(android);
+  } catch (_) {
+    return null;
+  } finally {
+    if (temp != null && temp.existsSync()) {
+      try {
+        temp.deleteSync(recursive: true);
+      } catch (_) {
+        // A leftover temp directory is not worth failing a build over.
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pure helpers — unit tested in test/unit/android_gradle_test.dart
 // ---------------------------------------------------------------------------
+
+/// The Gradle version in a `gradle-wrapper.properties` file, or null.
+///
+/// The URL is written with an escaped colon on Windows
+/// (`https\://services.gradle.org/distributions/gradle-8.3-all.zip`), so the
+/// version is taken from the file name rather than parsed as a URI. Prerelease
+/// distributions (`gradle-8.14-rc-1-all.zip`) do not match and yield null,
+/// which the caller treats as "unknown" instead of "fine".
+String? gradleWrapperVersion(String properties) {
+  final match = RegExp(r'gradle-(\d+(?:\.\d+)*)-(?:bin|all)\.zip')
+      .firstMatch(properties);
+  return match?.group(1);
+}
+
+/// The version of a Gradle plugin declared in a settings file, or null.
+///
+/// Handles both DSLs, which differ only in punctuation:
+///
+/// ```text
+/// id("com.android.application") version "9.1.0" apply false   (Kotlin DSL)
+/// id 'com.android.application' version '8.1.0' apply false    (Groovy)
+/// ```
+String? pluginVersion(String settings, String pluginId) {
+  final pattern = RegExp(
+    'id\\s*\\(?\\s*["\']${RegExp.escape(pluginId)}["\']\\s*\\)?\\s*'
+    'version\\s*["\']([^"\']+)["\']',
+  );
+  return pattern.firstMatch(settings)?.group(1);
+}
+
+/// The AGP version from an old-style `buildscript { classpath ... }` block.
+///
+/// Pre-`plugins {}` templates declare the plugin this way: the version is part
+/// of the coordinate, not a separate `version` clause.
+String? classpathAgpVersion(String buildGradle) {
+  final match =
+      RegExp(r"com\.android\.tools\.build:gradle:([0-9][0-9A-Za-z.\-]*)")
+          .firstMatch(buildGradle);
+  return match?.group(1);
+}
 
 /// Sets `compileSdk` to [sdk] in a Groovy or Kotlin module-level build file.
 ///
@@ -250,6 +493,16 @@ String? _flutterVersion() {
     return framework is String ? framework : null;
   } catch (_) {
     return null;
+  }
+}
+
+/// Runs a command and keeps its output to itself, for probes whose chatter
+/// would bury the lines the user needs to read.
+int _runQuiet(String executable, List<String> args) {
+  try {
+    return Process.runSync(executable, args, runInShell: true).exitCode;
+  } catch (_) {
+    return 1;
   }
 }
 

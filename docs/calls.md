@@ -178,12 +178,17 @@ but it is billed per gigabyte, so it stays in the gitignored `.env` /
 | --- | --- | --- |
 | Flutter **≥ 3.29** | `TextureRegistry.SurfaceProducer.Callback.onSurfaceCleanup()` — older engines declare an abstract `onSurfaceDestroyed()` the plugin does not implement | `:flutter_webrtc:compileDebugJavaWithJavac` fails |
 | Flutter **≥ 3.35** (or an explicit `compileSdk = 36`) | The plugin compiles against Android SDK 36; 3.32 defaults to 35 | "requires Android SDK version 36 or higher" |
+| A generated `android/` **matching the installed SDK** | `flutter upgrade` never rewrites an existing `android/`, so its Gradle wrapper stays behind. Flutter 3.47 requires Gradle ≥ 8.14 and scaffolds 9.3.1/AGP 9.1.0 | "Your project's Gradle version (8.3.0) is lower than Flutter's minimum supported version of 8.14.0" |
+| **JDK 17+** | Flutter 3.47's Gradle plugin refuses older JVMs | Java version error before any of the above |
 
 `pubspec.yaml` declares `flutter: ">=3.35.0"` for exactly this reason — the
 plugin's own constraint (`>=1.22.0`) does not, so `pub get` would otherwise
 succeed on an SDK that cannot build it. `tool/fix_android_build.dart` checks the
-SDK, pins `compileSdk`, and re-applies the platform patches; CI runs the same
-script, so a local build and a green run match.
+SDK, compares `android/` against a throwaway scaffold of the installed SDK,
+pins `compileSdk`, and re-applies the platform patches; CI runs the same script,
+so a local build and a green run match. A stale `android/` is answered with
+`--reset --yes` rather than a hand-edited version number — see
+[running.md](running.md) § "The build stops with Gradle version". 
 
 ## Android permissions
 

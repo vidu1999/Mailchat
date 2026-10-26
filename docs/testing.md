@@ -30,7 +30,7 @@ build failures diagnosable at all.
 
 ```text
 test/unit/
-  android_gradle_test.dart      the generated build.gradle rewrite and SDK comparison
+  android_gradle_test.dart      compileSdk rewrite, version comparison, and detecting a stale android/ (Gradle, AGP, Kotlin)
   validators_test.dart          email, password, username rules
   formatters_test.dart          timestamps, file sizes, last-seen wording
   models_test.dart              JSON parsing; conversation_list rows; copyWith
