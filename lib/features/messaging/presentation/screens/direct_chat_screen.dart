@@ -8,6 +8,7 @@ import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/message.dart';
 import 'package:mailchat/shared/models/reaction_summary.dart';
+import 'package:mailchat/shared/models/receipt_state.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
 import 'package:mailchat/shared/services/presence_service.dart';

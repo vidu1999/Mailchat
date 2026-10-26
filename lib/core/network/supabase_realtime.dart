@@ -248,6 +248,12 @@ abstract class Channel {
 
   /// Listen to broadcast events on this channel.
   Stream<Map<String, dynamic>> get broadcast;
+
+  /// Sends a raw event on this channel.
+  ///
+  /// Used for broadcast payloads (typing indicators). Postgres changes are
+  /// server-driven and never sent from here.
+  void send(String event, [Map<String, dynamic>? payload]);
 }
 
 class _Channel implements Channel {
@@ -313,6 +319,7 @@ class _Channel implements Channel {
     }
   }
 
+  @override
   void send(String event, [Map<String, dynamic>? payload]) {
     if (!_client.isConnected) {
       throw NetworkException('Realtime socket is not connected');
