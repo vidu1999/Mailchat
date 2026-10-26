@@ -259,4 +259,111 @@ buildscript {
       expect(const AndroidToolchain().isEmpty, isTrue);
     });
   });
+
+  // Third Windows-only failure: Kotlin's incremental compiler stores source
+  // paths relative to the module, which throws "this and base files have
+  // different roots" when the pub cache is on C: and the project is not. The
+  // build dies after ~30 minutes with "Could not close incremental caches".
+  group('kotlinIncrementalWorkaroundNeeded', () {
+    test('a project on another drive than the pub cache needs it', () {
+      // The reported layout: project on H:, pub cache under LOCALAPPDATA on C:.
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: r'H:\Mailchat',
+          pubCachePath: r'C:\Users\vidur\AppData\Local\Pub\Cache',
+          isWindows: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('the same drive needs nothing', () {
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: r'C:\dev\mailchat',
+          pubCachePath: r'C:\Users\vidur\AppData\Local\Pub\Cache',
+          isWindows: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('drive letters compare case-insensitively', () {
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: r'c:\dev\mailchat',
+          pubCachePath: r'C:\Pub\Cache',
+          isWindows: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('other platforms never need it', () {
+      // No drive letters, and the POSIX path handling is fine.
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: '/home/user/Mailchat',
+          pubCachePath: '/home/user/.pub-cache',
+          isWindows: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('an unknown or UNC pub cache is assumed to need it', () {
+      // Refusing to guess here would leave the user with the 30-minute failure.
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: r'H:\Mailchat',
+          pubCachePath: null,
+          isWindows: true,
+        ),
+        isTrue,
+      );
+      expect(
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: r'\\nas\share\Mailchat',
+          pubCachePath: r'C:\Users\v\AppData\Local\Pub\Cache',
+          isWindows: true,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('disableKotlinIncremental', () {
+    test('appends the setting with a marker to an empty file', () {
+      final out = disableKotlinIncremental('');
+      expect(out, contains('kotlin.incremental=false'));
+      expect(out, contains(kotlinIncrementalMarker));
+    });
+
+    test('keeps the JVM heap settings the template wrote', () {
+      // Losing these turns a Kotlin error into an out-of-memory one.
+      final before = 'org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G\n'
+          'android.useAndroidX=true\n';
+      final out = disableKotlinIncremental(before);
+      expect(out, contains('org.gradle.jvmargs=-Xmx4G'));
+      expect(out, contains('android.useAndroidX=true'));
+      expect(out, contains('kotlin.incremental=false'));
+    });
+
+    test('corrects an explicit true rather than trusting it', () {
+      // `true` is exactly the setting that cannot work across drives.
+      final out = disableKotlinIncremental('kotlin.incremental=true\n');
+      expect(out.trim(), 'kotlin.incremental=false');
+    });
+
+    test('is idempotent', () {
+      final once = disableKotlinIncremental('android.useAndroidX=true\n');
+      expect(disableKotlinIncremental(once), once);
+    });
+
+    test('keeps a file that does not end with a newline readable', () {
+      final out = disableKotlinIncremental('android.useAndroidX=true');
+      expect(out, contains('android.useAndroidX=true\n'));
+      expect(out, contains('kotlin.incremental=false'));
+    });
+  });
 }

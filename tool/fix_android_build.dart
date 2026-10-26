@@ -37,6 +37,12 @@
 //      regenerates the folder instead — which is safe here, because `android/`
 //      is generated, not committed (CI scaffolds it on every run).
 //
+//   4. On Windows, Kotlin's incremental compiler cannot store source paths that
+//      cross drives, and the pub cache (C:) is never on the same drive as a
+//      project in `H:`. The build fails after ~30 minutes with "Could not close
+//      incremental caches ... this and base files have different roots". The
+//      cure is `kotlin.incremental=false` in android/gradle.properties.
+//
 // Idempotent: running it twice changes nothing.
 
 import 'dart:convert';
@@ -87,8 +93,24 @@ void main(List<String> args) {
   }
 
   if (checkOnly) {
-    // CI and pre-flight use: these are the two things a patch cannot fix — the
-    // SDK itself, and a generated project that predates it.
+    // CI and pre-flight use: these are the things a patch cannot fix — the SDK
+    // itself, and a generated project that predates it. The Windows/Kotlin
+    // setting below is patchable, so it is reported rather than failed on.
+    if (Platform.isWindows &&
+        kotlinIncrementalWorkaroundNeeded(
+          projectPath: root.path,
+          pubCachePath: _pubCachePath(),
+        )) {
+      final props = File('${androidDir.path}/gradle.properties');
+      final disabled = props.existsSync() &&
+          RegExp(r'^\s*kotlin\.incremental\s*=\s*false', multiLine: true)
+              .hasMatch(props.readAsStringSync());
+      stdout.writeln(disabled
+          ? '• Windows: kotlin.incremental is off for this cross-drive project.'
+          : '• Windows: android/ and the pub cache are on different drives, so '
+              'Kotlin incremental compilation will fail. Run this tool without '
+              '--check to fix it.');
+    }
     stdout.writeln('Flutter SDK and android/ are usable for call media.');
     return;
   }
@@ -153,7 +175,17 @@ void main(List<String> args) {
     }
   }
 
-  // ---- 5. the two platform patchers --------------------------------------
+  // ---- 5. Windows: Kotlin cannot store cache paths across drives ---------
+  //
+  // Independent of Flutter: plugin sources sit in the pub cache on C:, and a
+  // project on another drive makes the Kotlin incremental compiler throw
+  // "this and base files have different roots" after the whole build has run.
+  // Only applies where drive letters mean something.
+  if (Platform.isWindows) {
+    _applyKotlinIncrementalWorkaround(root, androidDir);
+  }
+
+  // ---- 6. the two platform patchers --------------------------------------
   for (final tool in [
     'tool/enable_deep_links.dart',
     'tool/enable_call_permissions.dart',
@@ -473,6 +505,160 @@ List<int>? _numericParts(String value) {
   final match = RegExp(r'^(\d+(?:\.\d+)*)').firstMatch(value.trim());
   if (match == null) return null;
   return match.group(1)!.split('.').map(int.parse).toList();
+}
+
+// ---------------------------------------------------------------------------
+// Windows: Kotlin incremental compilation across drives
+// ---------------------------------------------------------------------------
+
+/// Marker written above `kotlin.incremental=false`, so the line can be
+/// recognised later as ours rather than as something the project chose.
+const String kotlinIncrementalMarker = '# mailchat:kotlin-incremental-off';
+
+/// True when Kotlin's incremental compiler cannot work for this layout.
+///
+/// The incremental caches store every source file *relative to the module*, and
+/// `Path.relativize` throws `IllegalArgumentException: this and base files have
+/// different roots` when the file and the module are on different Windows
+/// drives. Plugin sources live in the pub cache
+/// (`C:\Users\<name>\AppData\Local\Pub\Cache\...`), so a project on any other
+/// drive hits this on the first Kotlin plugin:
+///
+/// ```text
+/// Execution failed for task ':flutter_webrtc:compileDebugKotlin'.
+/// > java.lang.Exception: Could not close incremental caches in
+///   H:\Mailchat\build\flutter_webrtc\kotlin\...
+///   Suppressed: IllegalArgumentException: this and base files have different
+///   roots: C:\...\flutter_webrtc-1.6.3\... and H:\Mailchat\android.
+/// ```
+///
+/// Up to Kotlin 2.2.x this was only a loud error before a full recompile; from
+/// 2.3 the fallback itself fails ("Storage ... is already registered"), so the
+/// build never finishes. Flutter 3.47 scaffolds Kotlin 2.4.0.
+///
+/// Only Windows has drive letters, so everywhere else this is false. When the
+/// pub cache cannot be located the answer is "assume it is needed": a slower
+/// incremental build costs seconds, and the alternative costs the user half an
+/// hour and a log nobody can read.
+bool kotlinIncrementalWorkaroundNeeded({
+  required String? projectPath,
+  required String? pubCachePath,
+  bool? isWindows,
+}) {
+  final windows = isWindows ?? Platform.isWindows;
+  if (!windows || projectPath == null) return false;
+  final projectDrive = _driveOf(projectPath);
+  final cacheDrive = pubCachePath == null ? null : _driveOf(pubCachePath);
+  // Same drive is the case incremental compilation is designed for.
+  if (projectDrive != null && cacheDrive != null) {
+    return projectDrive != cacheDrive;
+  }
+  // A UNC path, a missing cache or a path that is not absolute: the roots cannot
+  // be proven equal, so treat them as different.
+  return true;
+}
+
+/// `c` for `C:\Users\x`, null for anything without a drive letter.
+String? _driveOf(String path) {
+  final match = RegExp(r'^([A-Za-z]):').firstMatch(path.trim());
+  return match?.group(1)?.toLowerCase();
+}
+
+/// Adds or corrects `kotlin.incremental=false` in a `gradle.properties` body.
+///
+/// Idempotent, and it keeps every other line byte for byte — this file also
+/// carries the JVM heap settings, and losing those turns a Kotlin error into an
+/// out-of-memory one.
+String disableKotlinIncremental(String properties) {
+  final out = <String>[];
+  var found = false;
+
+  for (final line in properties.split('\n')) {
+    if (RegExp(r'^\s*kotlin\.incremental\s*=').hasMatch(line.trimLeft())) {
+      // Correct in place, and drop the old value -- `true` is exactly what
+      // fails here.
+      found = true;
+      out.add('kotlin.incremental=false');
+    } else {
+      out.add(line);
+    }
+  }
+
+  if (found) return out.join('\n');
+
+  // Nothing to correct: append the setting with the reason beside it, because
+  // the next reader will otherwise wonder why this project gave it up.
+  final body = properties.isEmpty || properties.endsWith('\n')
+      ? properties
+      : '$properties\n';
+  return '${body}$kotlinIncrementalMarker\n'
+      '# Kotlin stores incremental-cache paths relative to the module, which\n'
+      '# fails with "this and base files have different roots" when the pub\n'
+      '# cache is on another drive (C:) than this project. See docs/running.md.\n'
+      'kotlin.incremental=false\n';
+}
+
+/// Applies [disableKotlinIncremental] to the project, and clears the caches that
+/// the failed attempt left behind.
+void _applyKotlinIncrementalWorkaround(Directory root, Directory androidDir) {
+  final pubCache = _pubCachePath();
+  if (!kotlinIncrementalWorkaroundNeeded(
+    projectPath: root.path,
+    pubCachePath: pubCache,
+  )) {
+    return;
+  }
+
+  final props = File('${androidDir.path}/gradle.properties');
+  final before = props.existsSync() ? props.readAsStringSync() : '';
+  final after = disableKotlinIncremental(before);
+  final alreadyDisabled =
+      RegExp(r'^\s*kotlin\.incremental\s*=\s*false', multiLine: true)
+          .hasMatch(before);
+
+  if (alreadyDisabled) {
+    stdout.writeln('• android/gradle.properties: kotlin.incremental is already '
+        'off (project and pub cache are on different drives)');
+    return;
+  }
+
+  props.parent.createSync(recursive: true);
+  props.writeAsStringSync(after);
+  stdout.writeln('✓ android/gradle.properties: kotlin.incremental=false');
+  stdout.writeln('  This project and the pub cache are on different drives, so');
+  stdout.writeln('  Kotlin cannot store cache paths and fails after ~30 minutes.');
+  stdout.writeln('  Kotlin is only compiled for plugins here, so the cost is small.');
+
+  // The caches written by the failed build are the ones that cannot be closed.
+  // Leaving them in place makes the next attempt fail the same way.
+  final build = Directory('${root.path}/build');
+  if (build.existsSync()) {
+    stdout.writeln('  Deleting build/ so the broken Kotlin caches are gone...');
+    try {
+      build.deleteSync(recursive: true);
+    } catch (_) {
+      stderr.writeln('  Could not delete build/ — run `flutter clean` yourself.');
+    }
+  }
+}
+
+/// The pub cache directory, or null when it cannot be determined.
+///
+/// `PUB_CACHE` wins when set (that is how Flutter itself finds it); otherwise
+/// the platform default.
+String? _pubCachePath() {
+  final override = Platform.environment['PUB_CACHE'];
+  if (override != null && override.trim().isNotEmpty) return override.trim();
+  if (Platform.isWindows) {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData != null && localAppData.trim().isNotEmpty) {
+      return '${localAppData.trim()}\\Pub\\Cache';
+    }
+    return null;
+  }
+  final home = Platform.environment['HOME'];
+  if (home != null && home.trim().isNotEmpty) return '$home/.pub-cache';
+  return null;
 }
 
 // ---------------------------------------------------------------------------

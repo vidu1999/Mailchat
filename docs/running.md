@@ -425,6 +425,80 @@ If the build then stops on Java, Flutter 3.47 requires **JDK 17 or newer**.
 --jdk-dir="C:\Program Files\Android\Android Studio\jbr"` points it at the one
 Android Studio bundles.
 
+### The build fails with "Could not close incremental caches"
+
+Windows only, and it arrives *after* the whole build has run — 30+ minutes in the
+reported case:
+
+```text
+e: Daemon compilation failed
+Caused by: java.lang.AssertionError: java.lang.Exception: Could not close
+incremental caches in H:\Mailchat\build\flutter_webrtc\kotlin\compileDebugKotlin\...
+        Suppressed: java.lang.IllegalArgumentException: this and base files have
+        different roots: C:\Users\<you>\AppData\Local\Pub\Cache\hosted\pub.dev\
+        flutter_webrtc-1.6.3\android\... and H:\Mailchat\android.
+...
+Execution failed for task ':flutter_webrtc:compileDebugKotlin'.
+```
+
+Read the two paths in the "different roots" line: the *package* is in the pub
+cache on **C:**, the *project* is on **H:**. Kotlin's incremental compiler stores
+every source file relative to the module, and Windows cannot relativise a path
+across drives, so writing the cache throws. Up to Kotlin 2.2.x the compiler fell
+back to a full recompile and the build still finished; from 2.3 the fallback
+fails too ("Storage ... is already registered"). Flutter 3.47 scaffolds Kotlin
+2.4.0, so it is fatal.
+
+The fix is to turn off Kotlin's incremental compilation for this project.
+`dart run tool/fix_android_build.dart` does it automatically when it detects the
+two paths are on different drives:
+
+```powershell
+dart run tool/fix_android_build.dart
+flutter run
+```
+
+What it writes, and why it is safe:
+
+```ini
+# android/gradle.properties
+# mailchat:kotlin-incremental-off
+# Kotlin stores incremental-cache paths relative to the module, which
+# fails with "this and base files have different roots" when the pub
+# cache is on another drive (C:) than this project. See docs/running.md.
+kotlin.incremental=false
+```
+
+Only the Kotlin compiled for *plugins* is affected — this app's own code is Dart
+— so the lost incremental speed costs seconds per build, not minutes. If you move
+the project to `C:` (or point `PUB_CACHE` at `H:`), you can delete the line and
+get incremental compilation back; the tool never adds it when both paths are on
+the same drive.
+
+The tool also deletes `build/` when it applies this setting, because the caches
+written by the failed attempt are the ones that cannot be closed. If you set the
+property by hand, run `flutter clean` first — otherwise the next build fails in
+exactly the same place.
+
+Moving the project instead of disabling the setting is a legitimate alternative:
+`C:\Mailchat` with the pub cache on `C:` needs no change at all. Pointing
+`PUB_CACHE` at a folder on `H:` works too, but re-downloads every package.
+
+### "plugins that apply Kotlin Gradle Plugin"
+
+```text
+WARNING: Your app uses the following plugins that apply Kotlin Gradle Plugin (KGP):
+flutter_webrtc
+Future versions of Flutter will fail to build if your app uses plugins that apply KGP.
+```
+
+A warning about the plugin's future, not an error now, and nothing in this
+repository can fix it: `flutter_webrtc` bundles its own Kotlin build script
+instead of using the Kotlin that Flutter now provides. It becomes fatal when
+Flutter removes the old path — at which point `flutter_webrtc` needs a release
+that supports built-in Kotlin, and `pubspec.yaml` needs a newer version. Until
+then it can be ignored; it is not the cause of anything else in the build.
+
 ## 3. Get a device
 
 `flutter run` reported *"No supported devices connected"*. Pick one:
