@@ -20,12 +20,17 @@ import 'dart:io';
 import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
 import 'package:mailchat/core/config/turn_urls.dart';
+import 'package:mailchat/core/network/transport_failure.dart';
 
 const String _envPath = 'assets/config/env';
 const String _rootEnvPath = '.env';
 
 Future<void> main(List<String> args) async {
   final quiet = args.contains('--quiet');
+  // Off by default: this needs the network, and a build must not depend on DNS.
+  // Opt-in, because it answers the question a user actually has when the app
+  // cannot connect and the log says "Failed host lookup".
+  final checkNetwork = args.contains('--check-network');
 
   // Root `.env` wins when present: it is the file a developer edits, and the
   // scripts copy it over the asset anyway, so validating the asset while a
@@ -163,16 +168,34 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  if (problems.isNotEmpty) {
-    _report(problems.join('\n'));
-  }
-
   final host = Uri.tryParse(
         values['SUPABASE_URL']!.contains('://')
             ? values['SUPABASE_URL']!
             : 'https://${values['SUPABASE_URL']}',
       )?.host ??
       values['SUPABASE_URL']!;
+
+  // The key names the project it belongs to. If the URL names a different one,
+  // every request is a 401 against the wrong database, which reads on screen as
+  // a broken login rather than as a configuration mistake.
+  final keyRef = AnonKey.projectRef(anonKey);
+  final urlRef = host.endsWith('.supabase.co')
+      ? host.substring(0, host.length - '.supabase.co'.length)
+      : null;
+  if (keyRef != null && urlRef != null && keyRef != urlRef) {
+    problems.add('SUPABASE_URL and SUPABASE_ANON_KEY belong to different '
+        'projects.\n'
+        '  SUPABASE_URL says: $urlRef\n'
+        '  the key says:      $keyRef\n'
+        'Copy both from the same project (Settings \u2192 API).');
+  }
+
+  // Reported after every check that can add to the list: the URL/key agreement
+  // above is computed from `host`, which is derived from a URL that may itself
+  // be the problem.
+  if (problems.isNotEmpty) {
+    _report(problems.join('\n'));
+  }
 
   if (!quiet) {
     stdout.writeln('Configuration OK');
@@ -207,9 +230,43 @@ Future<void> main(List<String> args) async {
         'or confirmation emails will not return to the app '
         '(docs/auth-links.md).');
   }
+
+  if (checkNetwork) {
+    await _probeHost(host);
+  }
 }
 
 Never _report(String message) {
   stderr.writeln('Configuration error:\n$message');
   exit(1);
 }
+
+/// Resolves [host] and says which side of the network the problem is on.
+Future<void> _probeHost(String host) async {
+  stdout.writeln('');
+  stdout.writeln('Checking that $host resolves...');
+  final stopwatch = Stopwatch()..start();
+  try {
+    final addresses =
+        await InternetAddress.lookup(host).timeout(const Duration(seconds: 8));
+    if (addresses.isEmpty) {
+      stderr.writeln('x $host resolved to no address. The project may be '
+          'paused or deleted — check the Supabase dashboard.');
+      exit(1);
+    }
+    stdout.writeln('ok $host -> ${addresses.map((a) => a.address).join(', ')} '
+        '(${stopwatch.elapsedMilliseconds} ms)');
+    stdout.writeln('  This machine can reach the project. If the phone reports');
+    stdout.writeln('  "Failed host lookup", the problem is on the phone: no');
+    stdout.writeln('  internet, or a VPN / Private DNS blocking it. See');
+    stdout.writeln('  docs/running.md, section "Failed host lookup".');
+  } catch (e) {
+    stderr.writeln('x ${describeTransportFailure(host: host, cause: e)}');
+    stderr.writeln('');
+    stderr.writeln('  This ran on your computer, so a failure here is not a');
+    stderr.writeln('  phone setting: the project is paused, renamed or deleted,');
+    stderr.writeln('  or SUPABASE_URL has a typo.');
+    exit(1);
+  }
+}
+

@@ -8,6 +8,7 @@ import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
+import 'package:mailchat/core/network/transport_failure.dart';
 
 /// Minimal Supabase Realtime (Phoenix protocol) client.
 ///
@@ -36,6 +37,10 @@ class SupabaseRealtimeClient {
   int _messageRef = 0;
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
+  /// Consecutive failed connection attempts, reset on success. Drives the
+  /// backoff in [reconnectDelay] so an offline device does not log a failure
+  /// every five seconds for as long as the app is open.
+  int _reconnectAttempt = 0;
   StreamSubscription<dynamic>? _socketSubscription;
   bool _closing = false;
 
@@ -76,10 +81,32 @@ class SupabaseRealtimeClient {
       );
       _connectionStateController.add(true);
       _startHeartbeat();
+      _reconnectAttempt = 0;
       onConnected?.call();
       AppLogger.info('realtime_connected');
     } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'realtime_connect'});
+      final kind = classifyTransportFailure(e);
+      // A device with no network fails identically every time. Log the stack
+      // for the first attempt, then only the classified cause: the advice for
+      // "cannot look up the hostname" does not change between attempts.
+      if (_reconnectAttempt == 0) {
+        AppLogger.error(e, st, {
+          'where': 'realtime_connect',
+          'kind': kind.name,
+        });
+        AppLogger.warning('realtime_unreachable', details: {
+          'kind': kind.name,
+          'message': describeTransportFailure(
+            host: AppConfig.instance.supabaseUrl,
+            cause: e,
+          ),
+        });
+      } else {
+        AppLogger.warning('realtime_retry_waiting', details: {
+          'kind': kind.name,
+          'attempt': _reconnectAttempt,
+        });
+      }
       _socket = null;
       _connectionStateController.add(false);
       _scheduleReconnect();
@@ -162,9 +189,14 @@ class SupabaseRealtimeClient {
 
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), () {
+    _reconnectAttempt++;
+    final delay = reconnectDelay(_reconnectAttempt);
+    _reconnectTimer = Timer(delay, () {
       if (!_closing && !isConnected) {
-        AppLogger.info('realtime_reconnect');
+        AppLogger.info('realtime_reconnect', details: {
+          'attempt': _reconnectAttempt,
+          'after_seconds': delay.inSeconds,
+        });
         connect();
       }
     });

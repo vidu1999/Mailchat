@@ -633,8 +633,18 @@ I/flutter: ERROR AppException(code: network_error, message: Network request fail
   #2 AuthService.register
 ```
 
-The request never left the device. Work through these in order — the cause is
-almost always one of the first two.
+The message now names the layer that failed, because "Could not reach" covers
+four different problems with four different fixes:
+
+| Message | Meaning | Where to look |
+|---|---|---|
+| `This device could not look up "<host>"` | No DNS answer — **no request was attempted** | The phone's connection, step 2 |
+| `The connection to "<host>" was refused` | Name resolved, nothing listening | Paused project, or a firewall, step 1 |
+| `"<host>" did not answer in time` | Slow or blocked | Network, often a proxy |
+| `The secure connection to "<host>" failed` | TLS | Wrong device clock, captive portal |
+
+Work through these in order — for a *lookup* failure it is almost always the
+second, and for everything else the first.
 
 **1. The project URL is wrong or the project does not exist.**
 
@@ -664,6 +674,25 @@ nslookup YOUR-PROJECT.supabase.co
 
 If that fails, the URL is wrong — nothing in the app can fix it.
 
+Or let the checker do both halves of that question (it also verifies that the
+key and the URL belong to the same project, which otherwise shows up as a
+failing login):
+
+```powershell
+dart run tool/check_config.dart --check-network
+```
+
+```text
+ok xxxx.supabase.co -> 104.18.x.x (21 ms)
+  This machine can reach the project. If the phone reports
+  "Failed host lookup", the problem is on the phone...
+```
+
+A pass there is proof the project is alive and the ref is right — which moves
+the whole investigation to step 2. A failure there means the project was
+paused, renamed or deleted (free-tier projects pause after a week of inactivity
+and must be restored from the dashboard).
+
 **2. The phone has no working connection.**
 
 The device is not automatically on your PC's network path. Check:
@@ -675,6 +704,29 @@ adb shell ping -c 3 YOUR-PROJECT.supabase.co
 
 If the IP pings but the hostname does not, it is a DNS problem on the device:
 disable private DNS, reconnect Wi-Fi, or test on mobile data.
+
+This is the state that produces, in the app log:
+
+```text
+SocketException: Failed host lookup: 'xxxx.supabase.co'
+(OS Error: No address associated with hostname, errno = 7)
+```
+
+`errno = 7` is `EAI_NONAME`: the lookup itself failed. The app is working
+correctly — nothing was sent — and `adb` is the quickest proof, because it runs
+the same lookup the app does:
+
+```powershell
+adb shell ping -c 3 xxxx.supabase.co     # "unknown host" = the phone's DNS
+```
+
+On the phone, in order: turn Wi-Fi off and use mobile data (or the reverse),
+turn off any VPN, and check **Settings → Network → Private DNS** is *Automatic*
+(a strict private DNS such as an ad-blocking resolver can refuse this host).
+
+The reconnect loop in the log is expected while this is broken, but it now backs
+off (5 s, 10, 20, 40, then 60 s) and logs the classified cause instead of a stack
+trace every five seconds.
 
 **3. INTERNET permission is missing (release builds only).**
 

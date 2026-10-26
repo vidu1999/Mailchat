@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
+import 'package:mailchat/core/network/transport_failure.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/auth_error_messages.dart';
 import 'package:mailchat/core/network/postgrest_error_messages.dart';
@@ -602,11 +603,17 @@ class SupabaseClient {
       'where': where,
       'host': host,
       'detail': detail,
+      // Machine-readable, so a support report can be grouped by cause without
+      // parsing prose.
+      'kind': classifyTransportFailure(cause).name,
     });
 
+    // The classification decides the advice: a DNS failure and a refused
+    // connection have opposite fixes, and telling the user to "check the
+    // internet" for both is how a healthy project gets blamed for a phone with
+    // no Wi-Fi. See transport_failure.dart.
     return NetworkException(
-      'Could not reach $host. Check your internet connection, and confirm '
-      'SUPABASE_URL points at a live Supabase project. ($detail)',
+      describeTransportFailure(host: host, cause: cause),
       original: cause,
     );
   }
