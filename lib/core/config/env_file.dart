@@ -19,7 +19,11 @@ class EnvFile {
   /// Parses [raw] into a case-insensitive (upper-cased) key/value map.
   static Map<String, String> parse(String raw) {
     final result = <String, String>{};
-    for (final line in raw.split('\n')) {
+    // A UTF-8 BOM survives into the first line and would turn the first key
+    // into "\uFEFFSUPABASE_URL", which never matches a lookup. Windows editors
+    // and PowerShell redirects add one routinely.
+    final text = raw.startsWith('\uFEFF') ? raw.substring(1) : raw;
+    for (final line in text.split('\n')) {
       var entry = line.trim();
       if (entry.isEmpty || entry.startsWith('#')) continue;
       if (entry.startsWith('export ')) {

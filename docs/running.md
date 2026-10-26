@@ -10,9 +10,17 @@ CLI is not installed and no device is connected.
 Configuration is read from **`assets/config/env`**, so no CLI flags are needed:
 
 ```powershell
-Copy-Item assets/config/env.example assets/config/env
-# edit assets/config/env, then:
+Copy-Item .env.example .env      # or: assets/config/env.example -> assets/config/env
+# edit .env, then:
 flutter run
+```
+
+`.env` in the project root is enough: `run.ps1`, `run.sh`, the build scripts and
+`dart run tool/check_config.dart` all copy it to `assets/config/env`, which is the
+file the app reads. Checking before a build:
+
+```powershell
+dart run tool/check_config.dart
 ```
 
 ```bash
@@ -54,6 +62,13 @@ Consequences:
   into the bundle at build time.
 - The anon key is inside the APK. That is intended — it is a publishable key and
   every table is behind RLS — which is precisely why RLS must stay enabled.
+
+### "No assets/config/env" right after editing `.env`
+
+The checker used to look only at the bundled asset, so a root `.env` that had not
+been synced produced this. It now reads `.env` first, copies it into
+`assets/config/env` and says so. If you still see the error, neither file exists:
+create `.env` from `.env.example`.
 
 ### `git pull` refuses: local changes to `.env.example`
 

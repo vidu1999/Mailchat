@@ -129,6 +129,25 @@ SUPABASE_ANON_KEY=abc
     });
   });
 
+  group('Windows file quirks', () {
+    test('a UTF-8 BOM does not corrupt the first key', () {
+      // PowerShell's `>` redirect and several Windows editors add one. Without
+      // stripping it the app reports SUPABASE_URL as missing while it is
+      // plainly there in the file.
+      expect(
+        EnvFile.parse('\uFEFFSUPABASE_URL=https://abcdefgh.supabase.co'),
+        {'SUPABASE_URL': 'https://abcdefgh.supabase.co'},
+      );
+    });
+
+    test('BOM plus CRLF plus an export prefix all at once', () {
+      expect(
+        EnvFile.parse('\uFEFFexport APP_ENV=staging\r\nAPP_NAME=MailChat\r\n'),
+        {'APP_ENV': 'staging', 'APP_NAME': 'MailChat'},
+      );
+    });
+  });
+
   group('EnvFile.isUnset', () {
     // Used by tool/check_config.dart to refuse a build with placeholder values,
     // so the matching rules matter: case-insensitive, and blank counts as unset.

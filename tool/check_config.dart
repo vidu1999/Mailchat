@@ -4,9 +4,16 @@
 //   dart run tool/check_config.dart
 //   dart run tool/check_config.dart --quiet   # exit code only
 //
-// Exits 0 when the file is usable, 1 when it is not, and prints why. The parser
-// is the same one the app uses (lib/core/config/env_file.dart), so this cannot
-// disagree with what the APK will actually read.
+// Configuration is looked up in the same order the run/build scripts use:
+//   1. `assets/config/env` — what the app actually reads.
+//   2. `.env` in the project root — copied into (1) first, so a root .env alone
+//      is enough. Without this, running the checker directly after editing
+//      `.env` reported "No assets/config/env", which reads as a broken file
+//      rather than an unsynced one.
+//
+// Exits 0 when the configuration is usable, 1 when it is not, and prints why.
+// The parser is the same one the app uses (lib/core/config/env_file.dart), so
+// this cannot disagree with what the APK will actually read.
 
 import 'dart:io';
 
@@ -14,20 +21,49 @@ import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
 
 const String _envPath = 'assets/config/env';
+const String _rootEnvPath = '.env';
 
 Future<void> main(List<String> args) async {
   final quiet = args.contains('--quiet');
-  final file = File(_envPath);
 
-  if (!file.existsSync()) {
-    _report('No $_envPath.\n'
-        'Copy the template first:\n'
-        '  PowerShell:  Copy-Item assets/config/env.example assets/config/env\n'
-        '  bash:        cp assets/config/env.example assets/config/env\n'
-        'Then fill in SUPABASE_URL and SUPABASE_ANON_KEY (docs/running.md §1).');
+  // Root `.env` wins when present: it is the file a developer edits, and the
+  // scripts copy it over the asset anyway, so validating the asset while a
+  // newer `.env` sits beside it would approve the wrong values.
+  final rootEnv = File(_rootEnvPath);
+  final assetEnv = File(_envPath);
+  final File file;
+
+  if (rootEnv.existsSync()) {
+    assetEnv.parent.createSync(recursive: true);
+    await rootEnv.copy(_envPath);
+    if (!quiet) stdout.writeln('Synced $_rootEnvPath -> $_envPath');
+    file = assetEnv;
+  } else if (assetEnv.existsSync()) {
+    file = assetEnv;
+  } else {
+    _report('No configuration found. Looked for:\n'
+        '  $_rootEnvPath                 <- your copy (gitignored)\n'
+        '  $_envPath   <- what the app reads\n\n'
+        'Create one of them from the template:\n'
+        '  PowerShell:  Copy-Item .env.example .env\n'
+        '  bash:        cp .env.example .env\n'
+        'Then fill in SUPABASE_URL and SUPABASE_ANON_KEY (docs/running.md §1).\n'
+        'A root .env is copied into $_envPath automatically.');
   }
 
-  final values = EnvFile.parse(file.readAsStringSync());
+  final raw = file.readAsStringSync();
+
+  // A UTF-16 file reads as text full of NUL bytes, so every key looks missing
+  // and the error blames the values. Say what is actually wrong instead.
+  if (raw.contains('\u0000')) {
+    _report('${file.path} does not look like UTF-8 text (it contains NUL '
+        'bytes).\n'
+        'Re-save it as UTF-8: in PowerShell use\n'
+        '  Set-Content -Encoding utf8 $_envPath "..."\n'
+        'or edit it in VS Code and pick "UTF-8" in the status bar.');
+  }
+
+  final values = EnvFile.parse(raw);
   final problems = <String>[];
 
   if (EnvFile.isUnset(values, 'SUPABASE_URL', placeholders: ['your-project-ref'])) {
