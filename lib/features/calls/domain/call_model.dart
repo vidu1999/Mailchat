@@ -5,19 +5,24 @@
 /// can grey out the wrong button, while the database stays the authority: a
 /// client that lies about who it is gets a 42501, not a connected call.
 ///
-/// **Media is not implemented.** Nothing here captures, encodes or transmits
-/// audio or video. What exists is the signalling half: a call can be placed,
-/// ring, be accepted, declined or ended, and SDP/ICE can be exchanged. Wiring
-/// `flutter_webrtc` into [CallService] is the remaining step — see
-/// docs/calls.md.
+/// Media is carried by `CallMedia` (`call_media.dart`), which wraps
+/// `flutter_webrtc`: a call holds a real `RTCPeerConnection`, and the SDP and
+/// ICE exchanged through the database are what connect the two sides.
+///
+/// Whether it actually connects depends on the network. With only a STUN server
+/// the two ends must be able to reach each other; a TURN relay is what makes a
+/// call work on mobile data. The call screen says so when no relay is
+/// configured rather than pretending the call failed for another reason.
 library;
 
 /// Whether this build can carry call media.
 ///
-/// False until a `RTCPeerConnection` exists. Both the signalling service and
-/// the call screens read this constant, so there is one place to flip when
-/// WebRTC lands — and one place for a test to hold the honest value.
-const bool callMediaConnected = false;
+/// True now that `flutter_webrtc` is a dependency and `CallMedia` negotiates a
+/// real peer connection. It is a single constant because two things read it —
+/// [CallService] for logging and the chat screen for deciding whether to open a
+/// call — and a test holds the value so a future refactor cannot quietly
+/// pretend media exists.
+const bool callMediaConnected = true;
 
 /// Where a call is in its lifecycle. Values match the `calls.status` check
 /// constraint except [ringing]/[ongoing], which are named for readability and
@@ -53,6 +58,45 @@ extension CallStateX on CallState {
         CallState.declined => 'Declined',
         CallState.failed => 'Failed',
       };
+}
+
+/// The camera/microphone permission explanation shown before the system prompt.
+///
+/// Pure so it can be tested: the wording is the only part of the permission
+/// flow that can be pinned without a device.
+String callPermissionRationale({required bool video}) => video
+    ? 'MailChat needs the camera and microphone for this video call. '
+        'Nothing is recorded.'
+    : 'MailChat needs the microphone for this call. Nothing is recorded.';
+
+/// Where the media engine is in its own lifecycle, independent of the call row.
+///
+/// The call row says whether the two people agreed to talk; this says whether
+/// the phone can actually do it. A call can be `accepted` while media is still
+/// [CallMediaStage.connecting], and the screen must not claim otherwise.
+enum CallMediaStage {
+  idle,
+  preparing,
+  connecting,
+  connected,
+  failed,
+  ended,
+}
+
+extension CallMediaStageX on CallMediaStage {
+  /// What the call screen shows under the peer's name.
+  String get label => switch (this) {
+        CallMediaStage.idle => 'Preparing...',
+        CallMediaStage.preparing => 'Starting camera and microphone...',
+        CallMediaStage.connecting => 'Connecting...',
+        CallMediaStage.connected => 'Connected',
+        CallMediaStage.failed => 'Could not connect',
+        CallMediaStage.ended => 'Call ended',
+      };
+
+  /// True while the user should wait rather than hang up in frustration.
+  bool get isBusy =>
+      this == CallMediaStage.preparing || this == CallMediaStage.connecting;
 }
 
 class Call {

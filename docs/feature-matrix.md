@@ -47,7 +47,7 @@ Legend:
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
 | Voice messages | ❌ | No recorder, no player, no upload path |
-| Voice / video calls | 🟡 | **Signalling is real** (0007): call rows, callee-only accept/decline, terminal states, SDP ownership, block check, RLS, ICE candidates, 15 tests. **Media is not** — no audio or video is captured, `callMediaConnected` is false, and the chat buttons still show an explanatory dialog rather than a ringing screen |
+| Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, mute and camera toggles. Not verified on a device, and needs a TURN relay for mobile data — see [calls.md](calls.md) |
 | Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
 | Multi-device | 🟡 | `user_devices` table; no session list, no "log out all devices", no token registration |
 | End-to-end encryption | ❌ | Not implemented and not claimed (§4) |
@@ -105,13 +105,13 @@ Each of these is a decision, not an omission:
 | `blocks` / `reports` | `user_blocks`, `user_reports` | Naming only; `user_reports` also carries a moderation status |
 | `last_read_at` timestamp | `last_read_message_id` | A message id is monotonic and immune to clock skew between devices; a timestamp is not |
 | `unique (message_id, user_id)` on reactions | Same intent, enforced as `message_reactions_one_per_user` (0006) | Matches your PK, keeps the surrogate id |
-| WebRTC calls as MVP-adjacent | Not built | A call screen without a media stack is a fake. See `docs/calls.md` for what it actually needs |
+| WebRTC calls as MVP-adjacent | Built with a real peer connection | A call screen without a media stack would be a fake, so the media layer was built first and the screen only ever shows "Connected" from `RTCPeerConnectionState` |
 | Any file-picker plugin | `file_selector` (first-party) | `file_picker` 6.x declares the removed v1 Android embedding and 8.x needs a compileSdk the CI scaffold does not produce; both failed the APK build, so the first-party plugin was chosen |
 | E2EE in the roadmap | Not built, not claimed | Brief §24 is right that it is a separate phase. Architecture is left E2EE-ready: ciphertext can replace `messages.text` without a schema change |
 
 ## 5. What is actually verified, and what is not
 
-CI proves: the project analyzes clean, 240+ tests pass, and a debug APK builds.
+CI proves: the project analyzes clean, 260+ tests pass, and a debug APK builds (including the WebRTC dependency and the patched call permissions).
 
 CI cannot prove, and neither could this environment: that Realtime delivers,
 that storage uploads work, that deep links open on a real device, that any screen

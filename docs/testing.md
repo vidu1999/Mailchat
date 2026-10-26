@@ -128,6 +128,16 @@ needs two accounts (`supabase/seed.sql` creates `alice@example.com` and
 
 ### Calls
 
-- [ ] The call buttons show the explanatory dialog, not a call screen
+The first four need **two devices on the same Wi-Fi**, both signed in as
+different accounts with a direct conversation open in the chat list.
+
 - [ ] `supabase/verify.sql` row 11 is `ok` (tables exist with RLS)
-- [ ] Nothing rings anywhere — expected, media is not built
+- [ ] Call from A: B's phone shows the incoming-call screen within a second or two
+- [ ] B accepts: both screens reach "Connected" and each can hear the other
+- [ ] Video call: A's camera preview appears mirrored; B's video fills the screen
+- [ ] Mute on one side silences it; camera-off shows a placeholder, not a black box
+- [ ] Hang up on either side: both screens close and the row ends `ended`
+- [ ] Decline: the caller sees "Declined" and the row ends `declined`
+- [ ] Ring, then leave B's prompt untouched and swipe it away: the row ends `missed`
+- [ ] Over mobile data with **no** TURN configured: expect "Could not connect".
+      That is the documented behaviour, not a bug — add a relay to `TURN_URL`

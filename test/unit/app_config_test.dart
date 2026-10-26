@@ -72,4 +72,47 @@ void main() {
       expect(AppConfig.normalizeUrl('   '), '');
     });
   });
+  group('AppConfig.buildIceServers', () {
+    test('STUN alone by default', () {
+      final servers = AppConfig.buildIceServers(
+        stunUrl: 'stun:stun.l.google.com:19302',
+      );
+      expect(servers, hasLength(1));
+      expect(servers.single['urls'], 'stun:stun.l.google.com:19302');
+    });
+
+    test('TURN is appended with its credentials', () {
+      final servers = AppConfig.buildIceServers(
+        stunUrl: 'stun:stun.l.google.com:19302',
+        turnUrl: 'turn:turn.example.com:3478',
+        turnUsername: 'mailchat',
+        turnCredential: 'secret',
+      );
+      expect(servers, hasLength(2));
+      expect(servers.last['urls'], 'turn:turn.example.com:3478');
+      expect(servers.last['username'], 'mailchat');
+      expect(servers.last['credential'], 'secret');
+    });
+
+    test('an anonymous relay is allowed (no username, no credential block)', () {
+      final servers = AppConfig.buildIceServers(
+        stunUrl: 'stun:x',
+        turnUrl: 'turn:relay:3478',
+      );
+      expect(servers.last.containsKey('username'), isFalse);
+      expect(servers.last.containsKey('credential'), isFalse);
+    });
+
+    test('a blank or padded TURN URL is treated as absent', () {
+      expect(
+        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: '   '),
+        hasLength(1),
+      );
+      expect(
+        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: ' turn:r:3478 ')
+            .last['urls'],
+        'turn:r:3478',
+      );
+    });
+  });
 }

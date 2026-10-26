@@ -1,19 +1,19 @@
 # Voice and video calls
 
-**Status:** 🟡 **signalling built, media not.** A call can ring, be accepted,
-declined, ended or failed, and the two sides can exchange SDP and ICE through the
-database. **No audio or video is captured or transmitted, so nobody can hear
-anybody.**
+**Status:** 🟡 **built, but unverified on a device, and dependent on a TURN
+relay for mobile data.** Calling is real: `flutter_webrtc` opens a peer
+connection, the microphone and camera are captured, SDP and ICE travel through
+the database (0007), and the two screens drive the whole negotiation.
 
-The chat screen's call buttons therefore still open an explanatory dialog rather
-than the call UI. A ringing screen with silence behind it would be a lie. The
-single switch is `callMediaConnected` in
-`lib/features/calls/domain/call_model.dart`, and a test asserts it is `false`.
+What is *not* proven: that a call connects between two real phones. That needs
+two devices, and it needs a TURN server for anything outside the same network.
+The app says so on screen when no relay is configured, and every failure ends as
+"Could not connect" rather than a silent call.
 
 **Code:** `lib/features/calls/domain/call_model.dart`,
-`lib/features/calls/domain/call_service.dart`,
+`call_media.dart`, `call_service.dart`,
 `lib/features/calls/presentation/screens/incoming_call_screen.dart` and
-`active_call_screen.dart` (not routed while media is absent)
+`active_call_screen.dart`
 **Database:** `supabase/migrations/0007_call_signalling.sql`
 **Tests:** `test/unit/call_signalling_test.dart` (15 tests)
 
@@ -71,50 +71,81 @@ out the wrong button. It is not the boundary: the trigger raises `42501`
 regardless of what the client believes. The 15 unit tests pin the client's mirror
 of those rules so the two cannot drift silently.
 
-## What the media layer needs
+## How a call is negotiated
 
-Three things, in this order:
+```text
+caller                                    callee
+  prepare camera/mic (before ringing)
+  offer  →  calls.offer_sdp   ──────────▶  ring, from listenForCalls()
+                                            prepare camera/mic
+                                            answer → calls.answer_sdp
+  applyAnswer(answer)       ◀────────────  accept (callee-only, trigger)
+  ICE  →  call_ice_candidates  ◀────────▶  ICE
+  RTCPeerConnectionState.connected         RTCPeerConnectionState.connected
+```
 
-1. **`flutter_webrtc`** — one `RTCPeerConnection` per call: add the local track,
-   put the offer in `calls.offer_sdp`, answer into `calls.answer_sdp`, push every
-   `onIceCandidate` through `sendIceCandidate`, and apply the other side's rows
-   with `addCandidate`. It also needs camera and microphone permissions in
-   `AndroidManifest.xml` and `Info.plist`; this repository does not commit
-   `android/`, so the permissions belong in the scaffolding step (there is
-   already a `tool/enable_deep_links.dart` that does exactly this kind of
-   post-scaffold patch — a sibling script is the natural home).
-2. **A TURN server.** STUN alone works on the same network and fails on mobile
-   carriers, which is most of the time. Either run coturn or use a hosted
-   provider. The ICE servers are configuration, so they come from the same
-   `.env` as the Supabase keys and must not be committed if they carry a
-   credential.
-3. **Two devices.** Media cannot be verified any other way. This is the one part
-   of the project CI cannot check.
+Two ordering decisions carry the honesty of this feature:
 
-Then, in one commit: flip `callMediaConnected`, route
-`incoming_call_screen.dart` and `active_call_screen.dart` to
-`CallService.listenForCalls`, replace the dialog in the chat screen, and add a
-timeout that marks an unanswered ringing call `missed` (a `pg_cron` job, or a
-sweep on app start — the row is already there, so either works).
+* **Media is prepared before the row exists** (caller) or before the accept is
+  written (callee). A refused microphone therefore produces "could not start the
+  call" and never a ring the other person hears.
+* **The screen never infers a connection.** It mirrors
+  `RTCPeerConnectionState` through `stageFromPeerState()`, and only `connected`
+  prints "Connected" — a test pins that every other stage's wording avoids the
+  word.
 
-## Why the buttons are still a dialog
+`ActiveCallScreen` owns both roles. Splitting caller and callee across two
+screens is how the SDP ordering gets inverted, so the sender of the offer and the
+sender of the answer are one state machine with an `isCaller` flag.
 
-Three independent reasons, all of them honest:
+## Configuration
 
-* **No media,** as above.
-* **No push** — a call only rings if the app is open and connected. A real phone
-  call needs FCM; see [notifications.md](notifications.md).
-* **No ringtone, vibration or wake lock,** so even a delivered call would not wake
-  a sleeping phone.
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `STUN_URL` | `stun:stun.l.google.com:19302` | Discovers this device's public address |
+| `TURN_URL` | none | Relay for carrier-grade NAT |
+| `TURN_USERNAME` | none | Relay credentials |
+| `TURN_CREDENTIAL` | none | Relay credentials |
 
-The first is code. The other two need infrastructure outside this repository.
+All four are read in `AppConfig`, assembled by `AppConfig.buildIceServers()` and
+unit tested. Without a TURN relay a call connects on the same Wi-Fi and on many
+home routers, and fails on mobile data; the caller's screen says exactly that
+rather than blaming the network in general.
 
-## What is verified
+The credential is a per-server secret, not a Supabase key, but it still belongs
+in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
+the repository.
+
+## Android permissions
+
+`android/` is not committed — CI runs `flutter create` — so the manifest cannot
+carry the permissions. `tool/enable_call_permissions.dart` adds them after
+scaffolding, exactly like `tool/enable_deep_links.dart` does for the intent
+filter: `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`,
+`ACCESS_NETWORK_STATE`, `BLUETOOTH_CONNECT`, and camera/microphone features
+marked `required="false"` so a tablet without a camera can still install the app
+and take voice calls. The runtime prompt is raised by `getUserMedia`.
+
+## What still needs doing
+
+| Item | Why it is not done here |
+| --- | --- |
+| **A TURN server** | Needs an account or a VPS. Until then, calls work on a local network and may fail on mobile data |
+| **Two devices** | The only way to prove media; CI can compile WebRTC but cannot hear it |
+| **Push for a call** | A call only rings while the app is open. Waking a backgrounded phone needs FCM — see [notifications.md](notifications.md) |
+| **Ringtone, vibration, wake lock** | Without them a ringing phone may be silent and asleep |
+| **Missed-call timeout** | A ring nobody answers stays `ringing` until one side acts. A `pg_cron` sweep (or a check on app start) would close it |
+| **iOS** | `Info.plist` needs `NSCameraUsageDescription` / `NSMicrophoneUsageDescription`; this repository builds Android only |
+
+## What is verified, and what is not
 
 | Verified | Not verified |
 | --- | --- |
-| The transition rules, SDP ownership, duration maths and the media flag, by unit tests | That Realtime delivers a `calls` insert to the callee |
-| That the migration is re-runnable and present in `apply_all.sql` | That RLS lets the callee read a call but not a stranger |
-| That the app compiles and an APK builds with the call code in it | Anything about audio, video, echo, or connection quality |
+| The transition rules, SDP ownership, duration maths, ICE-server assembly and the media-stage wording, by unit tests | That a call connects between two real phones |
+| That the app analyzes clean and a debug APK builds **with the WebRTC dependency and the permissions patched in** | Audio quality, echo, camera switching, bluetooth routing |
+| That the migration is re-runnable and present in `apply_all.sql` | That Realtime delivers a `calls` insert to a sleeping-but-foregrounded app |
+| `supabase/verify.sql` row 11: both tables exist with RLS | Anything about NAT traversal, which is exactly what TURN exists to fix |
 
-`supabase/verify.sql` row 11 checks the two tables exist with RLS enabled.
+The first device test to run is the one in the [testing](testing.md) checklist:
+both phones on the same Wi-Fi, one call, accept, hear each other. If that works
+and mobile data does not, the answer is a TURN server, not more code.

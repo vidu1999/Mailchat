@@ -143,15 +143,52 @@ void main() {
     });
   });
 
+  group('media stage wording', () {
+    test('a connected call is the only one labelled Connected', () {
+      final labels = {
+        for (final stage in CallMediaStage.values) stage: stage.label,
+      };
+      expect(labels[CallMediaStage.connected], 'Connected');
+      // Every other stage must say something that cannot be mistaken for a
+      // working call.
+      for (final entry in labels.entries) {
+        if (entry.key == CallMediaStage.connected) continue;
+        expect(entry.value.toLowerCase(), isNot(contains('connected')));
+      }
+    });
+
+    test('only preparing and connecting read as "wait"', () {
+      expect(CallMediaStage.preparing.isBusy, isTrue);
+      expect(CallMediaStage.connecting.isBusy, isTrue);
+      expect(CallMediaStage.connected.isBusy, isFalse);
+      expect(CallMediaStage.failed.isBusy, isFalse);
+      expect(CallMediaStage.ended.isBusy, isFalse);
+      expect(CallMediaStage.idle.isBusy, isFalse);
+    });
+
+    test('the permission rationale names only what is needed', () {
+      expect(callPermissionRationale(video: true), contains('camera'));
+      expect(callPermissionRationale(video: true), contains('microphone'));
+      final voice = callPermissionRationale(video: false);
+      expect(voice, contains('microphone'));
+      expect(voice, isNot(contains('camera')));
+      // Never imply recording: nothing is stored.
+      expect(voice, contains('Nothing is recorded'));
+    });
+  });
+
   group('media', () {
-    test('is declared absent, so no screen can claim a connected call', () {
-      // Signal that a call rang and was accepted — and that no audio or video
-      // was ever carried. Flipping this constant is the last step of the
-      // feature, not a cosmetic flag; docs/calls.md lists what it requires.
-      expect(callMediaConnected, isFalse);
+    test('is declared present only because a peer connection now exists', () {
+      // The flag flipped together with `CallMedia` + the flutter_webrtc
+      // dependency, not on its own. If that dependency is ever removed, this
+      // test is the thing that fails rather than a screen silently dialling
+      // into nothing.
+      expect(callMediaConnected, isTrue);
 
       final ongoing = call(status: 'accepted');
       expect(ongoing.isOngoing, isTrue);
+      // Still true after media exists: an accepted call has no duration until
+      // it ends, and inventing zero would be a small lie.
       expect(ongoing.duration, isNull);
     });
   });

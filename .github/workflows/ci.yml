@@ -184,6 +184,11 @@ jobs:
       - name: Enable deep links
         run: dart run tool/enable_deep_links.dart
 
+      # Camera and microphone permission for calls. Same reason as the step
+      # above: android/ is generated, so the manifest cannot carry them.
+      - name: Enable call permissions
+        run: dart run tool/enable_call_permissions.dart
+
       # Split per ABI: a fat debug APK bundles the engine for every
       # architecture (100-200 MB). Splitting keeps artifacts small enough to
       # install on a phone with limited free space.

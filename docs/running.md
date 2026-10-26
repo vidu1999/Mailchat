@@ -721,9 +721,10 @@ before confirmation there is no session, and RLS would reject the insert.
   encrypted. Production requires `flutter_secure_storage`.
 - **Attachments are unverified.** The picker, upload and signed-URL viewer all
   exist; no upload has been exercised against a live bucket.
-- **Calls have signalling but no media.** Rows are created, can be accepted and
-  are visible over Realtime, but nothing captures audio or video, so the call
-  buttons still show a dialog — see `docs/calls.md`.
+- **Calls need a TURN relay on mobile data.** Media is real (`flutter_webrtc`),
+  but with only STUN configured a call connects on the same Wi-Fi and can fail
+  beyond it. Set `TURN_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` — see
+  `docs/calls.md`.
 - **No push notifications.** No FCM credentials are configured; the preference
   switches save but nothing is delivered — see `docs/notifications.md`.
 - **Realtime is unverified.** Implemented, never executed.

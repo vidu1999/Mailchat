@@ -9,6 +9,9 @@ import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/shared/models/conversation.dart';
 import 'package:mailchat/shared/models/peer_presence.dart';
+import 'package:mailchat/features/calls/domain/call_model.dart';
+import 'package:mailchat/features/calls/domain/call_service.dart';
+import 'package:mailchat/features/calls/presentation/screens/incoming_call_screen.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/last_seen_heartbeat.dart';
 import 'package:mailchat/shared/services/message_service.dart';
@@ -36,7 +39,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final ConversationService _conversationService = ConversationService();
   final MessageService _messageService = MessageService();
   final PresenceService _presenceService = PresenceService();
+  final CallService _callService = CallService();
   late final LastSeenHeartbeat _heartbeat;
+
+  /// Set while an incoming-call prompt is on screen, so a burst of realtime
+  /// events for the same call cannot stack two prompts.
+  String? _ringingCallId;
+  StreamSubscription<Call>? _incomingCalls;
 
   List<ConversationListItem> _items = const [];
 
@@ -69,6 +78,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     _heartbeat = LastSeenHeartbeat()..start();
     _load();
     _subscribeInbox();
+    _listenForCalls();
     // The heartbeat refreshes other people's status no faster than it writes
     // our own, so polling on the same cadence is enough to keep dots honest.
     _presenceTimer = Timer.periodic(
@@ -79,12 +89,72 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   @override
   void dispose() {
+    _incomingCalls?.cancel();
+    _callService.dispose();
     _inboxSubscription?.cancel();
     _reloadDebounce?.cancel();
     _presenceTimer?.cancel();
     _messageService.disposeInbox();
     _heartbeat.dispose();
     super.dispose();
+  }
+
+  /// Rings for a call addressed to this user.
+  ///
+  /// The subscription lives here rather than in the chat screen because this is
+  /// the screen that is on the stack whenever the app is in use — a call
+  /// arriving while the user reads the chat list must still ring. Realtime
+  /// filters by `callee_id`, so this never sees calls the user placed.
+  void _listenForCalls() {
+    final userId = SupabaseClient.instance.userId;
+    if (userId == null) return;
+    _callService.listenForCalls(userId);
+    _incomingCalls = _callService.incomingCalls.listen((call) {
+      if (!mounted) return;
+      // Only a ringing call where this user is the callee is a prompt. Updates
+      // (accepted, ended) arrive on the same stream and must be ignored here.
+      if (call.state != CallState.ringing) return;
+      if (call.calleeId != userId) return;
+      if (_ringingCallId == call.id) return;
+      _ringingCallId = call.id;
+      _showIncomingCall(call, userId);
+    });
+  }
+
+  Future<void> _showIncomingCall(Call call, String userId) async {
+    final callerName = _nameFor(call.callerId);
+    AppLogger.info('incoming_call_shown', details: {'callId': call.id});
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => IncomingCallScreen(
+          arguments: {
+            'callId': call.id,
+            'conversationId': call.conversationId,
+            'callerId': call.callerId,
+            'callerName': callerName,
+            'selfId': userId,
+            'isVideo': call.isVideo,
+          },
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _ringingCallId = null;
+    // The prompt was answered or declined; the preview may now be stale.
+    await _load(quiet: true);
+  }
+
+  /// Best available display name for a user id, from what the list already
+  /// holds. A call from someone new shows the handle-less fallback rather than
+  /// blocking the ring on a network round trip.
+  String _nameFor(String userId) {
+    for (final item in _items) {
+      final other = item.otherParticipant;
+      if (other != null && other.id == userId) {
+        return other.displayNameOrUsername;
+      }
+    }
+    return 'Incoming call';
   }
 
   /// New messages and read-cursor changes both mean "the badges are stale".

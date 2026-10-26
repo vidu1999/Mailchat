@@ -7,6 +7,8 @@ import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
+import 'package:mailchat/features/calls/domain/call_model.dart';
+import 'package:mailchat/features/calls/presentation/screens/active_call_screen.dart';
 import 'package:mailchat/shared/models/message.dart';
 import 'package:mailchat/shared/models/peer_presence.dart';
 import 'package:mailchat/shared/models/reaction_summary.dart';
@@ -514,24 +516,40 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
-  /// Opens the call UI. Media is not yet implemented (docs/calls.md), so this
-  /// intentionally surfaces a notice instead of pretending a call connected.
+  /// Places a call.
+  ///
+  /// The screen prepares the camera and microphone *before* it creates the call
+  /// row, so a refused permission produces "could not start" rather than a ring
+  /// nobody can answer with sound.
   void _openCall({required bool isVideo}) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isVideo ? 'Video calling' : 'Voice calling'),
-        content: const Text(
-          'Calling is not available yet. It requires WebRTC media plus '
-          'signalling and STUN/TURN servers, which are not configured for '
-          'this build. See docs/calls.md.',
+    final other = _otherUserId;
+    if (other == null || other.isEmpty) {
+      _showSnack('This chat has no other participant to call.');
+      return;
+    }
+    if (_conversationId.isEmpty) {
+      _showSnack('Open the chat before calling.');
+      return;
+    }
+    if (!callMediaConnected) {
+      // Unreachable with the current build; kept so that flipping the flag off
+      // cannot leave a button that dials into nothing.
+      _showSnack('Calling is not available in this build.');
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ActiveCallScreen(
+          arguments: {
+            'conversationId': _conversationId,
+            'peerId': other,
+            'peerName': _title,
+            'selfId': _currentUserId,
+            'isVideo': isVideo,
+            'isCaller': true,
+          },
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
       ),
     );
   }

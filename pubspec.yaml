@@ -20,6 +20,14 @@ dependencies:
   # 6.x still declares the removed v1 embedding API, and 8.x requires a
   # compileSdk this repository's CI scaffold does not produce.
   file_selector: ^1.0.3
+  # Call media: RTCPeerConnection, getUserMedia and the video renderers. The
+  # signalling half of calling lives in the database (migration 0007); this is
+  # the half that carries the audio and video. Verified against the package's
+  # published pubspec: 1.6.x needs Dart >=3.3 and Android minSdk 21, both of
+  # which this project already satisfies, so the scaffolded android/ folder
+  # needs no Gradle edits — only the runtime permissions, added by
+  # tool/enable_call_permissions.dart.
+  flutter_webrtc: ^1.6.3
 
 dev_dependencies:
   flutter_test:

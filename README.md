@@ -59,12 +59,12 @@ have not been exercised against a live database from the build environment.
 | Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
 | Search by username, display name, exact email | Implemented (`search_users`, 0005) |
 | Notification preferences | Implemented and persisted; **nothing is pushed** |
-| Voice / video calls | **Signalling only** — no audio or video, so the buttons still show a dialog. See `docs/calls.md` |
+| Voice / video calls | Built on `flutter_webrtc`: real peer connection, offer/answer/ICE via the database, ring/accept/decline/hang-up. Unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
 | Push notifications (FCM) | **Not implemented** — needs a Firebase project |
 | End-to-end encryption | **Not implemented** — and not claimed |
 | Database schema, RLS, triggers, seed | Written; applied by hand in one paste (`supabase/apply_all.sql`) |
 | `flutter analyze` | **Clean** in CI |
-| Unit + widget tests | **250+ cases, passing in CI** |
+| Unit + widget tests | **260+ cases, passing in CI** |
 | GitHub Actions CI (analyze, tests, APK) | **Green** |
 | Debug APK | **Builds in CI and installs on a physical Android device** |
 

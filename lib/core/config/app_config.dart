@@ -73,6 +73,72 @@ class AppConfig {
   late final String avatarsBucket;
   late final String attachmentsBucket;
 
+  /// STUN server used to discover this device's public address.
+  ///
+  /// A public server by default: STUN only learns addresses, and Google's is
+  /// the one every WebRTC tutorial uses. It is useless behind a symmetric NAT,
+  /// which is what TURN is for.
+  late final String stunUrl;
+
+  /// TURN server, username and credential — the relay that makes calls work
+  /// behind carrier-grade NAT.
+  ///
+  /// Optional, and often absent: without it, calls connect on the same network
+  /// and on many home routers, and fail on mobile data. The call screen says so
+  /// rather than pretending otherwise. The credential is a shared secret for
+  /// one server, not a Supabase key, but it still should not be committed —
+  /// supply it through `--dart-define` or a gitignored env file.
+  late final String? turnUrl;
+  late final String? turnUsername;
+  late final String? turnCredential;
+
+  /// The `iceServers` list handed to `RTCPeerConnection`.
+  ///
+  /// Built here rather than in the call code so there is exactly one place
+  /// where network configuration is read, and so it can be unit tested without
+  /// a WebRTC stack.
+  List<Map<String, dynamic>> get iceServers => buildIceServers(
+        stunUrl: stunUrl,
+        turnUrl: turnUrl,
+        turnUsername: turnUsername,
+        turnCredential: turnCredential,
+      );
+
+  /// Builds the `iceServers` list.
+  ///
+  /// Static and instance-free so it can be unit tested without a loaded config:
+  /// a call that silently has no relay configured is indistinguishable, on the
+  /// screen, from a network that simply will not connect.
+  static List<Map<String, dynamic>> buildIceServers({
+    required String stunUrl,
+    String? turnUrl,
+    String? turnUsername,
+    String? turnCredential,
+  }) {
+    final servers = <Map<String, dynamic>>[
+      {'urls': stunUrl},
+    ];
+    final url = turnUrl;
+    if (url != null && url.trim().isNotEmpty) {
+      final username = turnUsername?.trim();
+      servers.add({
+        'urls': url.trim(),
+        // A relay without credentials is legitimate (coturn can allow
+        // anonymous access), so the credential block is only added when a
+        // username exists.
+        if (username != null && username.isNotEmpty) ...{
+          'username': username,
+          'credential': turnCredential,
+        },
+      });
+    }
+    return servers;
+  }
+
+  /// True when a TURN relay is configured. Without one, a call can fail to
+  /// connect on mobile data instead of merely sounding bad.
+  bool get hasTurnRelay => (turnUrl ?? '').isNotEmpty;
+
   /// Whether the current environment is production.
   bool get isProduction => environment == 'production';
 
@@ -220,6 +286,29 @@ class AppConfig {
       file,
       'STORAGE_BUCKET_ATTACHMENTS',
       'attachments',
+    );
+
+    stunUrl = _pick(
+      const String.fromEnvironment('STUN_URL'),
+      file,
+      'STUN_URL',
+      'stun:stun.l.google.com:19302',
+    );
+
+    turnUrl = _pickNullable(
+      const String.fromEnvironment('TURN_URL'),
+      file,
+      'TURN_URL',
+    );
+    turnUsername = _pickNullable(
+      const String.fromEnvironment('TURN_USERNAME'),
+      file,
+      'TURN_USERNAME',
+    );
+    turnCredential = _pickNullable(
+      const String.fromEnvironment('TURN_CREDENTIAL'),
+      file,
+      'TURN_CREDENTIAL',
     );
 
     // Read as a string rather than with `bool.fromEnvironment` so "absent" and

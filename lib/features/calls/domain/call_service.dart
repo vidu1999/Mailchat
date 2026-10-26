@@ -187,6 +187,82 @@ class CallService {
     );
   }
 
+  // ------------------------------------------------------------------
+  // Per-call watching (both sides)
+  // ------------------------------------------------------------------
+
+  Channel? _callChannel;
+  Channel? _candidateChannel;
+  final StreamController<Call> _callUpdates = StreamController<Call>.broadcast();
+  final StreamController<Map<String, dynamic>> _candidateUpdates =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Updates to one call, for both participants.
+  ///
+  /// [listenForCalls] deliberately filters on `callee_id`, because Realtime
+  /// filters are single-column equality and the caller must not ring for its
+  /// own call. That also means the caller never hears its own call being
+  /// accepted — this channel is keyed by `id` instead, so both sides see every
+  /// transition: accepted (with the answer SDP), ended, declined.
+  Stream<Call> get callUpdates => _callUpdates.stream;
+
+  /// ICE candidates arriving for the watched call.
+  Stream<Map<String, dynamic>> get candidateUpdates => _candidateUpdates.stream;
+
+  /// Watches one call and its candidates. Idempotent per call id.
+  void watchCall(String callId) {
+    unwatchCall();
+    _callChannel = _realtime.join(
+      'realtime:mailchat:call:$callId',
+      (type, payload) {
+        final record = payload['record'];
+        if (record is! Map) return;
+        final row = Map<String, dynamic>.from(record);
+        if (row['id'] != callId) return;
+        if (!_callUpdates.isClosed) _callUpdates.add(Call.fromJson(row));
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': '*',
+            'schema': 'public',
+            'table': 'calls',
+            'filter': 'id=eq.$callId',
+          },
+        ],
+      },
+    );
+
+    _candidateChannel = _realtime.join(
+      'realtime:mailchat:ice:$callId',
+      (type, payload) {
+        final record = payload['record'];
+        if (record is! Map) return;
+        final row = Map<String, dynamic>.from(record);
+        if (row['call_id'] != callId) return;
+        if (!_candidateUpdates.isClosed) _candidateUpdates.add(row);
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': 'INSERT',
+            'schema': 'public',
+            'table': 'call_ice_candidates',
+            'filter': 'call_id=eq.$callId',
+          },
+        ],
+      },
+    );
+  }
+
+  /// Leaves the watched call's channels. Called when a call screen closes.
+  void unwatchCall() {
+    _callChannel?.unsubscribe();
+    _candidateChannel?.unsubscribe();
+    _callChannel = null;
+    _candidateChannel = null;
+  }
+
   Future<Call> _update(String callId, Map<String, dynamic> data) async {
     final rows = await _supabase.update(
       'calls',
@@ -204,6 +280,9 @@ class CallService {
   void dispose() {
     _channel?.unsubscribe();
     _channel = null;
+    unwatchCall();
     _incomingController.close();
+    _callUpdates.close();
+    _candidateUpdates.close();
   }
 }
