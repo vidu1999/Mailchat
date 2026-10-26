@@ -209,7 +209,13 @@ class AuthService {
       password: password,
     );
     if (!response.isAuthenticated) {
-      throw AuthorizationException('Invalid email or password.');
+      // Reached only if the client handed back a session-less response, which
+      // it now refuses to do — this used to report a successful 200 sign-in as
+      // "Invalid email or password."
+      throw AppException(
+        'Signed in, but the session could not be read. Please try again.',
+        code: 'signin_no_session',
+      );
     }
     await _store.saveAccessToken(response.session!.accessToken);
     await _store.saveRefreshToken(response.session!.refreshToken);

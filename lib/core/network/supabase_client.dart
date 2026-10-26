@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/auth_error_messages.dart';
 
 /// Minimal Supabase client implemented on top of the Supabase REST API
 /// (PostgREST) and GoTrue Auth API.
@@ -206,9 +207,9 @@ class SupabaseClient {
     }
 
     // GoTrue does not use one response shape for signup. See
-    // [normalizeSignupPayload]; reading only `data['user']` threw away valid
+    // [normalizeAuthPayload]; reading only `data['user']` threw away valid
     // responses whose user object sat at the top level.
-    final payload = normalizeSignupPayload(data);
+    final payload = normalizeAuthPayload(data);
     final userJson = payload['user'];
     if (userJson is! Map) {
       // GoTrue returned neither a user nor an error. Surface everything it did
@@ -227,7 +228,10 @@ class SupabaseClient {
     return _handleAuthResponse(payload);
   }
 
-  /// Normalises the three shapes `POST /auth/v1/signup` can return.
+  /// Normalises the shapes the GoTrue auth endpoints can return.
+  ///
+  /// Used by signup, password sign-in and token-hash verification — each has
+  /// returned more than one envelope in the wild.
   ///
   /// 1. `{user: {...}, session: null|{...}}` — the documented shape, and what
   ///    GoTrue returns once confirmations are involved.
@@ -242,7 +246,7 @@ class SupabaseClient {
   /// Anything else is returned unchanged so the caller can report it.
   /// Public so the mapping is unit-testable without a network call.
   @visibleForTesting
-  static Map<String, dynamic> normalizeSignupPayload(
+  static Map<String, dynamic> normalizeAuthPayload(
       Map<String, dynamic> data) {
     final nested = data['user'];
     if (nested is Map) {
@@ -291,8 +295,46 @@ class SupabaseClient {
       'email': email.trim().toLowerCase(),
       'password': password,
     };
-    final data = await _post('/auth/v1/token?grant_type=password', body: body);
-    return _handleAuthResponse(data);
+    final Map<String, dynamic> data;
+    try {
+      data = await _post('/auth/v1/token?grant_type=password', body: body);
+    } on SupabaseException catch (e) {
+      // A rejected sign-in is a normal outcome, not an incident: translate the
+      // code instead of showing the raw JSON body.
+      AppLogger.info('signin_rejected', details: {
+        'status': e.code,
+        'errorCode': AuthErrorMessages.codeIn(e.original?.toString()),
+      });
+      throw AuthorizationException(
+        AuthErrorMessages.forBody(e.original?.toString()) ??
+            'Sign-in failed. Please try again.',
+        original: e.original,
+      );
+    }
+
+    // `POST /auth/v1/token` returns a FLAT payload — access_token and
+    // refresh_token as siblings of `user`, with no `session` object:
+    //
+    //   {access_token, token_type, expires_in, expires_at, refresh_token, user}
+    //
+    // Reading only `data['session']` therefore found nothing, and a successful
+    // 200 sign-in was reported to the user as "Invalid email or password."
+    // GoTrue's own logs showed 200 the whole time.
+    final payload = normalizeAuthPayload(data);
+    final response = _handleAuthResponse(payload);
+    if (response.session == null) {
+      // Reached only if GoTrue changes shape again. Log what it did send so the
+      // cause is visible, rather than blaming the password.
+      AppLogger.warning('signin_no_session', details: {
+        'keys': data.keys.toList(),
+      });
+      throw AppException(
+        'Signed in, but the session could not be read. Please try again — if '
+        'it keeps happening, report this with the app logs.',
+        code: 'signin_no_session',
+      );
+    }
+    return response;
   }
 
   /// Exchanges a `{{ .TokenHash }}` email token for a session.
@@ -309,8 +351,8 @@ class SupabaseClient {
       'type': type,
     }, authRequired: false);
     // Same shape problem as signup: the session is usually wrapped, but the
-    // bare user is possible. normalizeSignupPayload handles both.
-    return _handleAuthResponse(normalizeSignupPayload(data));
+    // bare user is possible. normalizeAuthPayload handles both.
+    return _handleAuthResponse(normalizeAuthPayload(data));
   }
 
   /// Sets a new password for the currently authenticated user.
@@ -342,10 +384,19 @@ class SupabaseClient {
 
   /// Sends a password-reset email.
   Future<void> resetPasswordForEmail(String email) async {
-    await _post('/auth/v1/recover', body: {
-      'email': email.trim().toLowerCase(),
-      'options': {'email_redirect_to': AppConfig.instance.authRedirectUrl},
-    });
+    try {
+      await _post('/auth/v1/recover', body: {
+        'email': email.trim().toLowerCase(),
+        'options': {'email_redirect_to': AppConfig.instance.authRedirectUrl},
+      });
+    } on SupabaseException catch (e) {
+      throw AppException(
+        AuthErrorMessages.forBody(e.original?.toString()) ??
+            'Could not send the reset email. Please try again.',
+        code: 'password_reset_failed',
+        original: e.original,
+      );
+    }
   }
 
   /// Signs out and clears the local session.

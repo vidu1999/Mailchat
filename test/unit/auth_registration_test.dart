@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mailchat/core/errors/app_exception.dart';
+import 'package:mailchat/core/network/auth_error_messages.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/services/auth_service.dart';
 
@@ -26,7 +27,7 @@ void main() {
             : <Map<String, dynamic>>[],
       };
 
-  group('normalizeSignupPayload', () {
+  group('normalizeAuthPayload', () {
     /// Copied from a real response captured on device: GoTrue returned the bare
     /// user object, with no `{user, session}` wrapper. Reading only
     /// `data['user']` reported "no user" for a valid signup.
@@ -48,14 +49,14 @@ void main() {
         };
 
     test('accepts a bare user object as a user with no session', () {
-      final payload = SupabaseClient.normalizeSignupPayload(bareUser());
+      final payload = SupabaseClient.normalizeAuthPayload(bareUser());
 
       expect(payload['user'], isA<Map>());
       expect(payload['session'], isNull);
     });
 
     test('the bare object still carries identity and confirmation data', () {
-      final payload = SupabaseClient.normalizeSignupPayload(bareUser());
+      final payload = SupabaseClient.normalizeAuthPayload(bareUser());
       final user = AuthUser.fromJson(payload['user'] as Map<String, dynamic>);
 
       expect(user.isPlaceholderForExistingAccount, isFalse);
@@ -67,14 +68,14 @@ void main() {
       final json = bareUser()
         ..['identities'] = <Map<String, dynamic>>[]
         ..remove('confirmation_sent_at');
-      final payload = SupabaseClient.normalizeSignupPayload(json);
+      final payload = SupabaseClient.normalizeAuthPayload(json);
       final user = AuthUser.fromJson(payload['user'] as Map<String, dynamic>);
 
       expect(user.isPlaceholderForExistingAccount, isTrue);
     });
 
     test('the documented wrapped shape is passed through', () {
-      final payload = SupabaseClient.normalizeSignupPayload({
+      final payload = SupabaseClient.normalizeAuthPayload({
         'user': bareUser(),
         'session': null,
       });
@@ -84,7 +85,7 @@ void main() {
     });
 
     test('a session payload keeps its session', () {
-      final payload = SupabaseClient.normalizeSignupPayload({
+      final payload = SupabaseClient.normalizeAuthPayload({
         'user': bareUser(),
         'session': {'access_token': 'token'},
       });
@@ -94,7 +95,7 @@ void main() {
 
     test('rebuilds a session from sibling token fields', () {
       // Older GoTrue puts the tokens next to `user` rather than in `session`.
-      final payload = SupabaseClient.normalizeSignupPayload({
+      final payload = SupabaseClient.normalizeAuthPayload({
         'user': bareUser(),
         'access_token': 'access',
         'refresh_token': 'refresh',
@@ -112,7 +113,7 @@ void main() {
       // `id` is the discriminator; without it the payload is left alone so the
       // caller reports it instead of inventing a user.
       final error = {'msg': 'Signups not allowed for this instance', 'code': 400};
-      expect(SupabaseClient.normalizeSignupPayload(error), error);
+      expect(SupabaseClient.normalizeAuthPayload(error), error);
     });
   });
 
@@ -145,6 +146,98 @@ void main() {
 
       expect(user.username, 'jane');
       expect(user.displayName, 'Jane');
+    });
+  });
+
+  group('password sign-in payload', () {
+    /// The shape `POST /auth/v1/token?grant_type=password` actually returns:
+    /// tokens as siblings of `user`, no `session` object. Reading only
+    /// `data['session']` reported a successful 200 sign-in as "Invalid email or
+    /// password" while Supabase's own logs showed 200.
+    Map<String, dynamic> flatGrant() => {
+          'access_token': 'header.payload.signature',
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'expires_at': 1792987203,
+          'refresh_token': 'r3fr3sh',
+          'user': userJson(withIdentity: true),
+        };
+
+    test('a session is recovered from the flat grant', () {
+      final payload = SupabaseClient.normalizeAuthPayload(flatGrant());
+
+      expect(payload['session'], isA<Map>());
+      final session = Session.fromJson(payload['session'] as Map<String, dynamic>);
+      expect(session.accessToken, 'header.payload.signature');
+      expect(session.refreshToken, 'r3fr3sh');
+      expect(session.expiresAt, isNotNull);
+    });
+
+    test('the user survives alongside the rebuilt session', () {
+      final payload = SupabaseClient.normalizeAuthPayload(flatGrant());
+      final user = AuthUser.fromJson(payload['user'] as Map<String, dynamic>);
+
+      expect(user.email, 'jane@example.com');
+      expect(user.isPlaceholderForExistingAccount, isFalse);
+    });
+
+    test('a wrapped session is still preferred when both are present', () {
+      final payload = SupabaseClient.normalizeAuthPayload({
+        'user': userJson(withIdentity: true),
+        'session': {'access_token': 'wrapped', 'refresh_token': 'r'},
+        'access_token': 'top-level',
+      });
+
+      expect((payload['session'] as Map)['access_token'], 'wrapped');
+    });
+  });
+
+  group('AuthErrorMessages', () {
+    // Every one of these used to reach the user as
+    // `Request failed (400): {"code":400,...}`.
+    test('invalid credentials read as a sentence', () {
+      expect(
+        AuthErrorMessages.forBody(
+            '{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}'),
+        'Invalid email or password.',
+      );
+    });
+
+    test('an unconfirmed address is distinguished from a wrong password', () {
+      final message = AuthErrorMessages.forBody(
+          '{"code":400,"error_code":"email_not_confirmed","msg":"Email not confirmed"}');
+
+      expect(message, contains('Confirm your email'));
+    });
+
+    test('rate limiting says to wait', () {
+      expect(
+        AuthErrorMessages.forBody(
+            '{"code":429,"error_code":"over_email_send_rate_limit","msg":"Email rate limit exceeded"}'),
+        contains('Wait a minute'),
+      );
+    });
+
+    test('an unknown code falls back to the server sentence', () {
+      expect(
+        AuthErrorMessages.forBody(
+            '{"code":500,"error_code":"boom","msg":"Something specific went wrong"}'),
+        'Something specific went wrong',
+      );
+    });
+
+    test('a JSON body with nothing readable yields null, not a blob', () {
+      expect(AuthErrorMessages.forBody('{"code":500}'), isNull);
+      expect(AuthErrorMessages.forBody(''), isNull);
+      expect(AuthErrorMessages.forBody(null), isNull);
+    });
+
+    test('codeIn exposes the machine-readable code', () {
+      expect(
+        AuthErrorMessages.codeIn('{"error_code":"otp_expired"}'),
+        'otp_expired',
+      );
+      expect(AuthErrorMessages.codeIn('not json'), isNull);
     });
   });
 

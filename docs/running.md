@@ -434,13 +434,14 @@ there is no way for the app to skip the confirmation step.
 ### Signup response shapes
 
 `POST /auth/v1/signup` does not have one response shape. The client normalises
-three (`SupabaseClient.normalizeSignupPayload`):
+three, plus the flat password-grant shape (`SupabaseClient.normalizeAuthPayload`):
 
 | Shape | When | Meaning |
 |---|---|---|
 | `{user: {...}, session: null}` | confirmations required | confirmation email sent |
 | `{id, aud, role, email, identities, ...}` — the user object **at the top level**, no wrapper | confirmations required | the same thing, different envelope |
-| `{user: {...}, session: {...}}` (or tokens as siblings of `user`) | confirmations disabled | signed in |
+| `{user: {...}, session: {...}}` | confirmations disabled | signed in |
+| `{access_token, refresh_token, expires_at, user}` — flat, no `session` | `POST /auth/v1/token` (password sign-in) and older GoTrue signups | signed in |
 
 The second row is the one that bites: a client that only reads `data['user']`
 reports "returned no user" for a perfectly good signup. If that message appears,
@@ -468,6 +469,23 @@ Two values break the link:
 
 Use a page you control (GitHub Pages, your own domain) if you want the fallback
 to be useful. `docs/auth-links.md` has the details.
+
+### Sign-in says "Invalid email or password" but Supabase logs show 200
+
+The request succeeded and the client failed to read the response — a different
+problem from a wrong password, and the message used to claim otherwise.
+
+`POST /auth/v1/token?grant_type=password` returns a **flat** payload: the tokens
+are siblings of `user`, with no `session` object. A client that reads only
+`data['session']` sees no session, concludes the sign-in failed, and blames the
+credentials. Sign-in now goes through `SupabaseClient.normalizeAuthPayload`,
+which handles both that shape and `{user, session}`.
+
+If it recurs after an update, the log carries `signin_no_session` with the
+response's key names — that is the line to report, because it means GoTrue
+changed shape again. A genuinely rejected sign-in logs `signin_rejected` with
+GoTrue's `error_code` (`invalid_credentials`, `email_not_confirmed`, ...) and
+shows the matching sentence rather than a JSON body.
 
 ### The confirmation link opens "null is unreachable" / "localhost unreachable"
 
