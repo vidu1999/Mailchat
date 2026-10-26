@@ -39,7 +39,7 @@ test/unit/
   auth_registration_test.dart   RegistrationResult outcomes
   call_signalling_test.dart     call states, permissions, duration, media flag
   env_file_test.dart            .env parsing and --dart-define precedence
-  app_config_test.dart          configuration resolution
+  app_config_test.dart          configuration resolution, relay-URL parsing
   anon_key_test.dart            the anon key is accepted and service_role rejected
   last_seen_test.dart           heartbeat window, hidden means silent
   presence_test.dart            presence payload shapes, typing TTL

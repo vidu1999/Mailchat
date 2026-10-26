@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
+import 'package:mailchat/core/config/turn_urls.dart';
 
 /// Application configuration, resolved from two sources.
 ///
@@ -88,6 +89,11 @@ class AppConfig {
   /// rather than pretending otherwise. The credential is a shared secret for
   /// one server, not a Supabase key, but it still should not be committed —
   /// supply it through `--dart-define` or a gitignored env file.
+  ///
+  /// [turnUrl] may hold a whole hosted provider's list (four addresses sharing
+  /// one credential: UDP 80/443, TCP 80/443 and TLS 443). They are split by
+  /// [TurnUrls.parse]; pasting only the UDP entry is what makes a relay work on
+  /// Wi-Fi and fail on mobile data.
   late final String? turnUrl;
   late final String? turnUsername;
   late final String? turnCredential;
@@ -118,26 +124,36 @@ class AppConfig {
     final servers = <Map<String, dynamic>>[
       {'urls': stunUrl},
     ];
-    final url = turnUrl;
-    if (url != null && url.trim().isNotEmpty) {
+    final relays = TurnUrls.parse(turnUrl);
+    if (relays.isNotEmpty) {
       final username = turnUsername?.trim();
-      servers.add({
-        'urls': url.trim(),
-        // A relay without credentials is legitimate (coturn can allow
-        // anonymous access), so the credential block is only added when a
-        // username exists.
+      // A relay without credentials is legitimate (coturn can allow anonymous
+      // access), so the credential block is only added when a username exists.
+      final credentials = <String, dynamic>{
         if (username != null && username.isNotEmpty) ...{
           'username': username,
-          'credential': turnCredential,
+          'credential': turnCredential?.trim(),
         },
-      });
+      };
+      // One ICE server per address rather than one server with a list of URLs:
+      // both are valid, but a per-address entry is what every native WebRTC
+      // stack handles identically, and it keeps a rejected address (a blocked
+      // UDP port) from taking the working TCP/TLS ones down with it.
+      for (final url in relays) {
+        servers.add({'urls': url, ...credentials});
+      }
     }
     return servers;
   }
 
   /// True when a TURN relay is configured. Without one, a call can fail to
   /// connect on mobile data instead of merely sounding bad.
-  bool get hasTurnRelay => (turnUrl ?? '').isNotEmpty;
+  ///
+  /// Parsed rather than merely non-empty: `TURN_URL=stun:...` or a stray word
+  /// would otherwise switch the "no relay configured" warning off while leaving
+  /// the call with nothing but STUN — the exact silence that warning exists to
+  /// prevent.
+  bool get hasTurnRelay => TurnUrls.parse(turnUrl).isNotEmpty;
 
   /// Whether the current environment is production.
   bool get isProduction => environment == 'production';

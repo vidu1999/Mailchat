@@ -19,6 +19,7 @@ import 'dart:io';
 
 import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
+import 'package:mailchat/core/config/turn_urls.dart';
 
 const String _envPath = 'assets/config/env';
 const String _rootEnvPath = '.env';
@@ -133,6 +134,35 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  // Calls are optional, but a broken relay is worse than no relay: ICE fails
+  // silently, the call ends as "could not connect", and the network gets the
+  // blame. Validate what `AppConfig` will actually hand to the peer connection.
+  final turnUrl = values['TURN_URL']?.trim() ?? '';
+  final turnUsername = values['TURN_USERNAME']?.trim() ?? '';
+  final turnCredential = values['TURN_CREDENTIAL']?.trim() ?? '';
+  final relays = TurnUrls.parse(turnUrl);
+  if (turnUrl.isNotEmpty && relays.isEmpty) {
+    problems.add('TURN_URL contains no usable relay address. Expected '
+        'turn:host:port, turns:host:port, or a whole pasted ICE server list\n'
+        '(four addresses sharing one credential — UDP 80/443, TCP 80 and TLS '
+        '443). A stun: address is not a relay: it cannot forward media.');
+  }
+  if (relays.isNotEmpty) {
+    if (turnUsername.isEmpty || turnCredential.isEmpty) {
+      problems.add('TURN_URL is set but TURN_USERNAME / TURN_CREDENTIAL is '
+          'missing. A hosted relay rejects anonymous allocations, so the call '
+          'falls back to STUN-only and fails on mobile data. Both values are '
+          'on the same provider page as the URLs.');
+    }
+    final echoed = '$turnUsername $turnCredential'.toUpperCase();
+    if (const ['YOUR', 'REPLACE', 'EXAMPLE', 'CHANGEME', 'PASTE']
+        .any((marker) => echoed.contains(marker))) {
+      problems.add('TURN_USERNAME / TURN_CREDENTIAL still contains a template '
+          'placeholder — the relay will reject it. Copy the credential from '
+          'the provider dashboard.');
+    }
+  }
+
   if (problems.isNotEmpty) {
     _report(problems.join('\n'));
   }
@@ -152,6 +182,23 @@ Future<void> main(List<String> args) async {
     stdout.writeln('  key:   present (${anonKey.length} chars, role: $role)');
     stdout.writeln(
         '  email confirmation: ${values['EMAIL_CONFIRMATION_REQUIRED'] ?? 'true (default)'}');
+    if (relays.isEmpty) {
+      stdout.writeln('  relay: none configured (a call then works on the same '
+          'network only; see docs/calls.md)');
+    } else {
+      // A hosted relay is only as good as its fallbacks: with UDP-only entries
+      // a network that blocks UDP fails the call outright, so say which case
+      // this is instead of "relay: configured".
+      final tcp = relays.any(
+        (u) => u.startsWith('turns:') || u.contains('transport=tcp'),
+      );
+      final count =
+          relays.length == 1 ? '1 address' : '${relays.length} addresses';
+      final fallback = tcp
+          ? ''
+          : ' (UDP only — a network that blocks UDP will still fail)';
+      stdout.writeln('  relay: $count$fallback');
+    }
     final redirect = values['AUTH_REDIRECT_URL'] ?? 'mailchat://auth/callback';
     stdout.writeln('  auth redirect: $redirect');
     stdout.writeln('');

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
+import 'package:mailchat/core/config/turn_urls.dart';
 
 /// URL handling is the difference between "works" and an opaque
 /// `SocketException`, so it is pinned down here.
@@ -113,6 +114,103 @@ void main() {
             .last['urls'],
         'turn:r:3478',
       );
+    });
+
+    test('a pasted provider list becomes one server per address', () {
+      // Shape of the array a hosted TURN dashboard hands out: four addresses,
+      // one credential, plus the provider's own STUN entry.
+      final servers = AppConfig.buildIceServers(
+        stunUrl: 'stun:stun.l.google.com:19302',
+        turnUrl: 'turn:relay.example.ca:80,'
+            'turn:relay.example.ca:80?transport=tcp,'
+            'turn:relay.example.ca:443,'
+            'turns:relay.example.ca:443?transport=tcp',
+        turnUsername: ' user ',
+        turnCredential: ' secret ',
+      );
+      // STUN plus four relays: every address reaches the peer connection.
+      expect(servers, hasLength(5));
+      expect(servers.first['urls'], 'stun:stun.l.google.com:19302');
+      expect(
+        servers.skip(1).map((s) => s['urls']).toList(),
+        [
+          'turn:relay.example.ca:80',
+          'turn:relay.example.ca:80?transport=tcp',
+          'turn:relay.example.ca:443',
+          'turns:relay.example.ca:443?transport=tcp',
+        ],
+      );
+      for (final server in servers.skip(1)) {
+        // A relay entry without credentials is silently unusable, so each one
+        // carries the trimmed pair rather than only the first.
+        expect(server['username'], 'user');
+        expect(server['credential'], 'secret');
+      }
+    });
+  });
+
+  group('TurnUrls.parse', () {
+    test('keeps a single address unchanged', () {
+      expect(
+        TurnUrls.parse('turn:turn.example.com:3478'),
+        ['turn:turn.example.com:3478'],
+      );
+    });
+
+    test('splits on commas, semicolons, spaces and newlines', () {
+      expect(
+        TurnUrls.parse('turn:a:80, turn:b:80; turn:c:80\nturn:d:80'),
+        ['turn:a:80', 'turn:b:80', 'turn:c:80', 'turn:d:80'],
+      );
+    });
+
+    test('reads a pasted iceServers array and drops its STUN entry', () {
+      const pasted = '''
+        [
+          { "urls": "stun:relay.example.ca:80" },
+          { "urls": "turn:relay.example.ca:80",
+            "username": "u", "credential": "c" },
+          { "urls": "turns:relay.example.ca:443?transport=tcp",
+            "username": "u", "credential": "c" }
+        ]
+      ''';
+      expect(TurnUrls.parse(pasted), [
+        'turn:relay.example.ca:80',
+        'turns:relay.example.ca:443?transport=tcp',
+      ]);
+    });
+
+    test('translates http(s):// addresses to turn(s):', () {
+      // RTCPeerConnection accepts only turn:/turns:, so a pasted https://443
+      // entry is otherwise an ICE server the native stack throws away.
+      expect(
+        TurnUrls.parse(
+          'https://relay.example.ca:443 http://relay.example.ca:80',
+        ),
+        ['turns:relay.example.ca:443', 'turn:relay.example.ca:80'],
+      );
+    });
+
+    test('collapses turn:// to turn: and keeps ?transport=tcp', () {
+      expect(
+        TurnUrls.parse('turn://relay.example.ca:80?transport=tcp'),
+        ['turn:relay.example.ca:80?transport=tcp'],
+      );
+    });
+
+    test('de-duplicates repeats without reordering', () {
+      expect(
+        TurnUrls.parse('turn:b:80, turn:a:80, turn:b:80'),
+        ['turn:b:80', 'turn:a:80'],
+      );
+    });
+
+    test('a STUN-only or nonsense value yields no relay', () {
+      expect(TurnUrls.parse('stun:stun.l.google.com:19302'), isEmpty);
+      expect(TurnUrls.parse('yes'), isEmpty);
+      expect(TurnUrls.parse('   '), isEmpty);
+      expect(TurnUrls.parse(null), isEmpty);
+      expect(TurnUrls.parse('turn:'), isEmpty);
     });
   });
 }

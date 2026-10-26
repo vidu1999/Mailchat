@@ -48,7 +48,7 @@ Legend:
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
 | Voice messages | ❌ | No recorder, no player, no upload path |
-| Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, mute and camera toggles. Not verified on a device, and needs a TURN relay for mobile data — see [calls.md](calls.md) |
+| Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, mute and camera toggles. Not verified on a device, and needs a TURN relay for mobile data — paste the provider's list into `TURN_URL`, see [calls.md](calls.md) |
 | Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
 | Multi-device | 🟡 | `user_devices` table; no session list, no "log out all devices", no token registration |
 | End-to-end encryption | ❌ | Not implemented and not claimed (§4) |
@@ -66,7 +66,7 @@ Legend:
 | — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
 | — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
 | 17 | Attachment preview | 🟡 the picker flow supersedes it; the old placeholder screen is still routed |
-| 18–19 | Voice call, video call | 🟡 built and reachable: incoming prompt, active call with mute/camera/flip, real WebRTC media. Unverified on two devices; mobile data needs a TURN relay |
+| 18–19 | Voice call, video call | 🟡 built and reachable: incoming prompt, active call with mute/camera/flip, real WebRTC media. Unverified on two devices; mobile data needs a TURN relay pasted into `TURN_URL` |
 | 20 | My status / stories | ❌ |
 | 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
 | 22–23 | Blocked users, report user | ✅ built |

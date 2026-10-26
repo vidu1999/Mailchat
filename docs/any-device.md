@@ -109,7 +109,7 @@ Be aware of these before saying "it works everywhere":
 | **Attachments are unverified** | Picker and upload path exist, but no upload has ever run against a live bucket | `docs/attachments.md` |
 | **Push notifications absent** | No background alerts; the app must be open | `docs/running.md` §6 |
 | **Realtime unverified** | Code exists; nothing has exercised it against a provisioned database | `docs/testing.md` |
-| **Calls may not connect on mobile data** | Media works over WebRTC, but without a TURN relay carrier NAT often blocks it | `docs/calls.md` |
+| **Calls may not connect on mobile data** | Media works over WebRTC, but without a TURN relay carrier NAT often blocks it. A relay is configuration only: paste the provider's list into `TURN_URL` | `docs/calls.md` |
 | **No rate limiting / abuse handling** | RLS protects data, but nothing throttles a hostile client | `docs/security.md` |
 
 None of these stop the app from *installing and running* on another Android

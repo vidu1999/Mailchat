@@ -103,18 +103,74 @@ sender of the answer are one state machine with an `isCaller` flag.
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `STUN_URL` | `stun:stun.l.google.com:19302` | Discovers this device's public address |
-| `TURN_URL` | none | Relay for carrier-grade NAT |
-| `TURN_USERNAME` | none | Relay credentials |
-| `TURN_CREDENTIAL` | none | Relay credentials |
+| `TURN_URL` | none | One relay address, or the whole list a provider gives you |
+| `TURN_USERNAME` | none | Used by every address in `TURN_URL` |
+| `TURN_CREDENTIAL` | none | Used by every address in `TURN_URL` |
 
-All four are read in `AppConfig`, assembled by `AppConfig.buildIceServers()` and
-unit tested. Without a TURN relay a call connects on the same Wi-Fi and on many
-home routers, and fails on mobile data; the caller's screen says exactly that
-rather than blaming the network in general.
+All four are read in `AppConfig` and assembled by `AppConfig.buildIceServers()`,
+with the URL list parsed by `lib/core/config/turn_urls.dart`. Both are unit
+tested. `TURN_URL` accepts any of:
+
+- one address — `turn:turn.example.com:3478`;
+- a list separated by commas, semicolons or newlines;
+- a whole pasted `iceServers` JSON snippet, quotes and braces included;
+- `http://` / `https://` entries, rewritten to `turn:` / `turns:` because
+  `RTCPeerConnection` accepts only the TURN schemes — an untouched `https://`
+  entry is an ICE server the native stack discards without saying so.
+
+`stun:` entries in a pasted list are dropped (`STUN_URL` already provides one)
+and duplicate addresses are removed, in order. Each relay address becomes its own
+entry in the ICE server list, all carrying the same username/credential, so one
+blocked UDP port cannot take the working TCP/TLS addresses down with it.
+
+Without a relay a call connects on the same Wi-Fi and on many home routers, and
+fails on mobile data; the caller's screen says exactly that rather than blaming
+the network in general.
 
 The credential is a per-server secret, not a Supabase key, but it still belongs
 in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
 the repository.
+
+## Setting up a hosted TURN relay
+
+Any hosted provider works, because the app only needs a list of addresses and one
+credential pair. With [Metered](https://dashboard.metered.ca/v2/turn/dashboard)
+as the example:
+
+1. **TURN Server → Credentials → Create Credential.** The label and region are
+   optional; the region decides which relay host serves you.
+2. On the new credential, **Show ICE Servers** (or *Get credential*). It shows
+   four or five entries and one username/password. A brand-new credential can
+   take up to two minutes to propagate — a call placed immediately may gather no
+   relay candidate even though the values are right.
+3. Put the addresses into `TURN_URL`, **on one line, comma-separated**, with the
+   credential pair under it:
+
+```ini
+TURN_URL=turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:80?transport=tcp,turn:global.relay.metered.ca:443,turns:global.relay.metered.ca:443?transport=tcp
+TURN_USERNAME=the-credential-username
+TURN_CREDENTIAL=the-credential-password
+```
+
+   Pasting the dashboard's JSON array instead is also accepted, but it must stay
+   on one line: the env file is line-based.
+
+4. `dart run tool/check_config.dart` — a correct paste reports `relay: 4
+   addresses`. It fails when `TURN_URL` holds no usable address, and when the
+   username or credential is missing, because a hosted relay rejects anonymous
+   allocations and the call would then quietly fall back to STUN.
+5. Stop the app and start it again. Configuration is read at startup and the env
+   file is bundled into the build, so a hot restart will not pick up an edit.
+6. Call between two phones on different networks — one on mobile data. The
+   "no relay configured" warning is gone from the call screen, and the
+   `call_media_ready` log line reports `turn: true`.
+
+Rotating the credential later is a dashboard action plus an env edit: nothing in
+the database, the migrations or the RLS policies knows about TURN.
+
+The relay credential is not a Supabase key and carries no data access of its own,
+but it is billed per gigabyte, so it stays in the gitignored `.env` /
+`assets/config/env` like any other secret.
 
 ## What the SDK must provide
 
@@ -143,7 +199,7 @@ and take voice calls. The runtime prompt is raised by `getUserMedia`.
 
 | Item | Why it is not done here |
 | --- | --- |
-| **A TURN server** | Needs an account or a VPS. Until then, calls work on a local network and may fail on mobile data |
+| **A TURN server** | Configuration, not code: paste the provider's list into `TURN_URL` (§ *Setting up a hosted TURN relay*). Without one, calls work on a local network and may fail on mobile data |
 | **Two devices** | The only way to prove media; CI can compile WebRTC but cannot hear it |
 | **Push for a call** | A call only rings while the app is open. Waking a backgrounded phone needs FCM — see [notifications.md](notifications.md) |
 | **Ringtone, vibration, wake lock** | Without them a ringing phone may be silent and asleep |
@@ -154,7 +210,7 @@ and take voice calls. The runtime prompt is raised by `getUserMedia`.
 
 | Verified | Not verified |
 | --- | --- |
-| The transition rules, SDP ownership, duration maths, ICE-server assembly and the media-stage wording, by unit tests | That a call connects between two real phones |
+| The transition rules, SDP ownership, duration maths, ICE-server assembly, relay-URL parsing and the media-stage wording, by unit tests | That a call connects between two real phones |
 | That the app analyzes clean and a debug APK builds **with the WebRTC dependency and the permissions patched in** | Audio quality, echo, camera switching, bluetooth routing |
 | That the migration is re-runnable and present in `apply_all.sql` | That Realtime delivers a `calls` insert to a sleeping-but-foregrounded app |
 | `supabase/verify.sql` row 11: both tables exist with RLS | Anything about NAT traversal, which is exactly what TURN exists to fix |
