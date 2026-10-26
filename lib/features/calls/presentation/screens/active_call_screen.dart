@@ -143,17 +143,16 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       if (value == null || value.isEmpty) return;
       // Fired and forgotten: a lost candidate is recoverable (ICE retries with
       // the others), and blocking the media pipeline on a database write is not.
-      unawaited(_calls
-          .sendIceCandidate(
-            callId: callId,
-            senderId: _selfId,
-            candidate: value,
-            sdpMid: candidate.sdpMid,
-            sdpMlineIndex: candidate.sdpMLineIndex,
-          )
-          .catchError((Object e, StackTrace st) {
-        AppLogger.error(e, st, {'where': 'call_ice_send'});
-      }));
+      _logOnly(
+        _calls.sendIceCandidate(
+          callId: callId,
+          senderId: _selfId,
+          candidate: value,
+          sdpMid: candidate.sdpMid,
+          sdpMlineIndex: candidate.sdpMLineIndex,
+        ),
+        'call_ice_send',
+      );
     };
 
     _media.onRemoteStream = (_) {
@@ -187,19 +186,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
     // Candidates may have arrived while media was still starting, so seed from
     // the table and then follow the stream.
-    unawaited(_calls
-        .iceCandidates(callId: callId, excludeUserId: _selfId)
-        .then((rows) async {
-      for (final row in rows) {
-        await _media.addRemoteCandidate(
-          candidate: '${row['candidate']}',
-          sdpMid: row['sdp_mid'] as String?,
-          sdpMlineIndex: row['sdp_mline_index'] as int?,
-        );
-      }
-    }).catchError((Object e, StackTrace st) {
-      AppLogger.error(e, st, {'where': 'call_ice_seed'});
-    }));
+    _logOnly(_seedCandidates(callId), 'call_ice_seed');
 
     _candidateEvents = _calls.candidateUpdates.listen((row) {
       if (row['sender_id'] == _selfId) return;
@@ -209,6 +196,33 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         sdpMlineIndex: row['sdp_mline_index'] as int?,
       ));
     });
+  }
+
+  /// Candidates that arrived before this side started listening.
+  Future<void> _seedCandidates(String callId) async {
+    final rows =
+        await _calls.iceCandidates(callId: callId, excludeUserId: _selfId);
+    for (final row in rows) {
+      await _media.addRemoteCandidate(
+        candidate: '${row['candidate']}',
+        sdpMid: row['sdp_mid'] as String?,
+        sdpMlineIndex: row['sdp_mline_index'] as int?,
+      );
+    }
+  }
+
+  /// Runs a best-effort write and logs a failure instead of throwing.
+  ///
+  /// Used from `dispose()` and from socket callbacks, where there is no caller
+  /// to hand an exception to and a lost ICE candidate or end-of-call write must
+  /// not become an unhandled error.
+  void _logOnly(Future<dynamic> action, String where) {
+    unawaited(action.then<void>(
+      (_) {},
+      onError: (Object e, StackTrace st) {
+        AppLogger.error(e, st, {'where': where});
+      },
+    ));
   }
 
   void _startTicker() {
@@ -256,13 +270,11 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     final callId = _callId;
     if (!_finishing && callId != null && _call?.state.isTerminal != true) {
       final state = _call?.state;
-      unawaited(
-        (state == CallState.ongoing
-                ? _calls.end(callId)
-                : _calls.reportFailure(callId))
-            .catchError((Object e, StackTrace st) {
-          AppLogger.error(e, st, {'where': 'call_dispose_end'});
-        }),
+      _logOnly(
+        state == CallState.ongoing
+            ? _calls.end(callId)
+            : _calls.reportFailure(callId),
+        'call_dispose_end',
       );
     }
     _ticker?.cancel();
@@ -349,6 +361,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   }
 
   Widget _buildVideoArea(ColorScheme colors) {
+    final connected = _stage == CallMediaStage.connected;
     if (!_isVideo) {
       return Center(
         child: Icon(

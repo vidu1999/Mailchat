@@ -94,9 +94,12 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     // Dismissed without answering: leave the row in a state that means "nobody
     // picked up" rather than a ring forever.
     if (!_answered && _callId.isNotEmpty) {
-      unawaited(_calls.markMissed(_callId).catchError((Object e, StackTrace st) {
-        AppLogger.error(e, st, {'where': 'call_missed_on_close'});
-      }));
+      unawaited(_calls.markMissed(_callId).then<void>(
+        (_) {},
+        onError: (Object e, StackTrace st) {
+          AppLogger.error(e, st, {'where': 'call_missed_on_close'});
+        },
+      ));
     }
     _calls.dispose();
     super.dispose();
