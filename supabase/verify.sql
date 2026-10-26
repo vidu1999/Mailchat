@@ -63,6 +63,13 @@ select '08. email discovery columns (0005)',
        ) = 2 then 'ok' else 'MISSING - 0005 did not apply' end
 
 union all
+select '10. one reaction per user (0006)',
+       case when exists (
+         select 1 from pg_constraint
+         where conname = 'message_reactions_one_per_user'
+       ) then 'ok' else 'MISSING - 0006 did not apply: a user can hold two reactions' end
+
+union all
 select '09. search_users function (0005)',
        case when exists (
          select 1 from pg_proc p
