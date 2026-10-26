@@ -25,3 +25,6 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+    # Runtime configuration. Declared as a directory: `env` is gitignored and
+    # absent in CI, which must still build (it falls back to --dart-define).
+    - assets/config/

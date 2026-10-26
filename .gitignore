@@ -30,13 +30,16 @@ ios/Runner/GeneratedPluginRegistrant.*
 
 # Environment
 .env
+# Local credentials bundled as an asset (template: assets/config/env.example)
+assets/config/env
 .env.production
 .env.staging
 *.env.local
 
 # IDE
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
 *.swp
 *.swo
 *~

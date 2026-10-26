@@ -9,6 +9,21 @@ Flutter (Dart) client, Supabase backend (Auth, PostgreSQL, Realtime, Storage).
 
 ---
 
+## Quick start
+
+```bash
+cp assets/config/env.example assets/config/env   # PowerShell: Copy-Item
+# put your project URL + anon key in assets/config/env
+flutter run
+```
+
+No `--dart-define` flags. Configuration is read at runtime from the bundled
+`assets/config/env` asset; `--dart-define` still overrides it. The file is
+gitignored — never commit real credentials, and never use the `service_role`
+key in the app. Details: `docs/running.md` §1.
+
+---
+
 ## Project status
 
 This is a **work in progress**, not a shippable app. Read this before relying

@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MailChat",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "comment": "Configuration comes from assets/config/env, so no dart-defines are needed here."
+    },
+    {
+      "name": "MailChat (bare env file, no asset)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": ["--dart-define-from-file=.env"],
+      "comment": "Use only if you prefer a root .env over assets/config/env; this overrides the asset."
+    }
+  ]
+}

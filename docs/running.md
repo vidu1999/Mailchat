@@ -7,23 +7,76 @@ CLI is not installed and no device is connected.
 
 ## 1. Configure Supabase credentials
 
-The app reads configuration from `--dart-define` values. There is no `.env`
-loader, so passing them at build time is the supported path.
-
-PowerShell:
+Configuration is read from **`assets/config/env`**, so no CLI flags are needed:
 
 ```powershell
-flutter run `
-  --dart-define=SUPABASE_URL=https://YOUR-PROJECT.supabase.co `
-  --dart-define=SUPABASE_ANON_KEY=YOUR-ANON-KEY
+Copy-Item assets/config/env.example assets/config/env
+# edit assets/config/env, then:
+flutter run
 ```
 
-Get both from **Supabase Dashboard → Project Settings → API**. Use the
-`anon` / public key. **Never** use the `service_role` key in the app — it
-bypasses every RLS policy.
+```bash
+cp assets/config/env.example assets/config/env
+$EDITOR assets/config/env
+flutter run
+```
 
-If the values are missing, the app now shows a "Configuration required" screen
-naming what is absent, instead of failing later on every request.
+Fill in two values from **Supabase Dashboard → Project Settings → API**:
+
+```ini
+SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR-ANON-KEY
+```
+
+Use the `anon` / public key. **Never** the `service_role` key — it bypasses
+every RLS policy.
+
+`assets/config/env` is gitignored; `env.example` is the committed template.
+`./run.ps1` and `./run.sh` are thin wrappers that copy a root `.env` into
+`assets/config/env` first, for anyone who keeps credentials there by habit.
+
+### Why the file is not at the project root
+
+Two Flutter facts force this:
+
+1. `String.fromEnvironment` (what `--dart-define` populates) is resolved by the
+   **compiler**. A root `.env` is never read by the running app — nothing in the
+   Dart runtime looks for it.
+2. Only declared assets are bundled. So the file has to live inside a declared
+   asset directory and be read at runtime through `rootBundle`.
+
+The name is `env`, not `.env`, because Flutter's bundler **skips dotfiles** —
+`assets/config/.env` would be silently absent at runtime.
+
+Consequences:
+
+- Editing the file requires a **restart**, not a hot reload: the asset is baked
+  into the bundle at build time.
+- The anon key is inside the APK. That is intended — it is a publishable key and
+  every table is behind RLS — which is precisely why RLS must stay enabled.
+
+### Precedence
+
+`--dart-define` beats the file, which beats the built-in defaults:
+
+```
+--dart-define=SUPABASE_URL=...   >   assets/config/env   >   placeholders
+```
+
+So CI and release builds keep passing values as defines (`docs/release.md`),
+while a developer machine needs none. `--dart-define-from-file=.env` also works
+if you prefer a root `.env` and are happy to type the flag; there is a VS Code
+launch configuration for it in `.vscode/launch.json`.
+
+### When it is wrong
+
+If the values are missing or malformed the app shows a "Configuration required"
+screen naming what is absent, instead of failing later on every request. The
+startup log states which source was used (never the values):
+
+```
+[AppConfig] environment=development appName=MailChat supabaseHost=YOUR-PROJECT.supabase.co emailConfirmationRequired=true source=env file (assets/config/env) and --dart-define
+```
 
 ## 2. Apply the database schema
 
@@ -119,12 +172,12 @@ toolchain is complete.
 
 ```powershell
 flutter create --platforms=windows .
-flutter run -d windows --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+flutter run -d windows
 ```
 
 Requires Visual Studio with the **Desktop development with C++** workload. This
 is the quickest way to see whether the UI renders, but it is not the target
-platform.
+platform. Credentials come from `assets/config/env` exactly as on Android.
 
 ### Web will NOT work
 

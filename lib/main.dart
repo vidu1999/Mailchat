@@ -8,7 +8,8 @@ import 'package:mailchat/core/logging/app_logger.dart';
 ///
 /// Initialization order:
 /// 1. Ensure the Flutter binding is initialized.
-/// 2. Load application configuration (environment / dart-defines).
+/// 2. Load application configuration: the bundled `assets/config/env` file
+///    first, with `--dart-define` values taking priority over it.
 /// 3. Validate it. Supabase cannot be reached with placeholder values, so
 ///    failing here produces an actionable message instead of every request
 ///    failing later with a confusing network error.
