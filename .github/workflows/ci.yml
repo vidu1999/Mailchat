@@ -197,9 +197,13 @@ jobs:
           set -e
           if [ "$rc" -ne 0 ]; then
             echo "::error::flutter build apk failed with exit $rc"
-            tail -60 /tmp/build-apk.log | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            # Gradle puts the reason after "What went wrong"; the plain tail is
+            # mostly SDK-installer noise.
+            grep -n -A 25 "What went wrong" /tmp/build-apk.log | head -40 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            grep -nE "^\s*e: |Execution failed for task|Could not resolve|requires|error:" \
+              /tmp/build-apk.log | head -25 \
+              | while IFS= read -r line; do echo "::error::$line"; done
             exit "$rc"
           fi
 
