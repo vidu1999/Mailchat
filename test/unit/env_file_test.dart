@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
+import 'package:mailchat/core/config/env_file.dart';
 
 /// The env file is the only way to configure the app without CLI flags, and it
 /// is parsed by hand, so the parser is pinned down here.
@@ -95,6 +96,40 @@ SUPABASE_ANON_KEY=abc
 
     test('lets the last duplicate win', () {
       expect(AppConfig.parseEnvFile('A=1\nA=2'), {'A': '2'});
+    });
+  });
+
+  group('EnvFile.isUnset', () {
+    // Used by tool/check_config.dart to refuse a build with placeholder values,
+    // so the matching rules matter: case-insensitive, and blank counts as unset.
+    test('a real value is set', () {
+      expect(
+        EnvFile.isUnset({'SUPABASE_ANON_KEY': 'eyJhbGciOi.abc.def'}, 'SUPABASE_ANON_KEY'),
+        isFalse,
+      );
+    });
+
+    test('a missing or blank value is unset', () {
+      expect(EnvFile.isUnset({}, 'SUPABASE_URL'), isTrue);
+      expect(EnvFile.isUnset({'SUPABASE_URL': '   '}, 'SUPABASE_URL'), isTrue);
+    });
+
+    test('placeholder matching ignores case', () {
+      const values = {'SUPABASE_ANON_KEY': 'YOUR-ANON-KEY-HERE'};
+      expect(
+        EnvFile.isUnset(values, 'SUPABASE_ANON_KEY',
+            placeholders: ['your-anon-key']),
+        isTrue,
+      );
+    });
+
+    test('a valid URL is not mistaken for a placeholder', () {
+      expect(
+        EnvFile.isUnset({'SUPABASE_URL': 'https://abcdefgh.supabase.co'},
+            'SUPABASE_URL',
+            placeholders: ['your-project-ref']),
+        isFalse,
+      );
     });
   });
 

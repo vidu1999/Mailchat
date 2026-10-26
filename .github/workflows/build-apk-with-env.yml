@@ -1,0 +1,140 @@
+name: Build APK with my config
+
+# Manual workflow: builds an installable debug APK against a Supabase project,
+# without needing a local Android toolchain.
+#
+# Trigger it from the Actions tab ("Run workflow") or:
+#   gh workflow run build-apk-with-env.yml \
+#     -f supabase_url=https://YOUR-PROJECT.supabase.co \
+#     -f supabase_anon_key=YOUR-ANON-KEY
+#
+# The values are passed as --dart-define, which takes priority over the bundled
+# assets/config/env (which does not exist in CI).
+#
+# On credentials: the anon / publishable key is embedded in every APK by design,
+# so it is not a secret in the "could be used to read data" sense — RLS is the
+# boundary. The service_role key is a real secret and this workflow refuses it.
+# Prefer repository secrets if you would rather not have the value in the run
+# inputs: set SUPABASE_URL and SUPABASE_ANON_KEY under Settings → Secrets, and
+# the workflow uses them when the inputs are blank.
+on:
+  workflow_dispatch:
+    inputs:
+      supabase_url:
+        description: "Supabase project URL (https://xxx.supabase.co)"
+        required: false
+        type: string
+      supabase_anon_key:
+        description: "Supabase anon/public key (blank = use repo secret)"
+        required: false
+        type: string
+      build_mode:
+        description: "APK type: debug (installable, no signing setup) or release (needs a keystore)"
+        required: true
+        default: debug
+        type: choice
+        options: [debug, release]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Platform folders are generated, not committed.
+      - name: Scaffold Android platform
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org com.mailchat --project-name mailchat .
+          fi
+
+      # Teaches the project to receive Supabase auth redirects. Idempotent.
+      - name: Enable deep links
+        run: dart run tool/enable_deep_links.dart
+
+      - name: Resolve credentials
+        id: creds
+        env:
+          INPUT_URL: ${{ inputs.supabase_url }}
+          INPUT_KEY: ${{ inputs.supabase_anon_key }}
+          SECRET_URL: ${{ secrets.SUPABASE_URL }}
+          SECRET_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          url="${INPUT_URL:-$SECRET_URL}"
+          key="${INPUT_KEY:-$SECRET_KEY}"
+
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            echo "::error::No credentials. Fill in supabase_url and supabase_anon_key, or add SUPABASE_URL / SUPABASE_ANON_KEY repository secrets."
+            exit 1
+          fi
+
+          # A release APK containing the service_role key would hand out the
+          # whole database: it bypasses RLS.
+          if echo "$key" | grep -q "service_role"; then
+            echo "::error::That is the service_role key. It bypasses RLS and must never ship in an app. Use the anon/public key."
+            exit 1
+          fi
+
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        env:
+          SUPABASE_URL: ${{ steps.creds.outputs.url }}
+          SUPABASE_ANON_KEY: ${{ steps.creds.outputs.key }}
+        run: |
+          flutter build apk --${{ inputs.build_mode }} --split-per-abi \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=APP_ENV=development
+
+      - name: Rename artifacts
+        run: |
+          cd build/app/outputs/flutter-apk
+          for f in *.apk; do
+            [ -f "$f" ] || continue
+            mv "$f" "mailchat-${{ inputs.build_mode }}-$f"
+          done
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mailchat-apk-${{ inputs.build_mode }}
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          {
+            echo "### APK built"
+            echo ""
+            echo "- Mode: **${{ inputs.build_mode }}**"
+            echo "- Project: \`${{ steps.creds.outputs.url }}\`"
+            echo "- Download: artifact **mailchat-apk-${{ inputs.build_mode }}** on this run's summary page."
+            echo ""
+            if [ "${{ inputs.build_mode }}" = "debug" ]; then
+              echo "Debug APKs are signed with the debug key: installable by sideload, **not** publishable to Play."
+            else
+              echo "Release builds are unsigned unless a keystore is configured — Android refuses to install an unsigned APK. See \`docs/release.md\`."
+            fi
+            echo ""
+            echo "Before testing email links, check that \`mailchat://auth/callback\` is listed under Supabase → Authentication → URL Configuration → Redirect URLs (\`docs/auth-links.md\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

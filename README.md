@@ -18,7 +18,15 @@ flutter run
 ```
 
 No `--dart-define` flags. Configuration is read at runtime from the bundled
-`assets/config/env` asset; `--dart-define` still overrides it. The file is
+`assets/config/env` asset; `--dart-define` still overrides it.
+
+To build an installable APK instead of running from source:
+
+```powershell
+.\tool\build_apk.ps1      # or: ./tool/build_apk.sh
+```
+
+See `docs/release.md`. The file is
 gitignored — never commit real credentials, and never use the `service_role`
 key in the app. Details: `docs/running.md` §1.
 

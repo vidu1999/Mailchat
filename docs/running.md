@@ -155,6 +155,18 @@ Confirm email** off. Otherwise every test account needs a real inbox before it
 can sign in. The app does not fake verification either way — it reflects what
 the backend does.
 
+## 2b. Build an installable APK
+
+```powershell
+.\tool\build_apk.ps1            # debug, split per ABI, signed with the debug key
+adb install -r build\app\outputs\flutter-apk\app-arm64-v8a-debug.apk
+```
+
+The script validates `assets/config/env` with the app's own parser before
+building, so it cannot hand you an APK that opens a configuration-error screen.
+There is also a manual CI workflow that builds an APK against your project with
+no local Android setup. Both are documented in **`docs/release.md`**.
+
 ## 3. Get a device
 
 `flutter run` reported *"No supported devices connected"*. Pick one:

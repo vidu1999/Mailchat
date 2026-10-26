@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'package:mailchat/core/config/env_file.dart';
+
 /// Application configuration, resolved from two sources.
 ///
 /// Priority, highest first:
@@ -115,41 +117,10 @@ class AppConfig {
 
   /// Parses `.env` syntax into a map of upper-cased keys.
   ///
-  /// Supported: `KEY=value`, `export KEY=value`, `#` comments, blank lines,
-  /// CRLF endings, and values wrapped in matching single or double quotes (with
-  /// anything after the closing quote, such as an inline comment, discarded).
-  /// Lines without `=` are ignored rather than treated as errors: a stray line
-  /// should not take down startup.
-  ///
-  /// Public so it can be unit tested — the real file only exists on a developer
-  /// machine, so this is the only part of the env pipeline that is testable.
+  /// Delegates to [EnvFile.parse], which is Flutter-free so the same parser can
+  /// be used by command-line tooling. See that class for the accepted syntax.
   @visibleForTesting
-  static Map<String, String> parseEnvFile(String raw) {
-    final result = <String, String>{};
-    for (final line in raw.split('\n')) {
-      var entry = line.trim();
-      if (entry.isEmpty || entry.startsWith('#')) continue;
-      if (entry.startsWith('export ')) {
-        entry = entry.substring('export '.length).trim();
-      }
-      final separator = entry.indexOf('=');
-      if (separator <= 0) continue;
-
-      final key = entry.substring(0, separator).trim().toUpperCase();
-      if (key.isEmpty) continue;
-
-      var value = entry.substring(separator + 1).trim();
-      if (value.startsWith('"') || value.startsWith("'")) {
-        final quote = value[0];
-        final closing = value.indexOf(quote, 1);
-        value = closing == -1
-            ? value.substring(1)
-            : value.substring(1, closing);
-      }
-      result[key] = value.trim();
-    }
-    return result;
-  }
+  static Map<String, String> parseEnvFile(String raw) => EnvFile.parse(raw);
 
   /// Resolves every configuration value, assigning each field exactly once.
   ///
