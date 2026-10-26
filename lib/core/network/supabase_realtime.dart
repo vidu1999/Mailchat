@@ -8,6 +8,7 @@ import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
+import 'package:mailchat/core/network/connectivity_signal.dart';
 import 'package:mailchat/core/network/transport_failure.dart';
 
 /// Minimal Supabase Realtime (Phoenix protocol) client.
@@ -26,8 +27,38 @@ import 'package:mailchat/core/network/transport_failure.dart';
 /// core compiles without pub.dev access. On a standard dev machine you may
 /// replace this with the official `supabase_flutter` Realtime client.
 class SupabaseRealtimeClient {
-  SupabaseRealtimeClient._();
+  SupabaseRealtimeClient._() {
+    // A successful REST request means the network is back, which is a better
+    // reconnect trigger than waiting out the backoff.
+    _activitySubscription = ConnectivitySignal.instance.activity.listen(
+      (_) => _retryNowIfWaiting(),
+    );
+  }
+
   static final SupabaseRealtimeClient instance = SupabaseRealtimeClient._();
+
+  /// Reconnects immediately when a request proves the network works again.
+  ///
+  /// Only while an outage is already known about: before the first attempt
+  /// (`_reconnectAttempt == 0`) there is nothing to recover, and a reconnect
+  /// per request when everything is fine would open sockets for no reason.
+  void _retryNowIfWaiting() {
+    if (isConnected || _closing || _connecting != null) return;
+    if (_reconnectAttempt == 0) return;
+    final now = DateTime.now();
+    // Several requests finish together after a network returns; one attempt is
+    // enough, and this keeps a burst from opening sockets in parallel.
+    final last = _lastActivityRetry;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastActivityRetry = now;
+    _reconnectTimer?.cancel();
+    AppLogger.info('realtime_retry_on_network', details: {
+      'after_attempts': _reconnectAttempt,
+    });
+    connect();
+  }
 
   WebSocket? _socket;
   final Map<String, _Channel> _channels = {};
@@ -41,6 +72,8 @@ class SupabaseRealtimeClient {
   /// backoff in [reconnectDelay] so an offline device does not log a failure
   /// every five seconds for as long as the app is open.
   int _reconnectAttempt = 0;
+  StreamSubscription<void>? _activitySubscription;
+  DateTime? _lastActivityRetry;
   StreamSubscription<dynamic>? _socketSubscription;
   bool _closing = false;
 
@@ -84,6 +117,12 @@ class SupabaseRealtimeClient {
       _reconnectAttempt = 0;
       onConnected?.call();
       AppLogger.info('realtime_connected');
+      // The server forgets every channel when the socket closes, so a
+      // reconnect that only opened the socket would leave the app looking
+      // connected while delivering nothing: no messages, no read receipts, no
+      // calls. `join()` is only called when a screen mounts, and it does not
+      // run again after a drop.
+      _rejoinChannels();
     } catch (e, st) {
       final kind = classifyTransportFailure(e);
       // A device with no network fails identically every time. Log the stack
@@ -234,6 +273,26 @@ class SupabaseRealtimeClient {
     return channel;
   }
 
+  /// Re-sends the join frame for every registered channel.
+  ///
+  /// Channels survive a disconnect in [_channels]; only their server-side
+  /// subscription does not.
+  void _rejoinChannels() {
+    if (_channels.isEmpty) return;
+    AppLogger.info('realtime_rejoin', details: {'channels': _channels.length});
+    for (final channel in _channels.values) {
+      channel._joined = false;
+      try {
+        channel._sendJoin();
+      } catch (e) {
+        AppLogger.warning('realtime_rejoin_failed', details: {
+          'topic': channel.topic,
+          'error': e.toString(),
+        });
+      }
+    }
+  }
+
   /// Leaves a channel and removes it from the local registry.
   void leave(String topic) {
     final channel = _channels.remove(topic);
@@ -255,6 +314,8 @@ class SupabaseRealtimeClient {
   Future<void> disconnect() async {
     _closing = true;
     _reconnectTimer?.cancel();
+    await _activitySubscription?.cancel();
+    _activitySubscription = null;
     _stopHeartbeat();
     for (final topic in _channels.keys) {
       leave(topic);
@@ -275,6 +336,9 @@ class SupabaseRealtimeClient {
 
 /// A channel handle returned by [SupabaseRealtimeClient.join].
 abstract class Channel {
+  /// The channel topic, e.g. `realtime:mailchat:messages:<id>`.
+  String get topic;
+
   /// Unsubscribe and leave this channel.
   Future<void> unsubscribe();
 
@@ -300,6 +364,9 @@ class _Channel implements Channel {
 
   _Channel._(this._client, this._topic, this._onMessage, {Map<String, dynamic>? config})
       : _config = config;
+
+  @override
+  String get topic => _topic;
 
   @override
   Stream<Map<String, dynamic>> get broadcast => _broadcastController.stream;

@@ -46,6 +46,7 @@ test/unit/
   profile_search_test.dart      search query rules and empty-result wording
   postgrest_error_test.dart     PostgREST and auth errors become readable text
   transport_failure_test.dart   socket failures become a cause and an action; realtime backoff
+  connectivity_recovery_test.dart  the network-recovered signal that ends a realtime backoff early
   reaction_summary_test.dart    reaction chip aggregation
   receipt_state_test.dart       sent / delivered / read from receipt rows
   rpc_payload_test.dart         scalar, rows and integer RPC replies

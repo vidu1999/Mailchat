@@ -37,6 +37,19 @@ composer
   → Realtime INSERT                       both sides reconcile by client_id
 ```
 
+The socket, not the request, is what makes this feel instant. Two details in
+`lib/core/network/supabase_realtime.dart` matter when the network is flaky,
+because a phone loses and regains connectivity constantly:
+
+* **Re-join on reconnect.** Supabase forgets a channel when the socket closes,
+  and `join()` is only called when a screen mounts. Without re-joining, a
+  reconnected app looks connected in the log and delivers nothing — no messages,
+  no receipts, no incoming calls — until it is restarted.
+* **Retry when the network returns.** Backoff alone can wait a minute after
+  connectivity is back. Any successful HTTPS response is proof the network works,
+  so `lib/core/network/connectivity_signal.dart` carries that fact to the socket
+  and ends the wait (throttled to one attempt every 2 s).
+
 `client_id` is a per-sender idempotency key. It exists so the optimistic bubble
 and the realtime insert can be matched and one of them dropped; without it a
 sender sees their message twice for as long as the round trip takes.
@@ -75,6 +88,7 @@ the tick is recomputed when the thread is reopened.
 | "Message blocked" | One side blocked the other | Unblock from Privacy → Blocked users |
 | Duplicate bubble | `client_id` missing on an older client | Update the app; the reconciliation key is what removes it |
 | Reply shows "Earlier message" | The parent is older than the loaded page | Scroll up to load it; the quote is not silently dropped |
+| Live messages stop arriving while the app is open | The realtime socket dropped (network change, sleep) | It reconnects by itself: 5 s, 10, 20, 40, then 60 s, and immediately after any successful request proves the network is back. On reconnect it **re-joins every channel**, so delivery resumes without a restart |
 
 ## Known gaps
 

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
+import 'package:mailchat/core/network/connectivity_signal.dart';
 import 'package:mailchat/core/network/transport_failure.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/auth_error_messages.dart';
@@ -754,6 +755,10 @@ class SupabaseClient {
   Future<dynamic> _decodeResponse(HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      // Every response passes through here, so this is the one place that can
+      // tell the realtime client "the network works again" without the two
+      // classes importing each other.
+      ConnectivitySignal.instance.recordSuccess();
       if (body.isEmpty) return null;
       return jsonDecode(body);
     }
