@@ -69,26 +69,32 @@ jobs:
             test.log
           if-no-files-found: ignore
 
+      # Publishing is split into two plain steps rather than one shell
+      # function: a multi-line function definition here was rejected when the
+      # workflow loaded (the run failed with zero jobs).
       - name: Publish analyzer findings
-        if: failures() && always()
+        if: ${{ failure() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          publish() {
-            local name="$1" file="$2" title="$3"
-            if [ ! -s "$file" ]; then
-              echo "$file is empty or missing"
-              return 0
-            fi
-            jq -Rs --arg sha "$GITHUB_SHA" --arg name "$name" --arg title "$title" \
-              '{name: $name, head_sha: $sha, status: "completed",
-                conclusion: "neutral",
-                output: {title: $title, summary: $title, text: .}}' \
-              "$file" > "payload-$name.json"
-            gh api "repos/${{ github.repository }}/check-runs" --input "payload-$name.json" > /dev/null
-          }
-          publish "analyze-findings" analyze.log "flutter analyze" || true
-          publish "test-findings" test.log "flutter test" || true
+          if [ -s analyze.log ]; then
+            jq -Rs --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '{name: "analyze-findings", head_sha: $sha, status: "completed", conclusion: "neutral", output: {title: "flutter analyze", summary: "Analyzer findings from the failing Analyze step", text: .}}' analyze.log > payload.json
+            gh api "repos/$GITHUB_REPOSITORY/check-runs" --input payload.json > /dev/null || true
+          else
+            echo "analyze.log is empty or missing"
+          fi
+
+      - name: Publish test findings
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s test.log ]; then
+            jq -Rs --arg sha "$GITHUB_SHA" '{name: "test-findings", head_sha: $sha, status: "completed", conclusion: "neutral", output: {title: "flutter test", summary: "Test output from the failing test step", text: .}}' test.log > payload.json
+            gh api "repos/$GITHUB_REPOSITORY/check-runs" --input payload.json > /dev/null || true
+          else
+            echo "test.log is empty or missing"
+          fi
 
       # Same treatment as the analyzer: `flutter test` reports only the exit
       # code in the step summary, so keep the output and publish it.
