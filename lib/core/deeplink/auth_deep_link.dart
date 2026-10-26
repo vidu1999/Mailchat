@@ -91,23 +91,39 @@ class AuthDeepLink {
 
   /// Parses [raw] as an auth deep link, returning null when it is not one.
   ///
-  /// Accepts the custom scheme (`mailchat://auth/callback`) and a web URL whose
-  /// path ends in `auth/callback`, so an https app link configured against a
-  /// real domain works the same way.
-  static AuthDeepLink? parse(String? raw) {
+  /// Two URL shapes are recognised:
+  ///
+  ///  * a **callback** — `mailchat://auth/callback`, an https URL ending in
+  ///    `/auth/callback`, or GoTrue's `/auth/v1/verify`. This is what a
+  ///    correctly allow-listed `redirect_to` produces.
+  ///  * a **bare site URL carrying a payload** — `http://localhost:3000/#access_token=…`.
+  ///    GoTrue falls back to the project's Site URL whenever `redirect_to` is
+  ///    not on its allow-list, so this is the shape most misconfigured projects
+  ///    actually produce. Rejecting it means the only link the user ever
+  ///    receives is one the app cannot read.
+  ///
+  /// [allowedHosts] guards the second shape. When it is non-empty, a link that
+  /// is not a callback must point at one of those hosts. Callers pass their own
+  /// configured hosts; passing an empty set means "the user supplied this link
+  /// deliberately", which is the case for the paste-a-link screen.
+  ///
+  /// A payload is required either way (`access_token`, `token_hash`, or an
+  /// error), so an ordinary link such as `mailchat://settings` is still ignored.
+  static AuthDeepLink? parse(
+    String? raw, {
+    Set<String> allowedHosts = const {},
+  }) {
     if (raw == null || raw.trim().isEmpty) return null;
     final uri = Uri.tryParse(raw.trim());
     if (uri == null) return null;
 
     // Match on scheme + host + path together. For `mailchat://auth/callback`
     // the "auth" segment is the *host*; for an https app link it is part of the
-    // path — so neither alone identifies a callback. Anything else the scheme
-    // can address (`mailchat://settings`) must not be treated as one.
+    // path — so neither alone identifies a callback.
     final signature = '${uri.scheme}://${uri.host}${uri.path}';
     final isCallback = signature.contains('mailchat://auth/callback') ||
         signature.contains('/auth/callback') ||
         signature.contains('/auth/v1/verify');
-    if (!isCallback) return null;
 
     // Query parameters first, then the fragment wins for any repeated key: when
     // both are present the fragment carries the session and the query carries
@@ -118,6 +134,18 @@ class AuthDeepLink {
 
     final errorCode = params['error_code'] ?? params['error'];
     final errorDescription = params['error_description'];
+    final hasPayload = params.containsKey('access_token') ||
+        params.containsKey('token_hash') ||
+        (errorCode != null && errorCode.isNotEmpty) ||
+        (errorDescription != null && errorDescription.isNotEmpty);
+
+    if (!isCallback) {
+      if (!hasPayload) return null;
+      if (allowedHosts.isNotEmpty && !allowedHosts.contains(uri.host)) {
+        return null;
+      }
+    }
+
     if ((errorCode != null && errorCode.isNotEmpty) ||
         (errorDescription != null && errorDescription.isNotEmpty)) {
       return AuthDeepLink(
@@ -153,6 +181,28 @@ class AuthDeepLink {
       tokenHash: tokenHash,
       type: type,
     );
+  }
+
+  /// Hosts whose links may be trusted without a callback path.
+  ///
+  /// Built from configuration: the Supabase project's own host (the Site URL is
+  /// normally the project URL or a custom domain) plus the host of
+  /// `AUTH_REDIRECT_URL`. `localhost` is included because that is the default
+  /// Site URL — and the exact link that lands on a developer's PC.
+  static Set<String> trustedHosts({
+    required String supabaseUrl,
+    required String authRedirectUrl,
+    bool includeLocalhost = true,
+  }) {
+    final hosts = <String>{};
+    for (final raw in [supabaseUrl, authRedirectUrl]) {
+      final uri = Uri.tryParse(raw.trim());
+      if (uri != null && uri.host.isNotEmpty) hosts.add(uri.host);
+    }
+    if (includeLocalhost) {
+      hosts.addAll(['localhost', '127.0.0.1']);
+    }
+    return hosts;
   }
 
   /// Parses `a=1&b=2` style fragments, and the legacy bare `#<token>` form.

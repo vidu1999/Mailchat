@@ -88,6 +88,48 @@ addresses. Do the same under **Auth → Rate Limits** for production volumes.
 
 ---
 
+## The `localhost:3000` variant (the most common one)
+
+A link like this means the redirect fell back to the project's Site URL, which
+is Supabase's local-development default:
+
+```
+http://localhost:3000/#access_token=…&refresh_token=…&type=signup
+```
+
+On a phone that URL points at **the phone's own** localhost: nothing is
+listening there, so the browser says "This site can't be reached". Nothing is
+wrong with the token — it is valid, single-use, and the account is confirmed
+already (check `user_metadata.email_verified`).
+
+### Finish the confirmation right now
+
+**Option A — just sign in.** The confirmation already happened server-side.
+Enter the email and password in the app. If sign-in is refused because the
+project still requires confirmation, use Option B or C.
+
+**Option B — paste the link into the app.** On the login screen tap *"Have a
+confirmation link?"* (also reachable from the verify screen as *"Opened on
+another device?"*), then paste. The app parses the fragment, adopts the session
+and stores it, exactly as it would from a deep link. This is the workaround that
+does not depend on any native configuration.
+
+**Option C — open the link on the computer it points at.** If something is
+serving `localhost:3000`, open the link there; otherwise copy the URL. The token
+is consumed on first successful verification, so use one route, not several.
+
+### Stop producing `localhost` links
+
+**Authentication → URL Configuration**:
+
+| Field | Value |
+|---|---|
+| Site URL | `https://YOUR-SITE` — a real https address. **Not** `http://localhost:3000`. |
+| Redirect URLs | `mailchat://auth/callback` (the app) and, if you develop against a local host, `http://localhost:3000/auth/callback`. |
+
+`localhost` is only ever correct for a machine-local web client. A phone cannot
+resolve it to your computer, and a confirmation email is read on the phone.
+
 ## What the app does with the link now
 
 `lib/core/deeplink/auth_deep_link.dart` parses the redirect;
@@ -100,6 +142,14 @@ addresses. Do the same under **Auth → Rate Limits** for production volumes.
 | `?token_hash=…&type=…` | exchanged via `POST /auth/v1/verify` | as above |
 | `?error_code=otp_expired&…` | GoTrue's own message shown | login, with the reason |
 | a callback with no token | reported as invalid | login, with the reason |
+| **any** URL carrying `#access_token=…` | parsed as the Site-URL fallback | as above |
+
+A bare site URL (`http://localhost:3000/#…`) is accepted only when its host is
+this project's — the Supabase host, the `AUTH_REDIRECT_URL` host, or
+`localhost`. Otherwise a crafted link could sign a user into an account they do
+not own. The paste screen is the exception: there the user supplied the link
+deliberately. The confirmed address is shown afterwards, so a wrong account is
+at least visible.
 
 Notes:
 

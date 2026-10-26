@@ -412,12 +412,23 @@ The `auth_registration_awaiting_confirmation` log line includes
 not dispatch an email — usually a project with no SMTP configured (the built-in
 service is rate-limited and only delivers to team addresses).
 
-### The confirmation link opens "null is unreachable"
+### The confirmation link opens "null is unreachable" / "localhost unreachable"
 
-Chrome's page, not the app's. The verify URL had no usable host, which means the
-project's **Site URL** is unset (or literally `null`), and/or the app's
-`AUTH_REDIRECT_URL` is not in **Authentication → URL Configuration → Redirect
-URLs**. Fix both, then `dart run tool/enable_deep_links.dart`. See
+Chrome's page, not the app's — the verify URL had no host the phone could reach.
+Two variants of the same cause:
+
+- `null is unreachable` → **Site URL** is unset or literally `null`.
+- `localhost unreachable` (link looks like `http://localhost:3000/#access_token=…`)
+  → **Site URL** is Supabase's local default. On a phone, `localhost` is the
+  phone itself.
+
+Either way the app's `AUTH_REDIRECT_URL` was also missing from **Authentication
+→ URL Configuration → Redirect URLs**, so GoTrue ignored it and fell back to the
+Site URL. Fix the dashboard fields, then `dart run tool/enable_deep_links.dart`.
+
+The account itself is usually already confirmed — the token in the failed URL is
+valid. To finish without changing anything: sign in with the password, or paste
+that URL into the app via *"Have a confirmation link?"* on the login screen. See
 `docs/auth-links.md`.
 
 ### "This email is already registered"

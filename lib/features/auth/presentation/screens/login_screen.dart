@@ -175,6 +175,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           .pushNamed(AppRoutes.forgotPassword),
                     ),
                   ),
+                  // Escape hatch for a confirmation link that opened somewhere
+                  // this app is not — a computer, or a phone's own localhost.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: AppTextButton(
+                      text: 'Have a confirmation link?',
+                      onPressed: () =>
+                          Navigator.of(context).pushNamed(AppRoutes.pasteLink),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   AppButton(
                     text: 'Sign in',

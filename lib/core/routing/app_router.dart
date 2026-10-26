@@ -4,6 +4,7 @@ import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/auth/presentation/screens/forgot_password_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/login_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/registration_screen.dart';
+import 'package:mailchat/features/auth/presentation/screens/paste_link_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/reset_password_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/splash_screen.dart';
 import 'package:mailchat/features/auth/presentation/screens/email_verification_screen.dart';
@@ -36,6 +37,7 @@ class AppRoutes {
   static const String emailVerification = '/email-verification';
   static const String forgotPassword = '/forgot-password';
   static const String resetPassword = '/reset-password';
+  static const String pasteLink = '/paste-link';
   static const String chatList = '/chat-list';
   static const String searchUsers = '/search-users';
   static const String newConversation = '/new-conversation';
@@ -84,6 +86,8 @@ class AppRouter {
         return _materialRoute(EmailVerificationScreen(arguments: _args(settings)), settings);
       case AppRoutes.forgotPassword:
         return _materialRoute(const ForgotPasswordScreen(), settings);
+      case AppRoutes.pasteLink:
+        return _materialRoute(const PasteLinkScreen(), settings);
       case AppRoutes.resetPassword:
         return _materialRoute(ResetPasswordScreen(arguments: _args(settings)), settings);
       case AppRoutes.chatList:

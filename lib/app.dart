@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/deeplink/app_links.dart';
 import 'package:mailchat/core/deeplink/auth_deep_link.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
@@ -60,7 +61,16 @@ class _MailChatAppState extends State<MailChatApp> {
   /// Navigation is deliberately explicit rather than "let the splash decide":
   /// the link is the user's intent, and the splash would otherwise race it.
   Future<void> _handleLink(String raw) async {
-    final link = AuthDeepLink.parse(raw);
+    // Only links whose host matches this project are trusted without a callback
+    // path; anything else could be a crafted link that signs the user into an
+    // account they do not own.
+    final link = AuthDeepLink.parse(
+      raw,
+      allowedHosts: AuthDeepLink.trustedHosts(
+        supabaseUrl: AppConfig.instance.supabaseUrl,
+        authRedirectUrl: AppConfig.instance.authRedirectUrl,
+      ),
+    );
     if (link == null) {
       AppLogger.info('deeplink_ignored', details: {'reason': 'not_auth_link'});
       return;

@@ -74,6 +74,15 @@ class EmailVerificationScreen extends StatelessWidget {
                 ),
               ),
               const Spacer(),
+              // The link often opens on a computer (or on the phone's own
+              // localhost, when the project's Site URL is a localhost URL).
+              // Pasting it here still completes the confirmation.
+              AppTextButton(
+                text: 'Opened on another device? Paste the link',
+                onPressed: () =>
+                    Navigator.of(context).pushNamed(AppRoutes.pasteLink),
+              ),
+              const SizedBox(height: 8),
               AppButton(
                 text: 'Go to sign in',
                 onPressed: () => Navigator.of(context)

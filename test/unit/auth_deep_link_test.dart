@@ -100,6 +100,73 @@ void main() {
     });
   });
 
+  group('bare site URL carrying a session', () {
+    // The link this project actually produced: Supabase fell back to the
+    // project's Site URL (http://localhost:3000) because the app's
+    // email_redirect_to was not allow-listed. No /auth/callback path at all.
+    const raw = 'http://localhost:3000/#access_token=header.payload.sig'
+        '&expires_at=1792987203&expires_in=3600&refresh_token=abc123'
+        '&token_type=bearer&type=signup';
+
+    test('is accepted without a callback path', () {
+      final link = AuthDeepLink.parse(raw)!;
+
+      expect(link.kind, AuthLinkKind.confirmation);
+      expect(link.accessToken, 'header.payload.sig');
+      expect(link.refreshToken, 'abc123');
+      expect(link.isActionable, isTrue);
+    });
+
+    test('is trusted when the host is the configured one', () {
+      final link = AuthDeepLink.parse(
+        raw,
+        allowedHosts: AuthDeepLink.trustedHosts(
+          supabaseUrl: 'https://xkvirquh.subabase.co',
+          authRedirectUrl: 'mailchat://auth/callback',
+        ),
+      );
+
+      // localhost is trusted too: it is the default Site URL, and therefore the
+      // link a developer will actually receive.
+      expect(link, isNotNull);
+    });
+
+    test('is rejected when the host is not configured', () {
+      final link = AuthDeepLink.parse(
+        'https://evil.example/#access_token=attacker&refresh_token=r&type=signup',
+        allowedHosts: {'xkvirquh.supabase.co'},
+      );
+
+      expect(link, isNull);
+    });
+
+    test('an error on a bare site URL is reported too', () {
+      final link = AuthDeepLink.parse(
+        'http://localhost:3000/#error=access_denied'
+        '&error_code=otp_expired&error_description=Email+link+is+invalid',
+      )!;
+
+      expect(link.kind, AuthLinkKind.error);
+      expect(link.errorMessage, contains('invalid'));
+    });
+
+    test('a bare site URL with no payload is still ignored', () {
+      expect(AuthDeepLink.parse('http://localhost:3000/'), isNull);
+      expect(AuthDeepLink.parse('https://example.com/#section-2'), isNull);
+    });
+
+    test('trustedHosts combines the project host and the redirect host', () {
+      final hosts = AuthDeepLink.trustedHosts(
+        supabaseUrl: 'https://abcdefgh.supabase.co',
+        authRedirectUrl: 'mailchat://auth/callback',
+      );
+
+      expect(hosts, contains('abcdefgh.supabase.co'));
+      expect(hosts, contains('auth'));
+      expect(hosts, contains('localhost'));
+    });
+  });
+
   group('links that are not auth callbacks', () {
     test('an unrelated URL is ignored', () {
       expect(AuthDeepLink.parse('https://example.com/pricing'), isNull);

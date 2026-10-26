@@ -246,10 +246,14 @@ class AuthService {
           accessToken: link.accessToken!,
           refreshToken: link.refreshToken,
         );
+        // `setSession` loads the user from /auth/v1/user. A token that is
+        // expired or already revoked leaves no current user, which is the
+        // difference between "confirmed" and "stored a dead token".
         final token = _supabase.accessToken;
-        if (token == null) {
+        if (token == null || _supabase.currentUser == null) {
           return AuthLinkResult.failure(
-            'The link carried no usable session. Request a new email.',
+            'This link has expired or was already used. Request a new email, '
+            'or sign in if the account is already active.',
             kind: link.kind,
           );
         }
