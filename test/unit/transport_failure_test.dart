@@ -23,7 +23,7 @@ void main() {
     test("Android's DNS failure is a lookup problem", () {
       // The exact exception seen on the device: osError code 7 (EAI_NONAME)
       // and the message Android builds from it.
-      final error = const SocketException(
+      const error = SocketException(
         'Failed host lookup: \'xcokviruqhnxbshadahp.supabase.co\'',
         osError: OSError('No address associated with hostname', 7),
       );
