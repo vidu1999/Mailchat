@@ -122,6 +122,12 @@ jobs:
             flutter create --platforms=android --org com.mailchat --project-name mailchat .
           fi
 
+      # Adds the intent filter and link forwarding that Supabase's auth
+      # redirect needs. Idempotent, and required for the build to match a
+      # developer machine (see tool/enable_deep_links.dart).
+      - name: Enable deep links
+        run: dart run tool/enable_deep_links.dart
+
       # Split per ABI: a fat debug APK bundles the engine for every
       # architecture (100-200 MB). Splitting keeps artifacts small enough to
       # install on a phone with limited free space.

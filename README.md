@@ -46,6 +46,7 @@ on anything below.
 | Debug APK build | **Builds in CI and locally; installs and launches on a physical Android device** |
 | Attachments (upload/preview) | **Stubbed** — needs a file picker + Storage wiring |
 | Push notifications (FCM) | **Not implemented** — no credentials, no sender |
+| Email link handling (confirm / reset) | Implemented on Android; needs a Site URL + Redirect URLs in Supabase — see `docs/auth-links.md` |
 | Voice / video calls | **UI only** — see `docs/calls.md` |
 | End-to-end encryption | **Not implemented** — and not claimed |
 

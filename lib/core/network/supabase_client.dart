@@ -226,6 +226,51 @@ class SupabaseClient {
     return _handleAuthResponse(data);
   }
 
+  /// Exchanges a `{{ .TokenHash }}` email token for a session.
+  ///
+  /// Used when the email template passes `token_hash` instead of a session in
+  /// the redirect fragment. `type` is the template's type (`signup`, `recovery`,
+  /// `magiclink`, `invite`, `email_change`); GoTrue rejects a mismatch.
+  Future<AuthResponse> verifyTokenHash({
+    required String tokenHash,
+    required String type,
+  }) async {
+    final data = await _post('/auth/v1/verify', body: {
+      'token_hash': tokenHash,
+      'type': type,
+    }, authRequired: false);
+    // Same shape problem as signup: the session is usually wrapped, but the
+    // bare user is possible. normalizeSignupPayload handles both.
+    return _handleAuthResponse(normalizeSignupPayload(data));
+  }
+
+  /// Sets a new password for the currently authenticated user.
+  ///
+  /// Requires a session: either the short-lived one a recovery link carries, or
+  /// an existing signed-in session.
+  Future<void> updatePassword(String newPassword) async {
+    await _putAuthUser({'password': newPassword});
+  }
+
+  Future<void> _putAuthUser(Map<String, dynamic> body) async {
+    final uri = Uri.parse('${AppConfig.instance.supabaseUrl}/auth/v1/user');
+    try {
+      final request = await _http.putUrl(uri);
+      _applyHeaders(request, authRequired: true);
+      request.add(utf8.encode(jsonEncode(body)));
+      final response = await request.close();
+      await _decodeResponse(response);
+    } on SocketException catch (e) {
+      throw _networkError('supabase_put_user', uri, e);
+    } on TimeoutException catch (e) {
+      throw _networkError('supabase_put_user_timeout', uri, e);
+    } catch (e, st) {
+      if (e is AppException) rethrow;
+      AppLogger.error(e, st, {'where': 'supabase_put_user'});
+      rethrow;
+    }
+  }
+
   /// Sends a password-reset email.
   Future<void> resetPasswordForEmail(String email) async {
     await _post('/auth/v1/recover', body: {

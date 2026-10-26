@@ -55,6 +55,16 @@ Consequences:
 - The anon key is inside the APK. That is intended — it is a publishable key and
   every table is behind RLS — which is precisely why RLS must stay enabled.
 
+### Email links
+
+AUTH_REDIRECT_URL must also appear under **Authentication → URL Configuration →
+Redirect URLs** in Supabase, otherwise GoTrue silently drops it and sends the
+user to the Site URL instead — which is how a confirmation email ends up on a
+browser page reading "null is unreachable". Run
+`dart run tool/enable_deep_links.dart` once to teach the Android project to
+receive the link. Full walkthrough, including the SMTP requirement for reaching
+addresses other than your own: **`docs/auth-links.md`**.
+
 ### Precedence
 
 `--dart-define` beats the file, which beats the built-in defaults:
@@ -389,6 +399,14 @@ The `auth_registration_awaiting_confirmation` log line includes
 `confirmationSentAt`. If it is `null` while no session was returned, GoTrue did
 not dispatch an email — usually a project with no SMTP configured (the built-in
 service is rate-limited and only delivers to team addresses).
+
+### The confirmation link opens "null is unreachable"
+
+Chrome's page, not the app's. The verify URL had no usable host, which means the
+project's **Site URL** is unset (or literally `null`), and/or the app's
+`AUTH_REDIRECT_URL` is not in **Authentication → URL Configuration → Redirect
+URLs**. Fix both, then `dart run tool/enable_deep_links.dart`. See
+`docs/auth-links.md`.
 
 ### "This email is already registered"
 

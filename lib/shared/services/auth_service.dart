@@ -1,3 +1,4 @@
+import 'package:mailchat/core/deeplink/auth_deep_link.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
@@ -206,6 +207,123 @@ class AuthService {
 
   /// Returns true when the current user has confirmed their email address.
   bool get isEmailConfirmed => currentUser?.emailConfirmed ?? false;
+
+  /// Turns an incoming auth link into a session.
+  ///
+  /// Two shapes reach this point:
+  ///  * Supabase verified the email token server-side and redirected with the
+  ///    session in the fragment, so the tokens are already usable.
+  ///  * The template passed `token_hash`, which has to be exchanged here.
+  ///
+  /// Both end with the tokens persisted, so a cold start after the link opens
+  /// the signed-in app rather than asking for the password again.
+  Future<AuthLinkResult> handleAuthLink(AuthDeepLink link) async {
+    if (link.kind == AuthLinkKind.error) {
+      AppLogger.warning('auth_link_error', details: {
+        'code': link.errorCode,
+        'description': link.errorDescription,
+      });
+      return AuthLinkResult.failure(link.errorMessage, kind: link.kind);
+    }
+
+    try {
+      if (link.tokenHash != null) {
+        final response = await _supabase.verifyTokenHash(
+          tokenHash: link.tokenHash!,
+          type: link.type ?? 'signup',
+        );
+        final session = response.session;
+        if (session == null) {
+          return AuthLinkResult.failure(
+            'The link was accepted but no session came back. Try signing in, '
+            'and request a new email if the account is not active yet.',
+            kind: link.kind,
+          );
+        }
+        await _persist(session);
+      } else if (link.accessToken != null) {
+        await _supabase.setSession(
+          accessToken: link.accessToken!,
+          refreshToken: link.refreshToken,
+        );
+        final token = _supabase.accessToken;
+        if (token == null) {
+          return AuthLinkResult.failure(
+            'The link carried no usable session. Request a new email.',
+            kind: link.kind,
+          );
+        }
+        await _store.saveAccessToken(token);
+        await _store.saveRefreshToken(link.refreshToken);
+      } else {
+        return AuthLinkResult.failure(
+          'This link did not contain a token. Request a new email.',
+          kind: link.kind,
+        );
+      }
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'handle_auth_link'});
+      final message = e is AppException
+          ? e.message
+          : 'Could not complete the link. Please try again.';
+      return AuthLinkResult.failure(message, kind: link.kind);
+    }
+
+    final email = currentUser?.email;
+    AppLogger.info('auth_link_handled', details: {
+      'kind': link.kind.name,
+      'signedIn': isAuthenticated,
+    });
+
+    return switch (link.kind) {
+      AuthLinkKind.confirmation => AuthLinkResult.success(
+          email == null || email.isEmpty
+              ? 'Email confirmed. Welcome to MailChat.'
+              : 'Email confirmed for $email. Welcome to MailChat.',
+          kind: link.kind,
+        ),
+      AuthLinkKind.recovery => AuthLinkResult.success(
+          'Set a new password for your account.',
+          kind: link.kind,
+        ),
+      AuthLinkKind.error => AuthLinkResult.failure(link.errorMessage,
+          kind: link.kind),
+    };
+  }
+
+  /// Sets a new password using the session a recovery link established.
+  Future<void> updatePassword(String newPassword) async {
+    final error = Validators.password(newPassword);
+    if (error != null) throw ValidationException(error);
+    await _supabase.updatePassword(newPassword);
+    AppLogger.info('auth_password_updated');
+  }
+
+  Future<void> _persist(Session session) async {
+    await _store.saveAccessToken(session.accessToken);
+    await _store.saveRefreshToken(session.refreshToken);
+  }
+}
+
+/// Outcome of [AuthService.handleAuthLink].
+class AuthLinkResult {
+  final bool succeeded;
+  final String message;
+  final AuthLinkKind kind;
+
+  const AuthLinkResult({
+    required this.succeeded,
+    required this.message,
+    required this.kind,
+  });
+
+  factory AuthLinkResult.success(String message,
+          {required AuthLinkKind kind}) =>
+      AuthLinkResult(succeeded: true, message: message, kind: kind);
+
+  factory AuthLinkResult.failure(String message,
+          {required AuthLinkKind kind}) =>
+      AuthLinkResult(succeeded: false, message: message, kind: kind);
 }
 
 /// How a registration call finished.

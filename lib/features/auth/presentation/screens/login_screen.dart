@@ -9,8 +9,14 @@ import 'package:mailchat/shared/widgets/app_button.dart';
 import 'package:mailchat/shared/widgets/app_input.dart';
 
 /// Email + password login. No phone number or SMS is involved anywhere.
+///
+/// Accepts an optional `notice` argument, used to report the result of a link
+/// opened from an email (for example "Email confirmed") on the screen the user
+/// lands on.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final Map<String, dynamic>? arguments;
+
+  const LoginScreen({super.key, this.arguments});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,6 +30,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscure = true;
   String? _errorMessage;
+
+  /// Message from a handled deep link, shown above the form.
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    final notice = widget.arguments?['notice'];
+    if (notice is String && notice.isNotEmpty) _notice = notice;
+  }
 
   @override
   void dispose() {
@@ -117,6 +133,32 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
                   ),
+                  if (_notice != null && _errorMessage == null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: colors.primaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle_outline,
+                              size: 18, color: colors.onPrimaryContainer),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _notice!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: colors.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 16),
                     Text(
