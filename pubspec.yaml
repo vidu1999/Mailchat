@@ -14,10 +14,12 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  # Picking a photo or a file to send. Deliberately the only added dependency:
-  # it covers images and arbitrary files through the platform picker, with no
-  # extra Android permissions (the system picker grants access per file).
-  file_picker: ^6.2.1
+  # Picking a photo or a file to send. First-party (flutter/packages) on
+  # purpose: it is on the v2 Android embedding and needs no Gradle changes in
+  # the scaffolded android/ folder. file_picker was tried first and rejected —
+  # 6.x still declares the removed v1 embedding API, and 8.x requires a
+  # compileSdk this repository's CI scaffold does not produce.
+  file_selector: ^1.0.3
 
 dev_dependencies:
   flutter_test:

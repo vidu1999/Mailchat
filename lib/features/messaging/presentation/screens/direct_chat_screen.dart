@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 
@@ -491,22 +491,30 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
     if (choice == null) return;
 
-    FilePickerResult? result;
+    XFile? file;
     try {
-      result = await FilePicker.platform.pickFiles(
-        type: choice == 'image' ? FileType.image : FileType.any,
-        withData: true,
+      file = await openFile(
+        acceptedTypeGroups: choice == 'image'
+            ? const [
+                XTypeGroup(
+                  label: 'Images',
+                  extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'],
+                )
+              ]
+            : const [],
       );
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_pick_attachment'});
       _showSnack('Could not open the file picker.');
       return;
     }
-    if (result == null || result.files.isEmpty) return;
+    if (file == null) return;
 
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (bytes == null) {
+    List<int> bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_read_attachment'});
       _showSnack('That file could not be read.');
       return;
     }
