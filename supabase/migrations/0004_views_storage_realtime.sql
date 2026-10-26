@@ -140,10 +140,32 @@ create policy attachments_write_member on storage.objects
 -- Broadcast message changes to subscribed clients. RLS still applies to the
 -- rows Postgres changes deliver.
 -- ============================================================================
-alter publication supabase_realtime add table public.messages;
-alter publication supabase_realtime add table public.message_reactions;
-alter publication supabase_realtime add table public.message_receipts;
-alter publication supabase_realtime add table public.conversation_members;
+-- Adding a table that is already published raises 42710, so each is checked
+-- first. Realtime delivery depends on this: without the publication, subscribed
+-- clients never receive row changes.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'messages', 'message_reactions', 'message_receipts', 'conversation_members'
+  ] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+exception
+  when others then
+    -- A missing publication (42704), or a project where the caller may not
+    -- alter it. Neither should abort the migration: the schema is the point,
+    -- realtime is an add-on. The notice names the exact cause.
+    raise notice 'realtime publication not updated: % (%)', sqlerrm, sqlstate;
+end $$;
 
 -- Needed so DELETE events carry the old row identity.
 alter table public.messages replica identity full;

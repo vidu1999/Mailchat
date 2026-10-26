@@ -73,6 +73,10 @@ jobs:
           fi
           echo "check_config correctly failed with no configuration"
 
+          # Migrations are applied by hand in the SQL editor, so a file that is
+          # not re-runnable strands the user halfway with 42710.
+          dart run tool/check_migrations.dart
+
           # And a root .env must be picked up and copied into the asset. The
           # template still holds placeholders, so it must still be rejected.
           cp .env.example .env

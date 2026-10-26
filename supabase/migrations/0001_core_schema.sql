@@ -1,3 +1,6 @@
+-- Safe to re-run. Every object is created only if absent, and every trigger is
+-- dropped first: `create trigger` has no `if not exists`, so without the drop a
+-- second run aborts the whole file with 42710.
 -- ============================================================================
 -- MailChat — 0001 core schema
 -- ----------------------------------------------------------------------------
@@ -51,6 +54,7 @@ create table if not exists public.profiles (
 create unique index if not exists profiles_username_lower_idx
   on public.profiles (lower(username));
 
+drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
@@ -69,6 +73,7 @@ create table if not exists public.conversations (
   updated_at  timestamptz not null default now()
 );
 
+drop trigger if exists conversations_set_updated_at on public.conversations;
 create trigger conversations_set_updated_at
   before update on public.conversations
   for each row execute function public.set_updated_at();
@@ -234,6 +239,7 @@ create table if not exists public.user_devices (
   unique (user_id, device_id)
 );
 
+drop trigger if exists user_devices_set_updated_at on public.user_devices;
 create trigger user_devices_set_updated_at
   before update on public.user_devices
   for each row execute function public.set_updated_at();
@@ -262,6 +268,7 @@ create unique index if not exists notification_preferences_user_global_idx
   on public.notification_preferences (user_id)
   where conversation_id is null;
 
+drop trigger if exists notification_preferences_set_updated_at on public.notification_preferences;
 create trigger notification_preferences_set_updated_at
   before update on public.notification_preferences
   for each row execute function public.set_updated_at();

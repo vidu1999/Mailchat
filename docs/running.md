@@ -159,6 +159,14 @@ Each file is idempotent where practical (`create table if not exists`,
 `drop policy if exists`), so re-running one file is safe. Applying them out of
 order will fail: 0003 references functions created in 0002.
 
+### Re-running is safe
+
+Every file is written to be applied more than once. That matters because these
+are pasted into a SQL editor by hand, and a half-applied set is otherwise hard to
+recover from. `dart run tool/check_migrations.dart` enforces it in CI:
+`create trigger` has no `if not exists`, so each trigger is dropped first, and
+publication membership is checked before it is added.
+
 **If you applied the migrations before 2026-10-26, re-run `0004`.** The
 `conversation_list` view gained an `updated_at` column that the chat list orders
 by; without it the screen fails with `column conversation_list.updated_at does
@@ -475,6 +483,24 @@ Two values break the link:
 
 Use a page you control (GitHub Pages, your own domain) if you want the fallback
 to be useful. `docs/auth-links.md` has the details.
+
+### `trigger "..." for relation "..." already exists` (42710)
+
+The migration was applied before and the statement is not re-runnable — the SQL
+editor runs the whole file as one transaction, so it aborts and nothing in that
+attempt is applied.
+
+`0001` was fixed for this (its four `set_updated_at` triggers are now dropped
+before being created, matching what `0002` already did). Pull the current files
+and run all four in order. If you cannot pull, the one-line workaround is:
+
+```sql
+drop trigger if exists profiles_set_updated_at on public.profiles;
+-- repeat for conversations, user_devices, notification_preferences
+```
+
+Then run the file again. `dart run tool/check_migrations.dart` reports any file
+that would fail this way, without touching the database.
 
 ### `column conversation_list.updated_at does not exist` (or any "does not exist")
 
