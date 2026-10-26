@@ -369,6 +369,27 @@ If registration appears to do nothing, check **Authentication → Providers →
 Email → Confirm email**. With it on, no session can be returned by design, and
 there is no way for the app to skip the confirmation step.
 
+### Signup response shapes
+
+`POST /auth/v1/signup` does not have one response shape. The client normalises
+three (`SupabaseClient.normalizeSignupPayload`):
+
+| Shape | When | Meaning |
+|---|---|---|
+| `{user: {...}, session: null}` | confirmations required | confirmation email sent |
+| `{id, aud, role, email, identities, ...}` — the user object **at the top level**, no wrapper | confirmations required | the same thing, different envelope |
+| `{user: {...}, session: {...}}` (or tokens as siblings of `user`) | confirmations disabled | signed in |
+
+The second row is the one that bites: a client that only reads `data['user']`
+reports "returned no user" for a perfectly good signup. If that message appears,
+check the logged `signup_no_user {keys: [...]}` line — a key list containing
+`id`, `aud`, `role` and `identities` means the response was the user object.
+
+The `auth_registration_awaiting_confirmation` log line includes
+`confirmationSentAt`. If it is `null` while no session was returned, GoTrue did
+not dispatch an email — usually a project with no SMTP configured (the built-in
+service is rate-limited and only delivers to team addresses).
+
 ### "This email is already registered"
 
 The account exists from an earlier attempt. GoTrue never says so directly — it

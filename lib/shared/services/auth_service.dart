@@ -119,6 +119,10 @@ class AuthService {
     if (!response.isAuthenticated) {
       AppLogger.info('auth_registration_awaiting_confirmation', details: {
         'userId': user.id,
+        // Non-null means GoTrue dispatched the email. Null with no session
+        // usually means the project has no SMTP configured, which is worth
+        // knowing before the user waits for a message that never arrives.
+        'confirmationSentAt': user.confirmationSentAt?.toIso8601String(),
       });
       return RegistrationResult(
         user: user,

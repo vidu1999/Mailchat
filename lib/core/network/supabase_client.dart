@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
@@ -135,7 +136,11 @@ class SupabaseClient {
       rethrow;
     }
 
-    final userJson = data['user'];
+    // GoTrue does not use one response shape for signup. See
+    // [normalizeSignupPayload]; reading only `data['user']` threw away valid
+    // responses whose user object sat at the top level.
+    final payload = normalizeSignupPayload(data);
+    final userJson = payload['user'];
     if (userJson is! Map) {
       // GoTrue returned neither a user nor an error. Surface everything it did
       // say instead of a bare "please try again" — without the response shape
@@ -150,7 +155,61 @@ class SupabaseClient {
     // When email confirmation is enabled GoTrue returns the user with a null
     // session. That is a success, not a failure. _handleAuthResponse stores the
     // tokens only when a session is actually present.
-    return _handleAuthResponse(data);
+    return _handleAuthResponse(payload);
+  }
+
+  /// Normalises the three shapes `POST /auth/v1/signup` can return.
+  ///
+  /// 1. `{user: {...}, session: null|{...}}` — the documented shape, and what
+  ///    GoTrue returns once confirmations are involved.
+  /// 2. A **bare user object**: `{id, aud, role, email, identities, ...}` with
+  ///    no wrapper at all — returned with confirmation required. Reading only
+  ///    `data['user']` treats this valid response as "no user", which is the
+  ///    bug this method exists to fix.
+  /// 3. A session-ish object with the access token at the top level and the
+  ///    user nested (`{access_token, refresh_token, user: {...}}`) — older
+  ///    GoTrue with confirmations disabled.
+  ///
+  /// Anything else is returned unchanged so the caller can report it.
+  /// Public so the mapping is unit-testable without a network call.
+  @visibleForTesting
+  static Map<String, dynamic> normalizeSignupPayload(
+      Map<String, dynamic> data) {
+    final nested = data['user'];
+    if (nested is Map) {
+      // Shape 1. jsonDecode produces Map<String, dynamic>, but a
+      // Map<dynamic, dynamic> is accepted defensively.
+      final user = Map<String, dynamic>.from(nested);
+      final session = data['session'];
+      if (session is Map) {
+        return {'user': user, 'session': session};
+      }
+      // Shape 3: the token fields are siblings of `user`, not inside a
+      // `session` object.
+      if (data['access_token'] is String) {
+        return {
+          'user': user,
+          'session': {
+            'access_token': data['access_token'],
+            'refresh_token': data['refresh_token'],
+            'expires_in': data['expires_in'],
+            'token_type': data['token_type'],
+          },
+        };
+      }
+      return {'user': user, 'session': null};
+    }
+
+    // Shape 2: the payload *is* the user. `id` plus a known user field is
+    // specific enough not to mistake an error body for a user.
+    if (data['id'] is String &&
+        (data['identities'] is List ||
+            data['email'] is String ||
+            data['aud'] is String)) {
+      return {'user': data, 'session': null};
+    }
+
+    return data;
   }
 
   /// Signs in with email + password.
@@ -553,6 +612,12 @@ class AuthUser {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  /// When GoTrue sent the confirmation email, if it did.
+  ///
+  /// Distinguishes "email dispatched" from "waiting for a confirmation that was
+  /// never sent" — otherwise both look identical to the user: no session.
+  final DateTime? confirmationSentAt;
+
   /// Number of linked identities reported by GoTrue.
   ///
   /// A brand-new signup returns one identity. When the address already exists,
@@ -568,6 +633,7 @@ class AuthUser {
     this.userMetadata,
     this.createdAt,
     this.updatedAt,
+    this.confirmationSentAt,
     this.identityCount = 1,
   });
 
@@ -586,6 +652,9 @@ class AuthUser {
           : null,
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
+          : null,
+      confirmationSentAt: json['confirmation_sent_at'] != null
+          ? DateTime.tryParse(json['confirmation_sent_at'] as String)
           : null,
     );
   }
