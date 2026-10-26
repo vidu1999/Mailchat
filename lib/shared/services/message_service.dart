@@ -122,7 +122,7 @@ class MessageService {
     String? beforeMessageId,
   }) async {
     final params = <String, String>{
-      'select': '*,message_attachments(*),message_reactions(*)',
+      'select': '*,message_attachments(*),message_reactions(*),message_receipts(*)',
       'order': 'created_at.desc',
       'limit': limit.toString(),
     };
@@ -141,7 +141,7 @@ class MessageService {
     // PostgREST filter: eq(conversation_id,X)
     final data = await _supabase.select(
       'messages',
-      select: '*,message_attachments(*),message_reactions(*)',
+      select: '*,message_attachments(*),message_reactions(*),message_receipts(*)',
       filter: {'eq': 'conversation_id,$conversationId'},
       order: 'created_at.desc',
       limit: limit,
@@ -277,6 +277,68 @@ class MessageService {
       order: 'created_at.asc',
     );
     return rows.map((row) => MessageReaction.fromJson(row)).toList();
+  }
+
+  /// Records delivered + read for the messages this user has just seen.
+  ///
+  /// Receipts are per (message, recipient) and only the recipient may write
+  /// their own row (RLS `message_receipts_insert`), so this must run as the
+  /// reader. Returns how many rows it wrote, which is 0 on a re-read — the
+  /// common case, and why the existing rows are checked first instead of
+  /// upserting the whole thread on every open.
+  Future<int> markReceivedAndRead({
+    required String conversationId,
+    required String userId,
+  }) async {
+    final rows = await _supabase.select(
+      'messages',
+      select: 'id',
+      // Only messages from the other side: a receipt on your own message is
+      // meaningless.
+      filter: {
+        'eq': 'conversation_id,$conversationId',
+        'neq': 'sender_id,$userId',
+      },
+      order: 'created_at.desc',
+      limit: 50,
+    );
+    if (rows.isEmpty) return 0;
+
+    final existing = await _supabase.select(
+      'message_receipts',
+      select: 'message_id, read_at',
+      filter: {'eq': 'recipient_id,$userId'},
+      limit: 200,
+    );
+    final alreadyRead = <String>{
+      for (final row in existing)
+        if (row['read_at'] != null) row['message_id'] as String,
+    };
+
+    var written = 0;
+    for (final row in rows) {
+      final messageId = row['id'] as String;
+      if (alreadyRead.contains(messageId)) continue;
+      await _upsertReceipt(messageId, userId, delivered: true, read: true);
+      written++;
+    }
+    if (written > 0) {
+      AppLogger.info('receipts_written', details: {
+        'conversationId': conversationId,
+        'count': written,
+      });
+    }
+    return written;
+  }
+
+  /// Receipt rows for one message, so a sender can update its ticks without
+  /// reloading the thread.
+  Future<List<Map<String, dynamic>>> getReceipts(String messageId) async {
+    return _supabase.select(
+      'message_receipts',
+      select: 'message_id, recipient_id, delivered_at, read_at',
+      filter: {'eq': 'message_id,$messageId'},
+    );
   }
 
   /// Marks [messageId] as delivered and/or read by [recipientId].
@@ -431,6 +493,45 @@ class MessageService {
     );
   }
 
+  /// Subscribes to receipt changes anywhere in the project, mirroring
+  /// [subscribeToReactions]: `message_receipts` has no conversation column, so
+  /// the screen filters by message id. RLS still decides what is delivered —
+  /// only the sender of a message may read its receipts.
+  void subscribeToReceipts() {
+    if (_receiptController.isClosed) _ensureReceiptController();
+    _receiptChannel = _realtime.join(
+      'realtime:mailchat:receipts',
+      (type, payload) {
+        final record = payload['record'] ?? payload['old_record'];
+        if (record is! Map) return;
+        final messageId = record['message_id'];
+        if (messageId is String && !_receiptController.isClosed) {
+          _receiptController.add(messageId);
+        }
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': '*',
+            'schema': 'public',
+            'table': 'message_receipts',
+          },
+        ],
+      },
+    );
+  }
+
+  Channel? _receiptChannel;
+  StreamController<String> _receiptController =
+      StreamController<String>.broadcast();
+
+  void _ensureReceiptController() {
+    _receiptController = StreamController<String>.broadcast();
+  }
+
+  /// Emits the message id whenever a receipt on it changes.
+  Stream<String> get receiptEvents => _receiptController.stream;
+
   Channel? _reactionChannel;
   StreamController<String> _reactionController =
       StreamController<String>.broadcast();
@@ -460,11 +561,16 @@ class MessageService {
     _channel = null;
     _reactionChannel?.unsubscribe();
     _reactionChannel = null;
+    _receiptChannel?.unsubscribe();
+    _receiptChannel = null;
     if (!_messageEventController.isClosed) {
       _messageEventController.close();
     }
     if (!_reactionController.isClosed) {
       _reactionController.close();
+    }
+    if (!_receiptController.isClosed) {
+      _receiptController.close();
     }
   }
 }

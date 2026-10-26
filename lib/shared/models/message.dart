@@ -1,4 +1,5 @@
 import 'package:mailchat/core/constants/app_constants.dart';
+import 'package:mailchat/shared/models/receipt_state.dart';
 
 /// A message within a conversation.
 class Message {
@@ -61,7 +62,10 @@ class Message {
           ? DateTime.tryParse(json['deleted_at'] as String)
           : null,
       clientId: json['client_id'] as String?,
-      status: json['status'] as String? ?? AppConstants.messageStatusSent,
+      // Receipts, when embedded, are more authoritative than the client's own
+      // optimistic state: they are what the other person has actually seen.
+      status: json['status'] as String? ??
+          ReceiptState.statusFrom(json['message_receipts']),
       reactions: _parseReactions(json),
     );
   }

@@ -4,10 +4,10 @@ An audit of MailChat against the product plan (the numbered brief: MVP list,
 phases, and the 28-screen wireframe). Every row was checked in the code, not
 recalled.
 
-**Headline: no, the system does not have all the features.** Messaging, auth,
-groups, search, blocking and reporting are real. Media, push, presence, typing,
-receipts-per-message, stories, calls and E2EE are not built. The sections below
-say which, and where.
+**Headline: not all of it — but the messaging core now is.** Messaging, auth,
+groups, search, blocking, reporting, reactions, replies, read receipts, presence
+and typing are real. Media, push delivery, stories, calls and E2EE are not built.
+The sections below say which, and where.
 
 Legend:
 
@@ -34,15 +34,15 @@ Legend:
 | User search | ✅ | `public.search_users` (0005): username, display name, exact email |
 | 1-to-1 conversations | 🧪 | `get_or_create_direct_conversation`, `direct_chat_screen.dart` |
 | Real-time messaging | 🧪 | Realtime subscription in `message_service.dart` |
-| Online / offline presence | ❌ | No presence channel, no heartbeat. The brief's `profiles.is_online` boolean does not exist here on purpose (§4) |
-| Typing indicator | ❌ | Absent. Brief §20 is right that it belongs over Realtime as an ephemeral event, not a row |
-| Sent / delivered / read | 🟡 | `message_receipts` table and `markReceipt()` exist; **nothing writes receipts**, so the ticks in the bubble only ever show "sent". The chat list's unread count is real and works off `last_read_message_id` |
-| Reply | 🟡 | `reply_to_message_id` is in the schema, model and `sendText()`; **no UI** to start or render a reply |
+| Online / offline presence | 🧪 | `PresenceService` joins a per-conversation Realtime channel with presence; the chat app bar shows Online/Offline. Ephemeral by design, nothing stored. **Not verified against a live project** |
+| Typing indicator | 🧪 | Broadcast event on the same channel, debounced to one event per pause, with a 4 s expiry so a dropped socket cannot leave someone typing forever. Shows in the app bar |
+| Sent / delivered / read | ✅ | Reading a thread writes `message_receipts` (`markReceivedAndRead`), receipts are embedded on each message so the tick is derived from them (`ReceiptState`), and a realtime subscription updates the sender's ticks live. Unread counts work off `last_read_message_id` |
+| Reply | ✅ | Long-press → Reply shows a strip above the composer; the sent message carries `reply_to_message_id`, and the bubble renders the quoted parent (or "Earlier message" when it is off the loaded page) |
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
 | Image / file sharing | ❌ | `message_attachments` table, storage buckets and policies exist; `uploadFile()` exists in the client; **no screen picks a file or sends one**. The preview and media-viewer screens are unreachable |
-| Push notifications (FCM) | ❌ | No Firebase dependency, no token registration, no send path. `notification_settings_screen.dart` is a UI with nothing behind it |
+| Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave — `group_creation_screen.dart`, `group_details_screen.dart` |
@@ -63,11 +63,11 @@ Legend:
 | 14–15 | Group chat, group details | ✅ built |
 | 16 | Media viewer | 🟡 screen exists, no way to reach it |
 | — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
-| — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it |
+| — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
 | 17 | Attachment preview | 🟡 same |
 | 18–19 | Voice call, video call | ❌ |
 | 20 | My status / stories | ❌ |
-| 21 | Notification settings | 🟡 UI only, nothing persists |
+| 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
 | 22–23 | Blocked users, report user | ✅ built |
 | 24 | Group creation | ✅ built |
 | 25 | Application settings | 🟡 theme/language rows are present; language does nothing |
@@ -120,10 +120,11 @@ live project can be checked in one paste.
 
 ## 6. Order I would build the gaps in
 
-1. **Media** — image/file picker → `uploadFile` → attachment row. The schema, buckets and policies are already in place, so this is UI plus one service method.
-2. **Receipts** — write `message_receipts` when a thread is read; makes ✓✓ mean something.
-3. **Presence + typing** — one Realtime channel each; ephemeral, no schema change.
-4. **Reply UI** — the column and plumbing already exist.
-5. **FCM** — needs a Firebase project, which is a decision and an account, not just code.
-6. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item here that cannot be finished without two real devices.
-7. **Stories, multi-device, monitoring, environments** — genuinely v2 work.
+1. ~~Receipts~~ — done: `markReceivedAndRead`, `ReceiptState`, live tick updates.
+2. ~~Presence + typing~~ — done: `PresenceService`, ephemeral, no schema change.
+3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
+4. ~~Notification settings~~ — done: persisted to `notification_preferences`.
+5. **Media** — image/file picker → `uploadFile` → attachment row. The schema, buckets and policies are already in place; this needs `image_picker` and `file_picker`, so it is the next commit rather than this one.
+6. **FCM** — needs a Firebase project, which is a decision and an account, not just code.
+7. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item that cannot be finished without two real devices.
+8. **Stories, multi-device, monitoring, environments** — genuinely v2 work.

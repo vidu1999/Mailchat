@@ -10,6 +10,7 @@ import 'package:mailchat/shared/models/message.dart';
 import 'package:mailchat/shared/models/reaction_summary.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
+import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
 import 'package:mailchat/shared/widgets/message_bubble.dart';
@@ -44,6 +45,28 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   StreamSubscription<Message>? _messageEvents;
   StreamSubscription<String>? _reactionEvents;
   bool _reactionsSubscribed = false;
+  bool _receiptsSubscribed = false;
+  StreamSubscription<String>? _receiptEvents;
+  Message? _replyTo;
+
+  final _presence = PresenceService();
+  StreamSubscription<Set<String>>? _onlineEvents;
+  StreamSubscription<Set<String>>? _typingEvents;
+  Set<String> _onlineUserIds = const {};
+  Set<String> _typingUserIds = const {};
+  Timer? _typingStopTimer;
+  bool _announcedTyping = false;
+
+  /// Someone else in this thread is typing.
+  bool get _peerTyping => _typingUserIds.isNotEmpty;
+
+  /// Online state of the other participant, or null when unknown. Null renders
+  /// nothing rather than a misleading grey dot.
+  bool? get _peerOnline {
+    final other = _otherUserId;
+    if (other == null || _onlineUserIds.isEmpty) return null;
+    return _onlineUserIds.contains(other);
+  }
   bool _loading = true;
   bool _sending = false;
   AppException? _error;
@@ -88,10 +111,73 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     _refreshReactions(messageId);
   }
 
+  /// A receipt changed on one of my messages: recompute that message's tick.
+  Future<void> _onReceiptEvent(String messageId) async {
+    if (!mounted) return;
+    final index = _messages.indexWhere((m) => m.id == messageId);
+    if (index == -1) return;
+    try {
+      final rows = await _messageService.getReceipts(messageId);
+      if (!mounted) return;
+      final status = ReceiptState.statusFrom(rows);
+      setState(() {
+        _messages = _messages
+            .map((m) => m.id == messageId ? m.copyWith(status: status) : m)
+            .toList();
+      });
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_receipts', 'messageId': messageId});
+    }
+  }
+
+  void _joinPresence() {
+    if (_conversationId.isEmpty || _currentUserId.isEmpty) return;
+    _presence.join(
+      conversationId: _conversationId,
+      userId: _currentUserId,
+    );
+    _onlineEvents ??= _presence.onlineUsers.listen((ids) {
+      if (!mounted) return;
+      setState(() => _onlineUserIds = ids);
+    });
+    _typingEvents ??= _presence.typingUsers.listen((ids) {
+      if (!mounted) return;
+      setState(() => _typingUserIds = ids);
+    });
+  }
+
+  /// Debounced: one "typing" event on the first keystroke, then one "stopped"
+  /// after a pause. Sending per keystroke would flood the channel.
+  void _onComposerChanged(String value) {
+    if (value.trim().isEmpty) {
+      _stopTyping();
+      return;
+    }
+    if (!_announcedTyping) {
+      _announcedTyping = true;
+      _presence.setTyping(true);
+    }
+    _typingStopTimer?.cancel();
+    _typingStopTimer = Timer(const Duration(seconds: 2), _stopTyping);
+  }
+
+  void _stopTyping() {
+    _typingStopTimer?.cancel();
+    _typingStopTimer = null;
+    if (!_announcedTyping) return;
+    _announcedTyping = false;
+    _presence.setTyping(false);
+  }
+
   @override
   void dispose() {
     _messageEvents?.cancel();
     _reactionEvents?.cancel();
+    _receiptEvents?.cancel();
+    _onlineEvents?.cancel();
+    _typingEvents?.cancel();
+    _typingStopTimer?.cancel();
+    _presence.dispose();
     _messageService.unsubscribe();
     _messageController.dispose();
     _scrollController.dispose();
@@ -130,9 +216,16 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         _reactionsSubscribed = true;
         _messageService.subscribeToReactions();
       }
+      if (!_receiptsSubscribed) {
+        _receiptsSubscribed = true;
+        _messageService.subscribeToReceipts();
+        _receiptEvents ??=
+            _messageService.receiptEvents.listen(_onReceiptEvent);
+      }
       // Opening the thread is reading it, which is what clears the unread
       // count on the chat list.
       _markRead();
+      _joinPresence();
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_load'});
       if (!mounted) return;
@@ -153,12 +246,15 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         conversationId: _conversationId,
         senderId: _currentUserId,
         text: text,
+        replyToMessageId: _replyTo?.id,
       );
       if (!mounted) return;
       setState(() {
         _messages = [..._messages, message];
         _sending = false;
+        _replyTo = null;
       });
+      _stopTyping();
       _scrollToBottom();
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_send'});
@@ -256,6 +352,15 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (!message.isDeleted)
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  setState(() => _replyTo = message);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.emoji_emotions_outlined),
               title: const Text('React'),
@@ -288,7 +393,23 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_title),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_title),
+            // Typing wins over presence: it is the more specific state, and
+            // showing "online" while they are mid-sentence says nothing useful.
+            if (_peerTyping)
+              const Text(
+                'typing...',
+                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+              )
+            else if (_peerOnline == true)
+              const Text('Online', style: TextStyle(fontSize: 12))
+            else if (_peerOnline == false)
+              const Text('Offline', style: TextStyle(fontSize: 12)),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Voice call',
@@ -393,6 +514,13 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         conversationId: _conversationId,
         messageId: lastFromOther.id,
       );
+      // The receipt rows are what turn the sender's tick from sent to read.
+      // They are written by the reader, because RLS only lets a recipient
+      // create their own.
+      await _messageService.markReceivedAndRead(
+        conversationId: _conversationId,
+        userId: _currentUserId,
+      );
     } catch (e, st) {
       // Not fatal: the badge simply stays. Logged so it is not invisible.
       AppLogger.error(e, st, {'where': 'chat_mark_read'});
@@ -424,9 +552,77 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           showStatus: message.senderId == _currentUserId,
           reactionChips:
               ReactionSummary.chips(message.reactions, _currentUserId),
+          replyPreview: _replyPreviewFor(message),
           onLongPress: () => _showMessageActions(message),
         );
       },
+    );
+  }
+
+  /// One-line summary of the parent message, or a placeholder when it is not
+  /// in the loaded page. Either way the reply is visible: silently dropping the
+  /// quote would make the bubble look like an ordinary message.
+  String? _replyPreviewFor(Message message) {
+    final parentId = message.replyToMessageId;
+    if (parentId == null) return null;
+    for (final candidate in _messages) {
+      if (candidate.id != parentId) continue;
+      if (candidate.isDeleted) return 'Message deleted';
+      final text = candidate.text?.trim();
+      if (text != null && text.isNotEmpty) return text;
+      return 'Attachment';
+    }
+    return 'Earlier message';
+  }
+
+  Widget _replyStrip(ColorScheme colors) {
+    final reply = _replyTo;
+    if (reply == null) return const SizedBox.shrink();
+    final text = reply.text?.trim();
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 0),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 34,
+            decoration: BoxDecoration(
+              color: colors.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Replying to ${reply.senderId == _currentUserId ? 'yourself' : 'them'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: colors.primary,
+                  ),
+                ),
+                Text(
+                  (text == null || text.isEmpty) ? 'Attachment' : text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Cancel reply',
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => setState(() => _replyTo = null),
+          ),
+        ],
+      ),
     );
   }
 
@@ -435,51 +631,61 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
           color: colors.surface,
           border: Border(top: BorderSide(color: colors.outlineVariant)),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              tooltip: 'Attach',
-              icon: const Icon(Icons.attach_file),
-              onPressed: () => Navigator.of(context)
-                  .pushNamed(AppRoutes.attachmentPreview),
-            ),
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                minLines: 1,
-                maxLines: 5,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: 'Message',
-                  filled: true,
-                  fillColor: colors.surfaceContainerHighest,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: BorderSide.none,
+            _replyStrip(colors),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Attach',
+                    icon: const Icon(Icons.attach_file),
+                    onPressed: () => Navigator.of(context)
+                        .pushNamed(AppRoutes.attachmentPreview),
                   ),
-                ),
-                onSubmitted: (_) => _send(),
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        hintText: 'Message',
+                        filled: true,
+                        fillColor: colors.surfaceContainerHighest,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(22),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: _onComposerChanged,
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton.filled(
+                    tooltip: 'Send',
+                    icon: _sending
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send_rounded),
+                    onPressed: _sending ? null : _send,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 4),
-            IconButton.filled(
-              tooltip: 'Send',
-              icon: _sending
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.send_rounded),
-              onPressed: _sending ? null : _send,
             ),
           ],
         ),

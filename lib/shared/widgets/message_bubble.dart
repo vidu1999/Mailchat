@@ -18,6 +18,11 @@ class MessageBubble extends StatelessWidget {
   /// reactions looks exactly as it did before reactions existed.
   final List<ReactionChip> reactionChips;
 
+  /// One-line preview of the message this one replies to. Null for an ordinary
+  /// message; when the parent is not loaded the caller passes a placeholder
+  /// rather than nothing, so the reply is never silently dropped.
+  final String? replyPreview;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -27,6 +32,7 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onRetry,
     this.reactionChips = const [],
+    this.replyPreview,
   });
 
   @override
@@ -70,6 +76,30 @@ class MessageBubble extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (replyPreview != null && replyPreview!.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlphaFactor(0.14),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border(
+                        left: BorderSide(
+                          color: textColor.withAlphaFactor(0.7),
+                          width: 2.5,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      replyPreview!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: textColor.withAlphaFactor(0.85),
+                      ),
+                    ),
+                  ),
                 // Soft-deleted messages must never render their old content.
                 if (!message.isDeleted &&
                     message.text != null &&
