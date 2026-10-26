@@ -35,7 +35,10 @@ select
       and um.deleted_at is null
   )                        as unread_count,
   m.notifications_muted    as is_muted,
-  other_profile            as other_participant
+  other_profile            as other_participant,
+  -- Tie-breaker for the chat list's ORDER BY. Postgres allows CREATE OR REPLACE
+  -- VIEW to append columns only, so this must stay last.
+  c.updated_at             as updated_at
 from public.conversation_members m
 join public.conversations c on c.id = m.conversation_id
 

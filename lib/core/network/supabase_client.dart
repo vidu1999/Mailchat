@@ -7,6 +7,7 @@ import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/auth_error_messages.dart';
+import 'package:mailchat/core/network/postgrest_error_messages.dart';
 
 /// Minimal Supabase client implemented on top of the Supabase REST API
 /// (PostgREST) and GoTrue Auth API.
@@ -557,6 +558,31 @@ class SupabaseClient {
         '(Authentication > Providers > Email).';
   }
 
+  /// Picks the right translator for an error body.
+  ///
+  /// Discriminated on the payload rather than the URL, because the same helper
+  /// serves both services and a wrong guess is cheap: a body that matches
+  /// neither shape returns null and the raw form is used.
+  static String? _friendlyError(String body) {
+    final decoded = _safeJsonObject(body);
+    if (decoded == null) return null;
+    // GoTrue identifies errors with `error_code` and/or `msg`.
+    if (decoded.containsKey('error_code') || decoded.containsKey('msg')) {
+      return AuthErrorMessages.forBody(body);
+    }
+    // PostgREST uses `message` with a SQLSTATE `code`.
+    return PostgrestErrorMessages.forBody(body);
+  }
+
+  static Map<String, dynamic>? _safeJsonObject(String body) {
+    try {
+      final value = jsonDecode(body);
+      return value is Map<String, dynamic> ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Builds an actionable error for a transport failure.
   ///
   /// A bare "Network request failed" gives the user nothing to act on: it can
@@ -697,8 +723,14 @@ class SupabaseClient {
       if (body.isEmpty) return null;
       return jsonDecode(body);
     }
+    // Two services answer behind this client with different error shapes:
+    // GoTrue (`msg`, `error_code`) and PostgREST (`message`, SQLSTATE `code`).
+    // Both are translated, so the user sees what to fix instead of JSON — and
+    // the raw body is kept in `original` for logs and for callers that branch on
+    // the machine-readable code.
+    final friendly = _friendlyError(body);
     throw SupabaseException(
-      'Request failed (${response.statusCode}): $body',
+      friendly ?? 'Request failed (${response.statusCode}): $body',
       statusCode: response.statusCode,
       original: body,
     );

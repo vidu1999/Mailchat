@@ -159,6 +159,12 @@ Each file is idempotent where practical (`create table if not exists`,
 `drop policy if exists`), so re-running one file is safe. Applying them out of
 order will fail: 0003 references functions created in 0002.
 
+**If you applied the migrations before 2026-10-26, re-run `0004`.** The
+`conversation_list` view gained an `updated_at` column that the chat list orders
+by; without it the screen fails with `column conversation_list.updated_at does
+not exist`. The file uses `create or replace view`, and Postgres allows appending
+columns, so re-running it is safe and does not touch data.
+
 ### Verify it worked
 
 Run this in the SQL editor after the four files:
@@ -469,6 +475,24 @@ Two values break the link:
 
 Use a page you control (GitHub Pages, your own domain) if you want the fallback
 to be useful. `docs/auth-links.md` has the details.
+
+### `column conversation_list.updated_at does not exist` (or any "does not exist")
+
+The app is ahead of the database: PostgREST answered a query for a column or table
+that is not there yet (SQLSTATE `42703` / `42P01`). It is not a bug in the screen.
+
+```sql
+-- Which migrations have effectively run? Compare against the files.
+select table_name from information_schema.tables
+where table_schema = 'public' order by table_name;
+```
+
+Re-run the migration that creates the missing object, in the SQL editor — for
+this error, `0004_views_storage_realtime.sql`. Migrations are written to be
+re-runnable, so applying it twice is harmless.
+
+From this version on, the app turns these codes into an instruction that names
+the migration, instead of showing the raw JSON body.
 
 ### Sign-in says "Invalid email or password" but Supabase logs show 200
 
