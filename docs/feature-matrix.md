@@ -41,7 +41,7 @@ Legend:
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
-| Image / file sharing | 🧪 | `AttachmentService`: picker → private bucket → `message_attachments` row → message. Bubbles render the file card; tapping fetches a signed URL and opens the viewer (images inline; other types are described, since handing a file to the OS is not implemented). 10 MB limit |
+| Image / file sharing | 🧪 | `AttachmentService`: picker → private bucket → `message_attachments` row → message. Bubbles render the file card; tapping fetches a signed URL and opens the viewer (images inline; other types are described, since handing a file to the OS is not implemented). 10 MB limit. Uses first-party `file_selector` (see §4) |
 | Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
@@ -106,6 +106,7 @@ Each of these is a decision, not an omission:
 | `last_read_at` timestamp | `last_read_message_id` | A message id is monotonic and immune to clock skew between devices; a timestamp is not |
 | `unique (message_id, user_id)` on reactions | Same intent, enforced as `message_reactions_one_per_user` (0006) | Matches your PK, keeps the surrogate id |
 | WebRTC calls as MVP-adjacent | Not built | A call screen without a media stack is a fake. See `docs/calls.md` for what it actually needs |
+| Any file-picker plugin | `file_selector` (first-party) | `file_picker` 6.x declares the removed v1 Android embedding and 8.x needs a compileSdk the CI scaffold does not produce; both failed the APK build, so the first-party plugin was chosen |
 | E2EE in the roadmap | Not built, not claimed | Brief §24 is right that it is a separate phase. Architecture is left E2EE-ready: ciphertext can replace `messages.text` without a schema change |
 
 ## 5. What is actually verified, and what is not
