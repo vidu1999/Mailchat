@@ -84,11 +84,14 @@ Without step 3 the release APK is unsigned and Android refuses to install it.
     dart run tool/check_config.dart
     if ($LASTEXITCODE -ne 0) { throw "Fix assets/config/env before building." }
 
-    # --- 2. Deep links ----------------------------------------------------
-    # The manifest patch is what makes confirmation emails open the app.
+    # --- 2. Platform folder -----------------------------------------------
+    # compileSdk (flutter_webrtc needs 36), the deep-link intent filter and the
+    # camera/mic permissions all live in the generated android/ folder. This
+    # script is idempotent, and it fails with a readable message when the Flutter
+    # SDK itself is too old for call media.
     if (-not $SkipDeepLinks) {
-        dart run tool/enable_deep_links.dart
-        if ($LASTEXITCODE -ne 0) { throw "Enabling deep links failed." }
+        dart run tool/fix_android_build.dart
+        if ($LASTEXITCODE -ne 0) { throw "Preparing the Android project failed. See docs/running.md." }
     }
 
     # --- 3. Build ---------------------------------------------------------

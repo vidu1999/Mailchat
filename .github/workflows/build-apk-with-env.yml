@@ -65,9 +65,11 @@ jobs:
             flutter create --platforms=android --org com.mailchat --project-name mailchat .
           fi
 
-      # Teaches the project to receive Supabase auth redirects. Idempotent.
-      - name: Enable deep links
-        run: dart run tool/enable_deep_links.dart
+      # Everything the generated platform folder needs: compileSdk pinned to what
+      # flutter_webrtc requires, deep-link intent filter, camera/mic permissions.
+      # Idempotent, and the same command the troubleshooting docs give.
+      - name: Prepare the Android project
+        run: dart run tool/fix_android_build.dart
 
       - name: Resolve credentials
         id: creds

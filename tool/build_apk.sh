@@ -57,8 +57,12 @@ fi
 # what the APK will actually read at startup.
 dart run tool/check_config.dart
 
+# compileSdk, the deep-link intent filter and the camera/mic permissions all
+# live in the generated android/ folder, and an old folder is the usual reason a
+# build fails inside flutter_webrtc. --check-only would skip the patching; the
+# full script is idempotent, so run it every time.
 if [[ $skip_links -eq 0 ]]; then
-  dart run tool/enable_deep_links.dart
+  dart run tool/fix_android_build.dart
 fi
 
 args=(build apk "--$mode")

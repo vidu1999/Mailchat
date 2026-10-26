@@ -31,7 +31,9 @@ Run this to see which of A5–A6 are done:
 
 ```powershell
 dart run tool/check_config.dart            # A5
-dart run tool/enable_deep_links.dart --signing   # A6, prints the exact snippet
+dart run tool/fix_android_build.dart       # checks the Flutter SDK, pins compileSdk,
+                                           # applies deep links + camera/mic permissions
+dart run tool/enable_deep_links.dart --signing   # A6, prints the exact signing snippet
 ```
 
 ---
@@ -43,7 +45,7 @@ So you know what not to re-do:
 | Concern | Handling |
 |---|---|
 | Credentials without CLI flags | `assets/config/env`, read at runtime; `--dart-define` overrides it |
-| Internet permission in release builds | Added to the main manifest by `tool/enable_deep_links.dart` |
+| Internet permission, deep links, camera/mic, `compileSdk` | All applied by `tool/fix_android_build.dart` (which calls the two smaller patchers) |
 | Confirmation / recovery links | Intent filter, `MainActivity` forwarding, parser, paste fallback |
 | Session persistence | Written to an app-private writable directory (not `Directory.current`, which is unwritable on Android) |
 | Session lifetime | Access tokens are refreshed before they expire, and a stored refresh token is used at startup — otherwise every launch an hour after sign-in would ask for a password |

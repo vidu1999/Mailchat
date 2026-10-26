@@ -116,6 +116,19 @@ The credential is a per-server secret, not a Supabase key, but it still belongs
 in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
 the repository.
 
+## What the SDK must provide
+
+| Requirement | Why | Where it bites |
+| --- | --- | --- |
+| Flutter **≥ 3.29** | `TextureRegistry.SurfaceProducer.Callback.onSurfaceCleanup()` — older engines declare an abstract `onSurfaceDestroyed()` the plugin does not implement | `:flutter_webrtc:compileDebugJavaWithJavac` fails |
+| Flutter **≥ 3.35** (or an explicit `compileSdk = 36`) | The plugin compiles against Android SDK 36; 3.32 defaults to 35 | "requires Android SDK version 36 or higher" |
+
+`pubspec.yaml` declares `flutter: ">=3.35.0"` for exactly this reason — the
+plugin's own constraint (`>=1.22.0`) does not, so `pub get` would otherwise
+succeed on an SDK that cannot build it. `tool/fix_android_build.dart` checks the
+SDK, pins `compileSdk`, and re-applies the platform patches; CI runs the same
+script, so a local build and a green run match.
+
 ## Android permissions
 
 `android/` is not committed — CI runs `flutter create` — so the manifest cannot

@@ -45,6 +45,13 @@ jobs:
       - name: Toolchain versions
         run: flutter --version
 
+      # flutter_webrtc needs Flutter >= 3.35 (its Java uses an embedding hook
+      # that only exists from 3.29, and it compiles against SDK 36, which 3.35
+      # is the first default for). Failing here names the real problem instead
+      # of leaving three Java errors forty lines into the Gradle output.
+      - name: Check the Flutter SDK is new enough for call media
+        run: dart run tool/fix_android_build.dart --check
+
       - name: Check formatting
         continue-on-error: true
         run: dart format --output=none --set-exit-if-changed lib test
@@ -178,16 +185,12 @@ jobs:
             flutter create --platforms=android --org com.mailchat --project-name mailchat .
           fi
 
-      # Adds the intent filter and link forwarding that Supabase's auth
-      # redirect needs. Idempotent, and required for the build to match a
-      # developer machine (see tool/enable_deep_links.dart).
-      - name: Enable deep links
-        run: dart run tool/enable_deep_links.dart
-
-      # Camera and microphone permission for calls. Same reason as the step
-      # above: android/ is generated, so the manifest cannot carry them.
-      - name: Enable call permissions
-        run: dart run tool/enable_call_permissions.dart
+      # One step for everything the generated platform folder needs: pin
+      # compileSdk to what flutter_webrtc requires, then apply the deep-link
+      # intent filter and the camera/microphone permissions. Each part is
+      # idempotent, and the same command is the documented local fix.
+      - name: Prepare the Android project
+        run: dart run tool/fix_android_build.dart
 
       # Split per ABI: a fat debug APK bundles the engine for every
       # architecture (100-200 MB). Splitting keeps artifacts small enough to

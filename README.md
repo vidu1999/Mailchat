@@ -78,8 +78,11 @@ describe this as a working messaging app until the manual checklist in
 
 ## Requirements
 
-- Flutter 3.22+ (stable), Dart 3.3+
-  (the theme uses `surfaceContainerHighest`; older SDKs do not have it)
+- **Flutter 3.35+ (stable)**, Dart 3.5+
+  Call media pulls `flutter_webrtc`, whose Java needs an embedding hook that only
+  exists from 3.29 and a default `compileSdk` of 36, reached in 3.35. On an older
+  SDK the Android build fails inside the plugin, not in this repository — see
+  `docs/running.md` § "flutter_webrtc will not compile".
 - A Supabase project
 - Android Studio / Xcode for device builds
 

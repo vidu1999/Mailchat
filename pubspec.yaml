@@ -7,8 +7,18 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
-  flutter: ">=3.22.0"
+  # flutter_webrtc sets the real floor, and it does not declare it itself (its
+  # pubspec says `flutter: ">=1.22.0"`). It needs two things from the SDK:
+  #   * the Android embedding's `TextureRegistry.SurfaceProducer.Callback`
+  #     `onSurfaceCleanup()` hook — present from 3.29. Before that the equivalent
+  #     was an abstract `onSurfaceDestroyed()`, which the plugin does not
+  #     implement, so its Java does not compile.
+  #   * a default `compileSdk` of 36 — reached in 3.35 (3.32 defaults to 35).
+  # 3.35 is therefore the first SDK that satisfies both.
+  # Declaring it here means `flutter pub get` fails with a readable message
+  # instead of Gradle failing with three Java errors and an SDK warning.
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:

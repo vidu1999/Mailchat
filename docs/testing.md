@@ -15,8 +15,10 @@ environment, so "the tests pass" is not the same as "the app works".
 | `dart format --set-exit-if-changed lib test` | No | Reports formatting drift |
 | `flutter analyze` | Yes | Lints configured as errors; analyzer findings are published as a check run |
 | `dart run tool/check_config.dart` | Yes | Refuses a build with no configuration, and refuses placeholder keys |
+| `dart run tool/fix_android_build.dart --check` | Yes | The Flutter SDK is new enough for `flutter_webrtc` (≥ 3.35) |
 | `dart run tool/check_migrations.dart` | Yes | Every migration is re-runnable; `apply_all.sql` has not drifted |
 | `dart run tool/check_docs.dart` | Yes | Every document is linked and every path it names exists |
+| `dart run tool/fix_android_build.dart` (APK job) | Yes | Pins `compileSdk`, adds the deep-link intent filter, adds camera/mic permissions |
 | `flutter test --coverage` | Yes | Unit and widget tests |
 | `flutter build apk --debug --split-per-abi` | Yes | An installable APK exists; Gradle's "What went wrong" is re-emitted as an annotation |
 
@@ -28,6 +30,7 @@ build failures diagnosable at all.
 
 ```text
 test/unit/
+  android_gradle_test.dart      the generated build.gradle rewrite and SDK comparison
   validators_test.dart          email, password, username rules
   formatters_test.dart          timestamps, file sizes, last-seen wording
   models_test.dart              JSON parsing; conversation_list rows; copyWith
