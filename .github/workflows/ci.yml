@@ -64,27 +64,38 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: analyze-log
-          path: analyze.log
+          path: |
+            analyze.log
+            test.log
           if-no-files-found: ignore
 
       - name: Publish analyzer findings
-        if: failure()
+        if: failures() && always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ ! -s analyze.log ]; then
-            echo "analyze.log is empty or missing"
-            exit 0
-          fi
-          jq -Rs --arg sha "$GITHUB_SHA" \
-            '{name: "analyze-findings", head_sha: $sha, status: "completed",
-              conclusion: "neutral",
-              output: {title: "flutter analyze", summary: "Analyzer findings from the failing Analyze step", text: .}}' \
-            analyze.log > check-payload.json
-          gh api "repos/${{ github.repository }}/check-runs" --input check-payload.json > /dev/null
+          publish() {
+            local name="$1" file="$2" title="$3"
+            if [ ! -s "$file" ]; then
+              echo "$file is empty or missing"
+              return 0
+            fi
+            jq -Rs --arg sha "$GITHUB_SHA" --arg name "$name" --arg title "$title" \
+              '{name: $name, head_sha: $sha, status: "completed",
+                conclusion: "neutral",
+                output: {title: $title, summary: $title, text: .}}' \
+              "$file" > "payload-$name.json"
+            gh api "repos/${{ github.repository }}/check-runs" --input "payload-$name.json" > /dev/null
+          }
+          publish "analyze-findings" analyze.log "flutter analyze" || true
+          publish "test-findings" test.log "flutter test" || true
 
+      # Same treatment as the analyzer: `flutter test` reports only the exit
+      # code in the step summary, so keep the output and publish it.
       - name: Run unit & widget tests
-        run: flutter test --coverage
+        run: |
+          set -o pipefail
+          flutter test --coverage 2>&1 | tee test.log
 
       - name: Upload coverage
         if: always()

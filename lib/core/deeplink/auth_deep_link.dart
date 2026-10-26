@@ -99,10 +99,15 @@ class AuthDeepLink {
     final uri = Uri.tryParse(raw.trim());
     if (uri == null) return null;
 
-    final isCustomScheme = uri.scheme == 'mailchat';
-    final isCallbackPath = uri.path.contains('auth/callback') ||
-        uri.path.contains('/auth/v1/verify');
-    if (!isCustomScheme && !isCallbackPath) return null;
+    // Match on scheme + host + path together. For `mailchat://auth/callback`
+    // the "auth" segment is the *host*; for an https app link it is part of the
+    // path — so neither alone identifies a callback. Anything else the scheme
+    // can address (`mailchat://settings`) must not be treated as one.
+    final signature = '${uri.scheme}://${uri.host}${uri.path}';
+    final isCallback = signature.contains('mailchat://auth/callback') ||
+        signature.contains('/auth/callback') ||
+        signature.contains('/auth/v1/verify');
+    if (!isCallback) return null;
 
     // Query parameters first, then the fragment wins for any repeated key: when
     // both are present the fragment carries the session and the query carries

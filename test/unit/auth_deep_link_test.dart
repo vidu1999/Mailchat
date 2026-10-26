@@ -103,7 +103,10 @@ void main() {
   group('links that are not auth callbacks', () {
     test('an unrelated URL is ignored', () {
       expect(AuthDeepLink.parse('https://example.com/pricing'), isNull);
+      // Same scheme, different destination: accepting this would make the app
+      // treat any custom-scheme link as a login attempt.
       expect(AuthDeepLink.parse('mailchat://settings'), isNull);
+      expect(AuthDeepLink.parse('mailchat://auth/other'), isNull);
     });
 
     test('null and empty input are ignored', () {
