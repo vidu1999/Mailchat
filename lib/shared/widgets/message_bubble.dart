@@ -18,6 +18,13 @@ class MessageBubble extends StatelessWidget {
   /// reactions looks exactly as it did before reactions existed.
   final List<ReactionChip> reactionChips;
 
+  /// Attachment to render inside the bubble, if this message carries one.
+  final MessageAttachment? attachment;
+
+  /// Tapping the attachment card: the caller fetches a signed URL and opens the
+  /// viewer, because the bucket is private and the bubble has no async work.
+  final VoidCallback? onAttachmentTap;
+
   /// One-line preview of the message this one replies to. Null for an ordinary
   /// message; when the parent is not loaded the caller passes a placeholder
   /// rather than nothing, so the reply is never silently dropped.
@@ -33,6 +40,8 @@ class MessageBubble extends StatelessWidget {
     this.onRetry,
     this.reactionChips = const [],
     this.replyPreview,
+    this.attachment,
+    this.onAttachmentTap,
   });
 
   @override
@@ -97,6 +106,59 @@ class MessageBubble extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         color: textColor.withAlphaFactor(0.85),
+                      ),
+                    ),
+                  ),
+                if (attachment != null && !message.isDeleted)
+                  InkWell(
+                    onTap: onAttachmentTap,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withAlphaFactor(0.14),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            attachment!.isImage
+                                ? Icons.image_outlined
+                                : (attachment!.isVideo
+                                    ? Icons.videocam_outlined
+                                    : Icons.insert_drive_file_outlined),
+                            size: 20,
+                            color: textColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  attachment!.fileName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: textColor,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  attachment!.isImage
+                                      ? 'Tap to view'
+                                      : 'Tap to open',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: textColor.withAlphaFactor(0.75),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

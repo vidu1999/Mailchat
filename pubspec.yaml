@@ -14,6 +14,10 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
+  # Picking a photo or a file to send. Deliberately the only added dependency:
+  # it covers images and arbitrary files through the platform picker, with no
+  # extra Android permissions (the system picker grants access per file).
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:

@@ -30,7 +30,7 @@ Legend:
 | Password reset | 🧪 | `forgot_password_screen.dart`, `reset_password_screen.dart` |
 | Session restoration | 🧪 | token refresh in `core/network/supabase_client.dart` |
 | Username | ✅ | `profiles.username`, format enforced by a check constraint |
-| Profile / avatar | 🟡 | Profile and edit screens exist; **avatar upload has no picker** — the storage bucket and policies exist, nothing writes to them |
+| Profile / avatar | 🟡 | Profile and edit screens exist; avatar upload still has no picker (the file picker now exists for chat attachments, so this is a small follow-up) |
 | User search | ✅ | `public.search_users` (0005): username, display name, exact email |
 | 1-to-1 conversations | 🧪 | `get_or_create_direct_conversation`, `direct_chat_screen.dart` |
 | Real-time messaging | 🧪 | Realtime subscription in `message_service.dart` |
@@ -41,7 +41,7 @@ Legend:
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
-| Image / file sharing | ❌ | `message_attachments` table, storage buckets and policies exist; `uploadFile()` exists in the client; **no screen picks a file or sends one**. The preview and media-viewer screens are unreachable |
+| Image / file sharing | 🧪 | `AttachmentService`: picker → private bucket → `message_attachments` row → message. Bubbles render the file card; tapping fetches a signed URL and opens the viewer (images inline; other types are described, since handing a file to the OS is not implemented). 10 MB limit |
 | Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
@@ -61,10 +61,10 @@ Legend:
 | 10–11 | Chat list, search users | ✅ built |
 | 12–13 | New conversation, direct chat | ✅ built |
 | 14–15 | Group chat, group details | ✅ built |
-| 16 | Media viewer | 🟡 screen exists, no way to reach it |
+| 16 | Media viewer | ✅ reachable from an attachment; images render inline through a signed URL |
 | — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
 | — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
-| 17 | Attachment preview | 🟡 same |
+| 17 | Attachment preview | 🟡 the picker flow supersedes it; the old placeholder screen is still routed |
 | 18–19 | Voice call, video call | ❌ |
 | 20 | My status / stories | ❌ |
 | 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
@@ -124,7 +124,7 @@ live project can be checked in one paste.
 2. ~~Presence + typing~~ — done: `PresenceService`, ephemeral, no schema change.
 3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
 4. ~~Notification settings~~ — done: persisted to `notification_preferences`.
-5. **Media** — image/file picker → `uploadFile` → attachment row. The schema, buckets and policies are already in place; this needs `image_picker` and `file_picker`, so it is the next commit rather than this one.
+5. ~~Media~~ — done: `file_picker` → `AttachmentService` → storage → attachment row.
 6. **FCM** — needs a Firebase project, which is a decision and an account, not just code.
 7. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item that cannot be finished without two real devices.
 8. **Stories, multi-device, monitoring, environments** — genuinely v2 work.

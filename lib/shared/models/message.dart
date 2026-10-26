@@ -24,6 +24,9 @@ class Message {
   /// reaction changes.
   final List<MessageReaction> reactions;
 
+  /// Attached files, populated when the query embeds `message_attachments(*)`.
+  final List<MessageAttachment> attachments;
+
   Message({
     required this.id,
     required this.conversationId,
@@ -37,6 +40,7 @@ class Message {
     this.clientId,
     this.status = AppConstants.messageStatusSent,
     this.reactions = const [],
+    this.attachments = const [],
   });
 
   bool get isText => type == 'text';
@@ -67,6 +71,7 @@ class Message {
       status: json['status'] as String? ??
           ReceiptState.statusFrom(json['message_receipts']),
       reactions: _parseReactions(json),
+      attachments: _parseAttachments(json),
     );
   }
 
@@ -99,6 +104,7 @@ class Message {
     String? clientId,
     String? status,
     List<MessageReaction>? reactions,
+    List<MessageAttachment>? attachments,
   }) {
     return Message(
       id: id ?? this.id,
@@ -113,7 +119,23 @@ class Message {
       clientId: clientId ?? this.clientId,
       status: status ?? this.status,
       reactions: reactions ?? this.reactions,
+      attachments: attachments ?? this.attachments,
     );
+  }
+
+  /// Reads the embedded rows from `message_attachments(*)`.
+  static List<MessageAttachment> _parseAttachments(Map<String, dynamic> json) {
+    final raw = json['message_attachments'];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((row) => MessageAttachment.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    }
+    if (raw is Map) {
+      return [MessageAttachment.fromJson(Map<String, dynamic>.from(raw))];
+    }
+    return const [];
   }
 
   /// Reads the embedded rows from `message_reactions(*)`.

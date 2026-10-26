@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 
@@ -9,6 +10,7 @@ import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/message.dart';
 import 'package:mailchat/shared/models/reaction_summary.dart';
 import 'package:mailchat/shared/models/receipt_state.dart';
+import 'package:mailchat/shared/services/attachment_service.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
 import 'package:mailchat/shared/services/presence_service.dart';
@@ -49,6 +51,8 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   bool _receiptsSubscribed = false;
   StreamSubscription<String>? _receiptEvents;
   Message? _replyTo;
+  final _attachments = AttachmentService();
+  bool _sendingAttachment = false;
 
   final _presence = PresenceService();
   StreamSubscription<Set<String>>? _onlineEvents;
@@ -455,6 +459,102 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
+  /// Offers the two ways to send a file, then uploads it.
+  ///
+  /// The picker hands back bytes directly (`withData`), which avoids a second
+  /// platform call and keeps this working on Android and desktop alike. The size
+  /// limit lives in AttachmentService so it applies to every caller.
+  Future<void> _pickAttachment() async {
+    if (_sendingAttachment || _conversationId.isEmpty) return;
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Photo'),
+              onTap: () => Navigator.of(context).pop('image'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_outlined),
+              title: const Text('File'),
+              subtitle: const Text('Up to 10 MB'),
+              onTap: () => Navigator.of(context).pop('file'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: choice == 'image' ? FileType.image : FileType.any,
+        withData: true,
+      );
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_pick_attachment'});
+      _showSnack('Could not open the file picker.');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      _showSnack('That file could not be read.');
+      return;
+    }
+
+    setState(() => _sendingAttachment = true);
+    try {
+      final message = await _attachments.sendAttachment(
+        conversationId: _conversationId,
+        senderId: _currentUserId,
+        fileName: file.name,
+        mimeType: AttachmentService.mimeTypeFor(file.name),
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      setState(() {
+        _messages = [..._messages, message];
+        _sendingAttachment = false;
+      });
+      _scrollToBottom();
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_send_attachment'});
+      if (!mounted) return;
+      setState(() => _sendingAttachment = false);
+      _showSnack('Could not send that file. ${_reason(e)}');
+    }
+  }
+
+  /// Opens one attachment. The bucket is private, so a signed URL is fetched
+  /// here rather than stored on the message.
+  Future<void> _openAttachment(MessageAttachment attachment) async {
+    try {
+      final url = await _attachments.signedUrl(attachment);
+      if (!mounted) return;
+      Navigator.of(context).pushNamed(
+        AppRoutes.mediaViewer,
+        arguments: {
+          'fileName': attachment.fileName,
+          'url': url,
+          'mimeType': attachment.mimeType,
+          'fileSize': attachment.fileSize,
+        },
+      );
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_open_attachment'});
+      _showSnack('Could not open that file. ${_reason(e)}');
+    }
+  }
+
   /// Deleting is one tap away from a long-press, so it asks first — but only
   /// once, and it reports failure instead of failing silently.
   Future<void> _confirmDelete(Message message) async {
@@ -554,6 +654,11 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           reactionChips:
               ReactionSummary.chips(message.reactions, _currentUserId),
           replyPreview: _replyPreviewFor(message),
+          attachment:
+              message.attachments.isEmpty ? null : message.attachments.first,
+          onAttachmentTap: message.attachments.isEmpty
+              ? null
+              : () => _openAttachment(message.attachments.first),
           onLongPress: () => _showMessageActions(message),
         );
       },
@@ -647,9 +752,14 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                 children: [
                   IconButton(
                     tooltip: 'Attach',
-                    icon: const Icon(Icons.attach_file),
-                    onPressed: () => Navigator.of(context)
-                        .pushNamed(AppRoutes.attachmentPreview),
+                    icon: _sendingAttachment
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.attach_file),
+                    onPressed: _sendingAttachment ? null : _pickAttachment,
                   ),
                   Expanded(
                     child: TextField(
