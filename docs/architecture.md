@@ -118,8 +118,11 @@ Ordering is `last_message_at desc nullslast, updated_at desc`.
 
 The screen never computes an unread count itself. `unread_count` comes from the
 view and is derived from `conversation_members.last_read_message_id`, so the only
-way to change a badge is to move that cursor (which the chat screen does when it
-opens a thread) and re-read. Two Realtime subscriptions decide when to re-read:
+way to change a badge is to move that cursor and re-read. The cursor is moved by
+`mark_conversation_read()` (0009), not by a PATCH from the app: the function takes
+the newest message from the table, only moves forward, and returns what is still
+unread. Letting the phone name the message meant a missed Realtime event left the
+cursor behind the newest row and the badge came back. Two Realtime subscriptions decide when to re-read:
 `messages` (anything the caller can see — no filter is possible, because the
 table has no per-user column and RLS is what scopes it) and the caller's own
 `conversation_members` rows. That is why a badge clears on another device too.

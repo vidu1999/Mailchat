@@ -87,4 +87,41 @@ void main() {
       expect(rows.single['id'], 'u1');
     });
   });
+
+  group('RpcPayload.integer', () {
+    // `mark_conversation_read` returns an integer, and its zero is meaningful:
+    // "nothing unread". A parser that returned 0 for an unreadable reply would
+    // hide exactly the failure the badge is complaining about.
+    test('reads a bare JSON number (returns integer)', () {
+      expect(RpcPayload.integer(0), 0);
+      expect(RpcPayload.integer(3), 3);
+    });
+
+    test('reads a one-element array (returns setof)', () {
+      expect(RpcPayload.integer([0]), 0);
+      expect(RpcPayload.integer([2]), 2);
+    });
+
+    test('reads a single-column row', () {
+      expect(RpcPayload.integer([
+        {'mark_conversation_read': 1}
+      ]), 1);
+    });
+
+    test('reads a double that is whole, and the string form', () {
+      expect(RpcPayload.integer(0.0), 0);
+      expect(RpcPayload.integer('2'), 2);
+      expect(RpcPayload.integer(' 4 '), 4);
+    });
+
+    test('refuses to guess', () {
+      expect(RpcPayload.integer(null), isNull);
+      expect(RpcPayload.integer('not a number'), isNull);
+      expect(RpcPayload.integer(1.5), isNull);
+      expect(RpcPayload.integer(const []), isNull);
+      expect(RpcPayload.integer(const <String, dynamic>{}), isNull);
+      // Two values is not a scalar reply.
+      expect(RpcPayload.integer({'a': 1, 'b': 2}), isNull);
+    });
+  });
 }

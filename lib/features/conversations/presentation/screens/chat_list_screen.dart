@@ -47,6 +47,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
   bool _refreshing = false;
   AppException? _error;
 
+  /// Conversations whose badge the user has just cleared by opening them.
+  ///
+  /// Their badge is pinned to zero until the server confirms it, so a reload
+  /// triggered by the read write itself (or by an incoming message) cannot
+  /// flash the old count back while the chat screen is still on top. The pin is
+  /// released when the chat screen pops, which is the first moment the user
+  /// could see it again — and if the server still counts something then, the
+  /// real number is shown rather than hidden.
+  final Set<String> _clearedUnread = <String>{};
+
   StreamSubscription<String>? _inboxSubscription;
   Timer? _reloadDebounce;
   Timer? _presenceTimer;
@@ -93,7 +103,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     });
   }
 
-  Future<void> _load({bool quiet = false}) async {
+  /// [release] names a conversation whose badge pin should be dropped once this
+  /// load has read the server's answer. Used when the chat screen pops.
+  Future<void> _load({bool quiet = false, String? release}) async {
     if (quiet) {
       // A background refresh must not blank the list or race itself.
       if (_refreshing) return;
@@ -107,9 +119,36 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
     try {
       final items = await _conversationService.listConversations();
+
+      if (release != null) {
+        // The server has now had its say about the conversation the user just
+        // read. If it still counts unread messages, the write did not land or
+        // the view is not the current definition — say so instead of showing a
+        // badge the user already cleared without explanation.
+        _clearedUnread.remove(release);
+        for (final item in items) {
+          if (item.conversation.id != release) continue;
+          if (item.unreadCount > 0) {
+            AppLogger.warning('unread_count_not_cleared', details: {
+              'conversationId': release,
+              'count': item.unreadCount,
+              'hint': 'read cursor write failed, or conversation_list is stale '
+                  '(re-paste supabase/apply_all.sql)',
+            });
+          }
+        }
+      }
+
+      final displayed = <ConversationListItem>[
+        for (final item in items)
+          if (_clearedUnread.contains(item.conversation.id))
+            item.copyWith(unreadCount: 0)
+          else
+            item,
+      ];
       if (!mounted) return;
       setState(() {
-        _items = items;
+        _items = displayed;
         _loading = false;
         _error = null;
       });
@@ -160,16 +199,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
     // contradict the chat the user is standing in, then re-read the server
     // truth on the way back: if recording the read failed, the badge returns,
     // which is the honest outcome.
-    if (item.unreadCount > 0) {
-      setState(() {
-        _items = [
-          for (final i in _items)
-            i.conversation.id == item.conversation.id
-                ? i.copyWith(unreadCount: 0)
-                : i,
-        ];
-      });
-    }
+    _clearedUnread.add(item.conversation.id);
+    setState(() {
+      _items = [
+        for (final i in _items)
+          i.conversation.id == item.conversation.id
+              ? i.copyWith(unreadCount: 0)
+              : i,
+      ];
+    });
 
     await Navigator.of(context).pushNamed(
       // Groups get the same message screen as direct chats; the details screen
@@ -184,7 +222,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
 
     if (!mounted) return;
-    await _load(quiet: true);
+    await _load(quiet: true, release: item.conversation.id);
   }
 
   /// The line under the name: the last message, or what state the chat is in.

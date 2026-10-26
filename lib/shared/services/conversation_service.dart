@@ -109,23 +109,27 @@ class ConversationService {
     }).toList();
   }
 
-  /// Records that the current user has read up to [messageId].
+  /// Marks [conversationId] read, server-side, up to its newest message.
   ///
   /// The chat list's `unread_count` counts messages newer than
-  /// `conversation_members.last_read_message_id`, so this single column is what
-  /// clears the badge. RLS limits the row to the caller's own membership
-  /// (`conversation_members_update_own`), so no user id is needed here.
-  Future<void> markRead({
-    required String conversationId,
-    required String messageId,
-  }) async {
-    final userId = _supabase.userId;
-    if (userId == null) return;
-    await _supabase.update(
-      'conversation_members',
-      filter: {'eq': 'conversation_id,$conversationId,user_id,$userId'},
-      data: {'last_read_message_id': messageId},
+  /// `conversation_members.last_read_message_id`, so this cursor is the only
+  /// thing that clears a badge. It used to be written by a PATCH carrying the
+  /// newest message *the app had loaded*, which is why badges came back: a
+  /// missed Realtime event or an unbounded thread left the cursor behind the
+  /// real newest row. `mark_conversation_read()` (migration 0009) picks the
+  /// newest row in the table and only ever moves forward.
+  ///
+  /// Returns the number of messages the server still counts as unread — null
+  /// when the reply could not be read. `0` means cleared; anything else means
+  /// something arrived while the call was running.
+  Future<int?> markConversationRead(String conversationId) async {
+    if (_supabase.userId == null) return null;
+    if (conversationId.isEmpty) return null;
+    final raw = await _supabase.rpc(
+      'mark_conversation_read',
+      params: {'p_conversation_id': conversationId},
     );
+    return RpcPayload.integer(raw);
   }
 
   // ------------------------------------------------------------------

@@ -63,6 +63,25 @@ select '08. email discovery columns (0005)',
        ) = 2 then 'ok' else 'MISSING - 0005 did not apply' end
 
 union all
+select '13. read cursor function (0009)',
+       case when exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'mark_conversation_read'
+       ) then 'ok' else 'MISSING - 0009 did not apply: opening a chat cannot clear its badge' end
+
+union all
+select '14. conversation_list unread logic',
+       case when exists (
+         select 1 from pg_views
+         where schemaname = 'public'
+           and viewname = 'conversation_list'
+           and definition ilike '%last_read_message_id%'
+           and definition ilike '%sender_id%'
+       ) then 'ok'
+       else 'STALE - re-paste apply_all.sql: conversation_list is not the current definition, so unread counts are wrong' end
+
+union all
 select '12. presence and last seen (0008)',
        case when (
          select count(*) from pg_tables

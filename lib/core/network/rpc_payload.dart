@@ -68,6 +68,47 @@ class RpcPayload {
     return null;
   }
 
+  /// A whole number from a function returning an integer.
+  ///
+  /// PostgREST sends a bare JSON number for `returns integer`, but a gateway or
+  /// a `setof` return wraps it (`[3]`, `[{"mark_conversation_read": 3}]`), so
+  /// all of those are accepted. Returns null when the reply cannot be read:
+  /// unlike [scalar], zero is a meaningful answer here ("nothing unread") and
+  /// must not be confused with "no answer".
+  static int? integer(dynamic payload) {
+    final direct = _asInt(payload);
+    if (direct != null) return direct;
+
+    if (payload is List && payload.isNotEmpty) {
+      final first = _asInt(payload.first);
+      if (first != null) return first;
+      if (payload.first is Map) {
+        final values =
+            (payload.first as Map).values.map(_asInt).whereType<int>().toList();
+        if (values.length == 1) return values.first;
+      }
+      return null;
+    }
+
+    if (payload is Map) {
+      final values =
+          payload.values.map(_asInt).whereType<int>().toList();
+      if (values.length == 1) return values.first;
+    }
+    return null;
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value is int) return value;
+    // A JSON number that arrived as a double (some gateways do this for
+    // numeric types), and the string form PostgREST uses for bigint.
+    if (value is double && value == value.roundToDouble()) {
+      return value.toInt();
+    }
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
   static String? _asScalar(dynamic value) {
     if (value is String) {
       final trimmed = value.trim();

@@ -122,6 +122,43 @@ void main() {
     });
   });
 
+  group('ConversationListItem.copyWith', () {
+    ConversationListItem item({int unread = 2, bool muted = false}) =>
+        ConversationListItem(
+          conversation: Conversation.fromJson({
+            'id': 'c1',
+            'type': 'direct',
+            'created_at': '2026-01-01T00:00:00Z',
+            'updated_at': '2026-01-01T00:00:00Z',
+          }),
+          lastMessageText: 'hi',
+          unreadCount: unread,
+          isMuted: muted,
+        );
+
+    test('zeroing the badge keeps everything else', () {
+      // This is what the chat list does the moment a conversation is opened.
+      final cleared = item().copyWith(unreadCount: 0);
+      expect(cleared.unreadCount, 0);
+      expect(cleared.conversation.id, 'c1');
+      expect(cleared.lastMessageText, 'hi');
+      expect(cleared.isMuted, isFalse);
+      expect(cleared.title, 'Unknown'); // no other participant on this fixture
+    });
+
+    test('omitting a field leaves it alone', () {
+      final same = item(unread: 5, muted: true).copyWith();
+      expect(same.unreadCount, 5);
+      expect(same.isMuted, isTrue);
+    });
+
+    test('zero is a value, not an omission', () {
+      // `unreadCount ?? this.unreadCount` would be wrong if 0 were treated as
+      // absent; a cleared badge must stay cleared.
+      expect(item(unread: 7).copyWith(unreadCount: 0).unreadCount, 0);
+    });
+  });
+
   group('UserDevice', () {
     test('parses platform and push token', () {
       final device = UserDevice.fromJson({

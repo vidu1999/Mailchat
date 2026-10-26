@@ -130,7 +130,7 @@ startup log states which source was used (never the values):
 
 ## 2. Apply the database schema
 
-The project needs eight migrations, applied **in order**:
+The project needs nine migrations, applied **in order**:
 
 | Order | File | Contents |
 |---|---|---|
@@ -142,10 +142,11 @@ The project needs eight migrations, applied **in order**:
 | 6 | `supabase/migrations/0006_one_reaction_per_user.sql` | collapses duplicates, adds `message_reactions_one_per_user` |
 | 7 | `supabase/migrations/0007_call_signalling.sql` | `calls`, `call_ice_candidates`, transition + SDP-ownership triggers (no media) |
 | 8 | `supabase/migrations/0008_presence_last_seen.sql` | `user_presence` heartbeat, `touch_last_seen()`, `get_presence()` — online status and last seen |
+| 9 | `supabase/migrations/0009_read_cursor.sql` | `mark_conversation_read()` — clears an unread badge against the newest message in the table, forward-only |
 
 ### Option C — the whole schema in one paste (recommended when in doubt)
 
-`supabase/apply_all.sql` is all eight files concatenated, plus the health check
+`supabase/apply_all.sql` is all nine files concatenated, plus the health check
 at the end. Paste it once; there is nothing to edit and no order to get right.
 
 ```
@@ -153,9 +154,9 @@ Dashboard -> SQL Editor -> New query -> paste supabase/apply_all.sql -> Run
 ```
 
 Its last statement prints a table where every row must read `ok`. That is the
-whole setup verified in one step. **Twelve rows** is the current full set (it
-grew with 0005 email search, 0007 calls and 0008 presence); a missing row means an
-older bundle.
+whole setup verified in one step. **Fourteen rows** is the current full set (it
+grew with 0005 email search, 0007 calls, 0008 presence and 0009 read cursor); a
+missing row means an older bundle.
 
 Use this when you are unsure what state the database is in — after a failed run,
 after a `git pull` that changed the migrations, or when the app reports a missing
@@ -175,8 +176,8 @@ supabase db push
 
 1. Open **Supabase Dashboard → SQL Editor → New query**.
 2. Paste the entire contents of `0001_core_schema.sql`, press **Run**.
-3. Repeat for `0002`, `0003`, `0004`, `0005`, `0006`, `0007`, `0008`, in that
-   order.
+3. Repeat for `0002`, `0003`, `0004`, `0005`, `0006`, `0007`, `0008`, `0009`, in
+   that order.
 4. Optionally run `supabase/seed.sql` for two demo accounts
    (`alice@example.com` / `bob@example.com`, password `MailChat123!`).
    Never run the seed against staging or production.
@@ -234,6 +235,25 @@ where pubname = 'supabase_realtime';
 `messages`, `message_reactions`, `message_receipts` and
 `conversation_members` should be listed. Without them, live updates never
 arrive even though sending works.
+
+### Unread badges
+
+The count on a chat row is `conversation_list.unread_count`: messages newer than
+your `conversation_members.last_read_message_id`, not sent by you, not deleted.
+Opening a chat calls `mark_conversation_read()` (0009), which points the cursor at
+the newest message **in the table** and refuses to move it backwards, then returns
+what is still unread. The app zeroes the badge immediately and adopts the server's
+answer when you come back out.
+
+If a badge will not clear, in this order:
+
+* row 13 of the verification table must be `ok` (the function exists) and row 14
+  (`conversation_list` is the current definition — a stale hand-applied view is the
+  usual cause of wrong counts, and re-pasting `apply_all.sql` fixes it);
+* the app logs `unread_count_not_cleared` with the conversation id when the badge
+  survives a read, which distinguishes "the write failed" from "the view is stale";
+* `mark_conversation_read` refuses callers who are not members, so a `42501` in the
+  log means the conversation id does not match a membership row.
 
 ### Online status and last seen
 

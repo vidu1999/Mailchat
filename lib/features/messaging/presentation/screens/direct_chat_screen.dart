@@ -59,6 +59,10 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   StreamSubscription<Set<String>>? _onlineEvents;
   /// Last known durable presence for the other participant (direct chats only).
   PeerPresence? _peerPresence;
+  /// Guards against a burst of read writes: incoming messages can arrive faster
+  /// than one round trip.
+  bool _markingRead = false;
+  bool _markReadAgain = false;
   Timer? _presenceRefreshTimer;
   bool _isGroup = false;
   StreamSubscription<Set<String>>? _typingEvents;
@@ -682,20 +686,39 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     }
   }
 
-  /// Records how far this user has read, which is what clears the unread badge
-  /// on the chat list. Nothing called this before, so a conversation that had
-  /// ever received a message stayed unread forever.
+  /// Records that this user has read the thread, which is what clears the
+  /// unread badge on the chat list.
+  ///
+  /// The cursor is chosen by the database (`mark_conversation_read`, migration
+  /// 0009), not by this screen: an unloaded page, a missed Realtime event or a
+  /// second device used to leave the cursor behind the newest message, and the
+  /// badge the user had just cleared came back. Nothing here needs the message
+  /// list to be non-empty either.
+  ///
+  /// Calls are coalesced: a burst of incoming messages produces one write, and
+  /// at most one follow-up.
   Future<void> _markRead() async {
-    if (_conversationId.isEmpty || _messages.isEmpty) return;
-    final lastFromOther = _messages.lastWhere(
-      (m) => m.senderId != _currentUserId,
-      orElse: () => _messages.last,
-    );
+    if (_conversationId.isEmpty) return;
+    if (_markingRead) {
+      _markReadAgain = true;
+      return;
+    }
+    _markingRead = true;
     try {
-      await ConversationService().markRead(
-        conversationId: _conversationId,
-        messageId: lastFromOther.id,
-      );
+      final remaining =
+          await ConversationService().markConversationRead(_conversationId);
+      if (remaining == null) {
+        AppLogger.warning('chat_mark_read_unreadable_reply', details: {
+          'conversationId': _conversationId,
+        });
+      } else if (remaining > 0) {
+        // Not an error: something arrived while the write ran. The next
+        // message event marks it too.
+        AppLogger.info('chat_mark_read_still_unread', details: {
+          'conversationId': _conversationId,
+          'remaining': remaining,
+        });
+      }
       // The receipt rows are what turn the sender's tick from sent to read.
       // They are written by the reader, because RLS only lets a recipient
       // create their own.
@@ -706,6 +729,12 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     } catch (e, st) {
       // Not fatal: the badge simply stays. Logged so it is not invisible.
       AppLogger.error(e, st, {'where': 'chat_mark_read'});
+    } finally {
+      _markingRead = false;
+    }
+    if (_markReadAgain) {
+      _markReadAgain = false;
+      await _markRead();
     }
   }
 
