@@ -54,6 +54,15 @@ later without uninstalling first, because the signing key differs.
 
 `.github/workflows/build-apk-with-env.yml` is manual — it never runs on push.
 
+> **It only becomes available after this branch is merged into `main`.** GitHub
+> will not dispatch a workflow that does not exist on the default branch, so
+> while it lives only on a feature branch the Actions tab will not offer it.
+> Until then, either build locally with `tool/build_apk.ps1` (see §1), or add
+> `SUPABASE_URL` and `SUPABASE_ANON_KEY` as repository secrets and download the
+> APK from the ordinary `CI` run — that job already passes them as
+> `--dart-define`. Without the secrets that job still builds, but the APK shows
+> the configuration-error screen, because the values are empty.
+
 Actions tab → **Build APK with my config** → *Run workflow*, or:
 
 ```bash
