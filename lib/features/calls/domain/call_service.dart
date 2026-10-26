@@ -10,9 +10,10 @@ import 'package:mailchat/features/calls/domain/call_model.dart';
 /// SDP/ICE exchange.
 ///
 /// This is the half of calling that is a database and a websocket. The other
-/// half is media, which is **not implemented** — no audio or video is captured
-/// or transmitted, and [mediaConnected] is always false. See docs/calls.md for
-/// the exact remaining step and what it needs (a TURN server plus two devices).
+/// half — capture, encoding and the peer connection — is `CallMedia`, which
+/// writes the SDP and ICE that this service moves. See docs/calls.md for the
+/// ordering, and for what a working call still needs (a TURN relay for mobile
+/// data, plus two devices to prove it).
 ///
 /// Deliberately thin on policy: every transition is re-checked by
 /// `enforce_call_transitions` in the database, so a modified client cannot

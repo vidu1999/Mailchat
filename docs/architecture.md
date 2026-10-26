@@ -81,7 +81,7 @@ Fourteen tables, all in `public`, all with RLS enabled.
 | `user_reports` | Abuse reports with moderation status | `status in ('pending','reviewed','actioned','dismissed')` |
 | `user_devices` | Device and FCM token registry | Unique `(user_id, device_id)`; no registration path yet |
 | `notification_preferences` | Per-conversation and global mute | Two partial unique indexes (per-conversation, and one global row) |
-| `calls` | Call signalling: status, SDP offer/answer (0007) | Status transitions and SDP ownership enforced by trigger; no media |
+| `calls` | Call signalling: status, SDP offer/answer (0007) | Status transitions and SDP ownership enforced by trigger; the media itself never touches the database |
 | `call_ice_candidates` | WebRTC ICE candidates (0007) | Append-only; insert only while ringing or accepted |
 | `user_presence` | Last heartbeat per user (0008) | Readable only by its owner; everyone else goes through `get_presence()`, which masks it when `share_last_seen` is false |
 

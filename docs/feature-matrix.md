@@ -5,9 +5,10 @@ phases, and the 28-screen wireframe). Every row was checked in the code, not
 recalled.
 
 **Headline: not all of it — but the messaging core now is.** Messaging, auth,
-groups, search, blocking, reporting, reactions, replies, read receipts, presence
-and typing are real. Media, push delivery, stories, calls and E2EE are not built.
-The sections below say which, and where.
+groups, search, blocking, reporting, reactions, replies, read receipts, presence,
+last seen, attachments, unread counts and calls are real (calls unverified on a
+device). Push delivery, stories, voice messages, multi-device session management
+and E2EE are not built. The sections below say which, and where.
 
 Legend:
 
@@ -65,7 +66,7 @@ Legend:
 | — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
 | — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
 | 17 | Attachment preview | 🟡 the picker flow supersedes it; the old placeholder screen is still routed |
-| 18–19 | Voice call, video call | 🟡 signalling ready, media missing; screens not reachable until then |
+| 18–19 | Voice call, video call | 🟡 built and reachable: incoming prompt, active call with mute/camera/flip, real WebRTC media. Unverified on two devices; mobile data needs a TURN relay |
 | 20 | My status / stories | ❌ |
 | 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
 | 22–23 | Blocked users, report user | ✅ built |

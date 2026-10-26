@@ -79,11 +79,15 @@ These are real and should block a production launch:
    a member from flooding a conversation or ringing in a loop.
 6. **Abuse reporting review.** `user_reports` rows are written but nothing
    triages them, and there is no moderation role.
-7. **Calls carry no media,** so there is no DTLS/SRTP surface to review yet —
-   and equally, no call privacy to claim. Signalling rows do contain the SDP the
-   two sides exchange, which discloses IP candidates to the other participant;
-   that is inherent to WebRTC and will be worth documenting again when media
-   lands.
+7. **Calls carry live media over WebRTC,** which is DTLS-SRTP encrypted between
+   the two devices — but the *signalling* is stored in plaintext in `calls`
+   (`offer_sdp`, `answer_sdp`) and `call_ice_candidates`, readable by both
+   participants. Those rows disclose IP addresses and network candidates to the
+   other side, which is inherent to WebRTC: a call cannot be routed without
+   them. They do not contain media. With no TURN relay the two devices connect
+   directly, so each learns the other's address; a relay hides that.
+8. **Call media is unverified.** No call has been placed between two devices
+   from this build.
 
 ## Encryption posture
 

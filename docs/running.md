@@ -140,7 +140,7 @@ The project needs nine migrations, applied **in order**:
 | 4 | `supabase/migrations/0004_views_storage_realtime.sql` | `conversation_list` view, storage buckets + policies, realtime publication |
 | 5 | `supabase/migrations/0005_email_discovery.sql` | find a person by their email address (`search_users`), discoverability flags |
 | 6 | `supabase/migrations/0006_one_reaction_per_user.sql` | collapses duplicates, adds `message_reactions_one_per_user` |
-| 7 | `supabase/migrations/0007_call_signalling.sql` | `calls`, `call_ice_candidates`, transition + SDP-ownership triggers (no media) |
+| 7 | `supabase/migrations/0007_call_signalling.sql` | `calls`, `call_ice_candidates`, transition + SDP-ownership triggers (the media itself is peer-to-peer, not in the database) |
 | 8 | `supabase/migrations/0008_presence_last_seen.sql` | `user_presence` heartbeat, `touch_last_seen()`, `get_presence()` — online status and last seen |
 | 9 | `supabase/migrations/0009_read_cursor.sql` | `mark_conversation_read()` — clears an unread badge against the newest message in the table, forward-only |
 
