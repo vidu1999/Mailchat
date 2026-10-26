@@ -2,6 +2,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/models/profile_search.dart';
 
 
 /// Profile business logic: lookup, creation, updates, username availability.
@@ -34,20 +35,89 @@ class ProfileService {
     return Profile.fromJson(data.first);
   }
 
-  /// Searches profiles by username or display name.
+  /// Searches for people by username, display name, or exact email address.
   ///
-  /// Never exposes whether an email belongs to a user.
+  /// Runs `public.search_users` (migration 0005) rather than a plain select on
+  /// `profiles`, for two reasons that a select cannot satisfy:
+  ///
+  ///  * **Email lives in `auth.users`.** `profiles` is readable by every
+  ///    authenticated user, so an email column there would publish every
+  ///    address in the project to every account. The function reads
+  ///    `auth.users` as its definer, matches on the address, and returns only
+  ///    profile fields — the address is an input, never an output.
+  ///  * **Discoverability and blocking are server decisions.** Both flags and
+  ///    the block list are applied inside the function, so a modified client
+  ///    cannot widen the search.
+  ///
+  /// Address matching is exact and case-insensitive: a partial address matches
+  /// nobody, which keeps the endpoint from being usable to enumerate accounts
+  /// from fragments.
   Future<List<Profile>> searchProfiles(String query, {int limit = 20}) async {
-    if (query.trim().isEmpty) return [];
+    final typed = SearchQuery(query).normalised();
+    if (!typed.isSearchable) return [];
+
+    final data = await _supabase.rpc(
+      'search_users',
+      params: {'p_query': typed.text, 'p_limit': limit},
+    );
+
+    // PostgREST returns an array of rows for a set-returning function. A
+    // scalar-shaped reply would mean the function signature changed, so treat
+    // anything else as an empty result rather than throwing on the cast.
+    if (data is! List) {
+      AppLogger.warning(
+        'search_users_unexpected_shape',
+        details: {'type': data.runtimeType.toString()},
+      );
+      return const [];
+    }
+    return data
+        .whereType<Map>()
+        .map((row) => Profile.fromJson(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+
+  /// Reads the discoverability flags for [userId] so Privacy settings can show
+  /// the stored values rather than assuming defaults.
+  Future<Profile?> getDiscoverability(String userId) async {
     final data = await _supabase.select(
       'profiles',
-      select: 'id, username, display_name, avatar_path, bio, created_at, updated_at',
-      filter: {
-        'or': '(username.ilike.%${query.trim()}%,display_name.ilike.%${query.trim()}%)'
-      },
-      limit: limit,
+      select: 'id, username, display_name, avatar_path, bio, created_at, '
+          'updated_at, discoverable_by_email, discoverable_by_username',
+      filter: {'eq': 'id,$userId'},
+      limit: 1,
     );
-    return data.map((e) => Profile.fromJson(e)).toList();
+    if (data.isEmpty) return null;
+    return Profile.fromJson(data.first);
+  }
+
+  /// Updates the caller's discoverability flags.
+  ///
+  /// Both are opt-out and enforced in `public.search_users`, so turning one off
+  /// removes the user from that kind of search immediately. RLS already limits
+  /// this update to the caller's own row.
+  Future<void> setDiscoverability(
+    String userId, {
+    bool? byEmail,
+    bool? byUsername,
+  }) async {
+    final updates = <String, dynamic>{
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    if (byEmail != null) updates['discoverable_by_email'] = byEmail;
+    if (byUsername != null) updates['discoverable_by_username'] = byUsername;
+    if (updates.length == 1) return;
+
+    await _supabase.update(
+      'profiles',
+      filter: {'eq': 'id,$userId'},
+      data: updates,
+    );
+    AppLogger.info('discoverability_updated', details: {
+      'userId': userId,
+      if (byEmail != null) 'byEmail': byEmail,
+      if (byUsername != null) 'byUsername': byUsername,
+    });
   }
 
   /// Checks whether [username] is available (case-insensitive).

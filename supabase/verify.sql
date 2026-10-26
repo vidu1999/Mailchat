@@ -34,8 +34,8 @@ from pg_tables where schemaname = 'public'
 
 union all
 select '04. functions',
-       case when count(*) >= 7 then count(*)::text || ' ok'
-            else count(*)::text || ' - expected at least 7' end
+       case when count(*) >= 8 then count(*)::text || ' ok'
+            else count(*)::text || ' - expected at least 8' end
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
@@ -52,6 +52,23 @@ select '06. tables published for realtime',
             else count(*)::text || ' - expected 4' end
 from pg_publication_tables
 where pubname = 'supabase_realtime' and schemaname = 'public'
+
+union all
+select '08. email discovery columns (0005)',
+       case when (
+         select count(*) from information_schema.columns
+         where table_schema = 'public'
+           and table_name = 'profiles'
+           and column_name in ('discoverable_by_email', 'discoverable_by_username')
+       ) = 2 then 'ok' else 'MISSING - 0005 did not apply' end
+
+union all
+select '09. search_users function (0005)',
+       case when exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'search_users'
+       ) then 'ok' else 'MISSING - 0005 did not apply: email search needs it' end
 
 union all
 select '07. policies on public tables',

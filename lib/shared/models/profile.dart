@@ -7,6 +7,19 @@ class Profile {
   final String? avatarPath;
   final String? bio;
   final DateTime createdAt;
+
+  /// Whether this user can be found by their exact email address. Defaults to
+  /// true so a profile built from a select that omits the column behaves like
+  /// the database default.
+  final bool discoverableByEmail;
+
+  /// Whether this user can be found by username or display name.
+  final bool discoverableByUsername;
+
+  /// Set only on search results: `email` when the row matched the address that
+  /// was typed, `profile` when it matched the handle. Null elsewhere. The
+  /// address itself is never returned by the server.
+  final String? matchedBy;
   final DateTime updatedAt;
 
   Profile({
@@ -15,6 +28,9 @@ class Profile {
     required this.displayName,
     this.avatarPath,
     this.bio,
+    this.discoverableByEmail = true,
+    this.discoverableByUsername = true,
+    this.matchedBy,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -29,6 +45,9 @@ class Profile {
       displayName: json['display_name'] as String? ?? '',
       avatarPath: json['avatar_path'] as String?,
       bio: json['bio'] as String?,
+      discoverableByEmail: json['discoverable_by_email'] as bool? ?? true,
+      discoverableByUsername: json['discoverable_by_username'] as bool? ?? true,
+      matchedBy: json['matched_by'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String) ?? DateTime.now()
           : DateTime.now(),

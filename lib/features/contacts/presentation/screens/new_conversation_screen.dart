@@ -4,6 +4,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/models/profile_search.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_button.dart';
@@ -33,14 +34,14 @@ class _NewConversationScreenState extends State<NewConversationScreen> {
   }
 
   Future<void> _search() async {
-    final query = _controller.text.trim();
-    if (query.isEmpty) return;
+    final typed = SearchQuery(_controller.text).normalised();
+    if (!typed.isSearchable) return;
     setState(() {
       _searching = true;
       _error = null;
     });
     try {
-      final results = await ProfileService().searchProfiles(query);
+      final results = await ProfileService().searchProfiles(typed.text);
       if (!mounted) return;
       setState(() {
         _results = results;
@@ -71,7 +72,7 @@ class _NewConversationScreenState extends State<NewConversationScreen> {
                 AppInput(
                   controller: _controller,
                   label: 'Search by username or email',
-                  hint: 'e.g. jane.doe',
+                  hint: 'jane.doe or jane@example.com',
                   textInputAction: TextInputAction.search,
                   onEditingComplete: _search,
                 ),
@@ -112,7 +113,7 @@ class _NewConversationScreenState extends State<NewConversationScreen> {
       return const AppEmptyState(
         icon: Icons.search_off,
         title: 'No users found',
-        subtitle: 'Check the username or email and try again.',
+        subtitle: SearchQuery(_controller.text).normalised().emptyResultMessage,
       );
     }
     return ListView.separated(
@@ -123,7 +124,11 @@ class _NewConversationScreenState extends State<NewConversationScreen> {
         return ListTile(
           leading: AppAvatar(profile: profile, radius: 22),
           title: Text(profile.displayNameOrUsername),
-          subtitle: Text('@${profile.username}'),
+          subtitle: Text(
+            profile.matchedBy == 'email'
+                ? '@${profile.username} · matched by email'
+                : '@${profile.username}',
+          ),
           onTap: () => Navigator.of(context).pushReplacementNamed(
             AppRoutes.directChat,
             arguments: {

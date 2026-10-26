@@ -125,3 +125,30 @@ because the key itself is the credential.
 
 Treat "the key was only in a chat/file that I deleted" as exposure. Assume it
 was read.
+
+## Email discovery and account enumeration
+
+MailChat lets you find someone by typing their email address, because an app
+whose identity is an email address is unusable if the only way to reach someone
+is a handle they have to tell you out of band. That is a deliberate trade-off
+against account enumeration, and it is contained in three ways:
+
+| Control | Where |
+| --- | --- |
+| Addresses are **never returned**. `search_users` matches on the address and returns profile fields only. | `0005_email_discovery.sql` |
+| Matching is **exact**, never a substring, so a search cannot walk the address space from fragments. | same |
+| Lookup is **opt-out** per user, enforced server-side rather than in the UI. | `profiles.discoverable_by_email`, same |
+
+Unverified addresses are not discoverable: otherwise anyone could pre-register a
+colleague's address and be found in their place.
+
+`search_users` is `SECURITY DEFINER` with `set search_path = public, pg_temp`,
+executable by `authenticated` only (`revoke`d from `public` and `anon`). It
+filters out the caller and any user involved in a block in either direction, so
+a blocked user cannot use search to find the person who blocked them.
+
+The residual risk is that someone who already knows an address can confirm it
+belongs to a MailChat account. That is inherent in address-book discovery, and
+is why the opt-out exists and why the search screen says so when an address
+finds nobody.
+

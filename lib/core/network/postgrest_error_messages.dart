@@ -55,13 +55,20 @@ class PostgrestErrorMessages {
       case '42703':
       case '42883':
         return 'The database schema is out of date: $message. '
-            'Apply the migrations in supabase/migrations in order (0001 → 0004) '
+            'Apply the migrations in supabase/migrations in order (0001 → 0005) '
             '— or, if they were applied already, re-run the one that creates '
             'the missing object. See docs/running.md §2.';
       case '42501':
         return 'The database refused this action: $message. This is a '
             'row-level security decision, not a bug in the screen — check the '
             'policy for your user in docs/security.md.';
+      case 'PGRST202':
+        // PostgREST raises this when the RPC itself does not exist: a project
+        // that has not applied 0005 yet, which is what user search calls.
+        return 'The database schema is out of date: $message. '
+            'Apply the migrations in supabase/migrations in order '
+            '(0001 → 0005) — or, if they were applied already, re-run the one '
+            'that creates the missing object. See docs/running.md §2.';
       case 'PGRST301':
       case 'PGRST302':
         return 'Your session has expired. Please sign in again.';

@@ -138,6 +138,7 @@ The project needs four migrations, applied **in order**:
 | 2 | `supabase/migrations/0002_functions_triggers.sql` | profile trigger, membership/block enforcement, get-or-create RPC |
 | 3 | `supabase/migrations/0003_rls_policies.sql` | row level security on every table |
 | 4 | `supabase/migrations/0004_views_storage_realtime.sql` | `conversation_list` view, storage buckets + policies, realtime publication |
+| 5 | `supabase/migrations/0005_email_discovery.sql` | find a person by their email address (`search_users`), discoverability flags |
 
 ### Option C — the whole schema in one paste (recommended when in doubt)
 
@@ -149,7 +150,8 @@ Dashboard -> SQL Editor -> New query -> paste supabase/apply_all.sql -> Run
 ```
 
 Its last statement prints a table where every row must read `ok`. That is the
-whole setup verified in one step.
+whole setup verified in one step. Nine rows is the current full set (it grew when
+0005 added email search); a missing row means an older bundle.
 
 Use this when you are unsure what state the database is in — after a failed run,
 after a `git pull` that changed the migrations, or when the app reports a missing
@@ -227,6 +229,27 @@ where pubname = 'supabase_realtime';
 `messages`, `message_reactions`, `message_receipts` and
 `conversation_members` should be listed. Without them, live updates never
 arrive even though sending works.
+
+### Searching by email
+
+User search accepts a username, a display name, or a **full email address**. The
+last one needs migration `0005`, and it is why search is an RPC rather than a
+select on `profiles`:
+
+* emails stay in `auth.users`, which the app never reads directly. `profiles` is
+  readable by every signed-in user, so an email column there would publish every
+  address in the project;
+* `public.search_users` reads `auth.users` as its owner, matches the address and
+  returns profile fields only — the address is never an output;
+* the match is **exact**, so a partial address finds nobody. That is deliberate:
+  substring matching on addresses would let anyone enumerate accounts;
+* both lookups are opt-out and enforced in the function, controlled by
+  **Privacy → Discoverability**. Turning `Allow search by email` off removes the
+  user from address lookups immediately.
+
+So "I searched my email and found nobody" is usually one of three things: that
+person turned email discovery off, their address is not confirmed yet, or `0005`
+has not been applied (search then fails with *schema is out of date*).
 
 ### Auth settings
 

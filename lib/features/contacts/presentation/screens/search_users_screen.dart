@@ -4,6 +4,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/profile.dart';
+import 'package:mailchat/shared/models/profile_search.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
@@ -31,8 +32,10 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
   }
 
   Future<void> _search(String query) async {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) {
+    final typed = SearchQuery(query).normalised();
+    // One character is not a search: it would fire a request per keystroke and
+    // turn the field into a prefix probe for the whole directory.
+    if (!typed.isSearchable) {
       setState(() {
         _results = const [];
         _hasSearched = false;
@@ -44,7 +47,7 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
       _error = null;
     });
     try {
-      final results = await ProfileService().searchProfiles(trimmed);
+      final results = await ProfileService().searchProfiles(typed.text);
       if (!mounted) return;
       setState(() {
         _results = results;
@@ -88,19 +91,22 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
     if (_error != null) {
       return AppError(exception: _error!, onRetry: () => _search(_controller.text));
     }
+    final typed = SearchQuery(_controller.text).normalised();
     if (!_hasSearched) {
-      return const AppEmptyState(
+      return AppEmptyState(
         icon: Icons.person_search_outlined,
         title: 'Find people',
-        subtitle: 'Search by username or email address '
-            '— no phone number needed.',
+        // Explains the email rule up front: typing an address only works if
+        // that person allows email discovery, so it should not look broken.
+        // An empty field already yields the general hint, so no branch here.
+        subtitle: '${typed.hintMessage} No phone number needed.',
       );
     }
     if (_results.isEmpty) {
-      return const AppEmptyState(
+      return AppEmptyState(
         icon: Icons.search_off,
         title: 'No results',
-        subtitle: 'Try a different username or email.',
+        subtitle: typed.emptyResultMessage,
       );
     }
 
@@ -115,7 +121,11 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
             profile.displayNameOrUsername,
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: Text('@${profile.username}'),
+          subtitle: Text(
+            profile.matchedBy == 'email'
+                ? '@${profile.username} · matched by email'
+                : '@${profile.username}',
+          ),
           trailing: const Icon(Icons.chat_bubble_outline, size: 20),
           onTap: () => Navigator.of(context).pushNamed(
             AppRoutes.directChat,
