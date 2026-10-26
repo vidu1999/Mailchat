@@ -8,6 +8,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/message.dart';
+import 'package:mailchat/shared/models/peer_presence.dart';
 import 'package:mailchat/shared/models/reaction_summary.dart';
 import 'package:mailchat/shared/models/receipt_state.dart';
 import 'package:mailchat/shared/services/attachment_service.dart';
@@ -56,6 +57,10 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
 
   final _presence = PresenceService();
   StreamSubscription<Set<String>>? _onlineEvents;
+  /// Last known durable presence for the other participant (direct chats only).
+  PeerPresence? _peerPresence;
+  Timer? _presenceRefreshTimer;
+  bool _isGroup = false;
   StreamSubscription<Set<String>>? _typingEvents;
   Set<String> _onlineUserIds = const {};
   Set<String> _typingUserIds = const {};
@@ -72,6 +77,21 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     if (other == null || _onlineUserIds.isEmpty) return null;
     return _onlineUserIds.contains(other);
   }
+
+  /// The line under the title: typing, then live presence, then the durable
+  /// "Online"/"last seen ..." from `get_presence()`.
+  ///
+  /// Null means "say nothing". A user who hid their status must not be shown as
+  /// offline, so [PeerPresence.label] returns null for them and that null is
+  /// kept rather than papered over.
+  String? get _presenceLine {
+    if (_peerTyping) return 'typing...';
+    if (_peerOnline == true) return 'Online';
+    final remote = _peerPresence;
+    if (remote != null) return remote.label();
+    if (_peerOnline == false) return 'Offline';
+    return null;
+  }
   bool _loading = true;
   bool _sending = false;
   AppException? _error;
@@ -83,6 +103,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     _conversationId = (args['conversationId'] as String?) ?? '';
     _otherUserId = args['otherUserId'] as String?;
     _title = (args['title'] as String?) ?? 'Chat';
+    _isGroup = (args['isGroup'] as bool?) ?? false;
     _currentUserId =
         (args['currentUserId'] as String?) ??
         (SupabaseClient.instance.userId ?? '');
@@ -182,6 +203,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     _onlineEvents?.cancel();
     _typingEvents?.cancel();
     _typingStopTimer?.cancel();
+    _presenceRefreshTimer?.cancel();
     _presence.dispose();
     _messageService.unsubscribe();
     _messageController.dispose();
@@ -228,9 +250,12 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
             _messageService.receiptEvents.listen(_onReceiptEvent);
       }
       // Opening the thread is reading it, which is what clears the unread
-      // count on the chat list.
-      _markRead();
+      // count on the chat list. Awaited: the list re-reads the view as soon as
+      // this screen pops, and a read still in flight would show up as a badge
+      // that "did not clear".
+      await _markRead();
       _joinPresence();
+      _startPresenceRefresh();
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_load'});
       if (!mounted) return;
@@ -404,29 +429,38 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
             Text(_title),
             // Typing wins over presence: it is the more specific state, and
             // showing "online" while they are mid-sentence says nothing useful.
-            if (_peerTyping)
-              const Text(
-                'typing...',
-                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-              )
-            else if (_peerOnline == true)
-              const Text('Online', style: TextStyle(fontSize: 12))
-            else if (_peerOnline == false)
-              const Text('Offline', style: TextStyle(fontSize: 12)),
+            if (_presenceLine != null)
+              Text(
+                _presenceLine!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: _peerTyping ? FontStyle.italic : FontStyle.normal,
+                ),
+              ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Voice call',
-            icon: const Icon(Icons.call_outlined),
-            onPressed: () => _openCall(isVideo: false),
-          ),
-          IconButton(
-            tooltip: 'Video call',
-            icon: const Icon(Icons.videocam_outlined),
-            onPressed: () => _openCall(isVideo: true),
-          ),
-        ],
+        actions: _isGroup
+            // A group has no single presence or call target; its actions are
+            // the member list and roles.
+            ? [
+                IconButton(
+                  tooltip: 'Group info',
+                  icon: const Icon(Icons.info_outline),
+                  onPressed: _openGroupDetails,
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: 'Voice call',
+                  icon: const Icon(Icons.call_outlined),
+                  onPressed: () => _openCall(isVideo: false),
+                ),
+                IconButton(
+                  tooltip: 'Video call',
+                  icon: const Icon(Icons.videocam_outlined),
+                  onPressed: () => _openCall(isVideo: true),
+                ),
+              ],
       ),
       body: Column(
         children: [
@@ -434,6 +468,45 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           _buildComposer(),
         ],
       ),
+    );
+  }
+
+  /// Starts the timer that keeps "last seen" honest while the thread is open.
+  /// The presence channel only knows about people in this chat right now, so
+  /// without this the line would never change from whatever it was on open.
+  void _startPresenceRefresh() {
+    if (_isGroup) return;
+    final other = _otherUserId;
+    if (other == null || other.isEmpty) return;
+    _presenceRefreshTimer?.cancel();
+    _presenceRefreshTimer = Timer.periodic(
+      PresenceService.heartbeatInterval,
+      (_) => _refreshPeerPresence(),
+    );
+    _refreshPeerPresence();
+  }
+
+  Future<void> _refreshPeerPresence() async {
+    final other = _otherUserId;
+    if (other == null || other.isEmpty) return;
+    try {
+      final presence = await _presence.presenceFor([other]);
+      if (!mounted) return;
+      setState(() => _peerPresence = presence[other]);
+    } catch (e, st) {
+      // Presence is decoration; the thread works without it.
+      AppLogger.error(e, st, {'where': 'chat_peer_presence'});
+    }
+  }
+
+  void _openGroupDetails() {
+    Navigator.of(context).pushNamed(
+      AppRoutes.groupDetails,
+      arguments: {
+        'conversationId': _conversationId,
+        'title': _title,
+        'currentUserId': _currentUserId,
+      },
     );
   }
 

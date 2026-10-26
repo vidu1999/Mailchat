@@ -1,17 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/shared/models/conversation.dart';
+import 'package:mailchat/shared/models/peer_presence.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
+import 'package:mailchat/shared/services/last_seen_heartbeat.dart';
+import 'package:mailchat/shared/services/message_service.dart';
+import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
 import 'package:mailchat/shared/widgets/app_text.dart';
 
 /// Primary screen: list of conversations (direct + group) with unread badges.
+///
+/// The badges are not computed here. `conversation_list` counts messages newer
+/// than the caller's `last_read_message_id`, so the only correct way to change
+/// a badge is to change that cursor (inside the chat) and re-read the view.
+/// This screen therefore reloads on two realtime signals — a new message, and a
+/// read cursor moving — rather than adjusting its own copy of the number.
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -20,55 +33,158 @@ class ChatListScreen extends StatefulWidget {
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
+  final ConversationService _conversationService = ConversationService();
+  final MessageService _messageService = MessageService();
+  final PresenceService _presenceService = PresenceService();
+  late final LastSeenHeartbeat _heartbeat;
+
   List<ConversationListItem> _items = const [];
+
+  /// Online state per direct-chat peer, from `get_presence()`.
+  Map<String, PeerPresence> _presence = const {};
+
   bool _loading = true;
+  bool _refreshing = false;
   AppException? _error;
+
+  StreamSubscription<String>? _inboxSubscription;
+  Timer? _reloadDebounce;
+  Timer? _presenceTimer;
 
   @override
   void initState() {
     super.initState();
+    // Writes this user's heartbeat so other people see "Online" and, once it
+    // goes stale, "last seen".
+    _heartbeat = LastSeenHeartbeat()..start();
     _load();
+    _subscribeInbox();
+    // The heartbeat refreshes other people's status no faster than it writes
+    // our own, so polling on the same cadence is enough to keep dots honest.
+    _presenceTimer = Timer.periodic(
+      PresenceService.heartbeatInterval,
+      (_) => _refreshPresence(),
+    );
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
+  @override
+  void dispose() {
+    _inboxSubscription?.cancel();
+    _reloadDebounce?.cancel();
+    _presenceTimer?.cancel();
+    _messageService.disposeInbox();
+    _heartbeat.dispose();
+    super.dispose();
+  }
+
+  /// New messages and read-cursor changes both mean "the badges are stale".
+  void _subscribeInbox() {
+    final userId = SupabaseClient.instance.userId;
+    if (userId == null) return;
+    _messageService.subscribeToInbox(userId);
+    _messageService.subscribeToReadCursors(userId);
+    _inboxSubscription = _messageService.inboxEvents.listen((_) {
+      // A group can produce a burst of rows; one reload per burst is enough.
+      _reloadDebounce?.cancel();
+      _reloadDebounce = Timer(
+        const Duration(milliseconds: 400),
+        () => _load(quiet: true),
+      );
     });
+  }
+
+  Future<void> _load({bool quiet = false}) async {
+    if (quiet) {
+      // A background refresh must not blank the list or race itself.
+      if (_refreshing) return;
+      _refreshing = true;
+    } else {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
     try {
-      final items = await ConversationService().listConversations();
+      final items = await _conversationService.listConversations();
       if (!mounted) return;
       setState(() {
         _items = items;
         _loading = false;
+        _error = null;
       });
+      await _refreshPresence();
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_list'});
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e is AppException ? e : AppException(e.toString());
+        // A failed background refresh keeps the list that is already correct
+        // on screen; only an explicit load may show the error page.
+        if (!quiet) {
+          _error = e is AppException ? e : AppException(e.toString());
+        }
       });
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  /// Refreshes the online dots for the direct chats in the list.
+  Future<void> _refreshPresence() async {
+    final ids = <String>[];
+    for (final item in _items) {
+      if (item.conversation.isGroup) continue;
+      final other = item.otherParticipant;
+      if (other != null && other.id.isNotEmpty) ids.add(other.id);
+    }
+    if (ids.isEmpty) {
+      if (_presence.isNotEmpty && mounted) {
+        setState(() => _presence = const {});
+      }
+      return;
+    }
+
+    try {
+      final presence = await _presenceService.presenceFor(ids);
+      if (!mounted) return;
+      setState(() => _presence = presence);
+    } catch (e, st) {
+      // Presence is decoration: the list stays usable without it.
+      AppLogger.error(e, st, {'where': 'chat_list_presence'});
     }
   }
 
   Future<void> _openConversation(ConversationListItem item) async {
-    final isGroup = item.conversation.type == 'group';
+    // Opening the thread reads it. Zero the badge first so the list does not
+    // contradict the chat the user is standing in, then re-read the server
+    // truth on the way back: if recording the read failed, the badge returns,
+    // which is the honest outcome.
+    if (item.unreadCount > 0) {
+      setState(() {
+        _items = [
+          for (final i in _items)
+            i.conversation.id == item.conversation.id
+                ? i.copyWith(unreadCount: 0)
+                : i,
+        ];
+      });
+    }
+
     await Navigator.of(context).pushNamed(
-      isGroup ? AppRoutes.groupDetails : AppRoutes.directChat,
+      // Groups get the same message screen as direct chats; the details screen
+      // (members, leave) is reached from its app bar instead of replacing it.
+      AppRoutes.directChat,
       arguments: {
         'conversationId': item.conversation.id,
-        'title': isGroup
-            ? (item.conversation.name ?? 'Group')
-            : (item.otherParticipant?.displayNameOrUsername ?? 'Chat'),
+        'title': item.title,
         'otherUserId': item.otherParticipant?.id,
+        'isGroup': item.conversation.isGroup,
       },
     );
-    // Reading happens inside the chat, so the unread badge and the preview are
-    // both stale by the time we get back here. Reload rather than leaving a
-    // badge on a conversation that has just been read.
+
     if (!mounted) return;
-    _load();
+    await _load(quiet: true);
   }
 
   /// The line under the name: the last message, or what state the chat is in.
@@ -138,6 +254,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ? (item.conversation.name ?? 'Group')
               : (item.otherParticipant?.displayNameOrUsername ?? 'Unknown');
           final subtitle = _previewText(item);
+          final otherId = item.otherParticipant?.id;
+          final presence = otherId == null ? null : _presence[otherId];
 
           return ListTile(
             contentPadding:
@@ -145,6 +263,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
             leading: AppAvatar(
               profile: isGroup ? null : item.otherParticipant,
               radius: 24,
+              // Only a known "online" draws the dot: an unknown or hidden peer
+              // must not be shown as offline-grey, and a group has no single
+              // status to show.
+              online: presence?.isOnline ?? false,
               child: isGroup
                   ? const Icon(Icons.groups_outlined, size: 24)
                   : null,

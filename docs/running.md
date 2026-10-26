@@ -130,7 +130,7 @@ startup log states which source was used (never the values):
 
 ## 2. Apply the database schema
 
-The project needs four migrations, applied **in order**:
+The project needs eight migrations, applied **in order**:
 
 | Order | File | Contents |
 |---|---|---|
@@ -139,19 +139,23 @@ The project needs four migrations, applied **in order**:
 | 3 | `supabase/migrations/0003_rls_policies.sql` | row level security on every table |
 | 4 | `supabase/migrations/0004_views_storage_realtime.sql` | `conversation_list` view, storage buckets + policies, realtime publication |
 | 5 | `supabase/migrations/0005_email_discovery.sql` | find a person by their email address (`search_users`), discoverability flags |
+| 6 | `supabase/migrations/0006_one_reaction_per_user.sql` | collapses duplicates, adds `message_reactions_one_per_user` |
+| 7 | `supabase/migrations/0007_call_signalling.sql` | `calls`, `call_ice_candidates`, transition + SDP-ownership triggers (no media) |
+| 8 | `supabase/migrations/0008_presence_last_seen.sql` | `user_presence` heartbeat, `touch_last_seen()`, `get_presence()` — online status and last seen |
 
 ### Option C — the whole schema in one paste (recommended when in doubt)
 
-`supabase/apply_all.sql` is all four files concatenated, plus the health check at
-the end. Paste it once; there is nothing to edit and no order to get right.
+`supabase/apply_all.sql` is all eight files concatenated, plus the health check
+at the end. Paste it once; there is nothing to edit and no order to get right.
 
 ```
 Dashboard -> SQL Editor -> New query -> paste supabase/apply_all.sql -> Run
 ```
 
 Its last statement prints a table where every row must read `ok`. That is the
-whole setup verified in one step. Nine rows is the current full set (it grew when
-0005 added email search); a missing row means an older bundle.
+whole setup verified in one step. **Twelve rows** is the current full set (it
+grew with 0005 email search, 0007 calls and 0008 presence); a missing row means an
+older bundle.
 
 Use this when you are unsure what state the database is in — after a failed run,
 after a `git pull` that changed the migrations, or when the app reports a missing
@@ -171,7 +175,8 @@ supabase db push
 
 1. Open **Supabase Dashboard → SQL Editor → New query**.
 2. Paste the entire contents of `0001_core_schema.sql`, press **Run**.
-3. Repeat for `0002`, `0003`, `0004`, in that order.
+3. Repeat for `0002`, `0003`, `0004`, `0005`, `0006`, `0007`, `0008`, in that
+   order.
 4. Optionally run `supabase/seed.sql` for two demo accounts
    (`alice@example.com` / `bob@example.com`, password `MailChat123!`).
    Never run the seed against staging or production.
@@ -229,6 +234,28 @@ where pubname = 'supabase_realtime';
 `messages`, `message_reactions`, `message_receipts` and
 `conversation_members` should be listed. Without them, live updates never
 arrive even though sending works.
+
+### Online status and last seen
+
+`0008` adds a heartbeat. The app writes `touch_last_seen()` every 30 seconds while
+it is in the foreground; `get_presence()` reports a peer as online when that
+heartbeat is less than 75 seconds old, and otherwise reports the timestamp the
+chat header shows as "last seen 10:41 AM".
+
+Two things follow from that, and both are expected rather than bugs:
+
+* closing the app does not send anything — the last heartbeat simply ages out, so
+  someone shows as offline about a minute after they leave;
+* if **Privacy → Show online status and last seen** is off, other people see
+  nothing at all. The function returns nulls rather than "offline", because the
+  app must not claim to know something it does not.
+
+Check it by hand after a heartbeat:
+
+```sql
+select user_id, last_seen_at, now() - last_seen_at as age
+from public.user_presence;
+```
 
 ### Searching by email
 

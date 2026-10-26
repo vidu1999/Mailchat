@@ -2,10 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mailchat/shared/services/presence_service.dart';
 
-/// Presence and typing never touch the database: they are Realtime events, and
-/// a stored "online" flag would be wrong the moment a phone loses signal. These
-/// tests pin the two things that are pure — how a presence payload is read, and
-/// how long a typing event is believable — because the join config itself can
+/// The *ephemeral* half of presence: who is in this conversation right now, and
+/// who is typing. Both are Realtime events, never rows — a stored "online" flag
+/// would be wrong the moment a phone loses signal, which is why the durable half
+/// is a heartbeat instead (see last_seen_test.dart and migration 0008).
+///
+/// These tests pin the two things that are pure — how a presence payload is read,
+/// and how long a typing event is believable — because the join config itself can
 /// only be proved against a live project.
 void main() {
   group('PresenceService.parsePresenceState', () {

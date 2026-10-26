@@ -66,7 +66,7 @@ messages ─────┬──────────────┬──�
 message_attachments  message_reactions  message_receipts
 ```
 
-Eleven tables, all in `public`, all with RLS enabled.
+Fourteen tables, all in `public`, all with RLS enabled.
 
 | Table | Purpose | Notable constraint |
 | --- | --- | --- |
@@ -81,6 +81,9 @@ Eleven tables, all in `public`, all with RLS enabled.
 | `user_reports` | Abuse reports with moderation status | `status in ('pending','reviewed','actioned','dismissed')` |
 | `user_devices` | Device and FCM token registry | Unique `(user_id, device_id)`; no registration path yet |
 | `notification_preferences` | Per-conversation and global mute | Two partial unique indexes (per-conversation, and one global row) |
+| `calls` | Call signalling: status, SDP offer/answer (0007) | Status transitions and SDP ownership enforced by trigger; no media |
+| `call_ice_candidates` | WebRTC ICE candidates (0007) | Append-only; insert only while ringing or accepted |
+| `user_presence` | Last heartbeat per user (0008) | Readable only by its owner; everyone else goes through `get_presence()`, which masks it when `share_last_seen` is false |
 
 ## Request paths
 
@@ -112,6 +115,30 @@ One query against the `conversation_list` view (0004), which is
 `security_invoker` so the caller's RLS applies. It joins the last visible
 message, the caller's read cursor and — for direct chats — the other profile.
 Ordering is `last_message_at desc nullslast, updated_at desc`.
+
+The screen never computes an unread count itself. `unread_count` comes from the
+view and is derived from `conversation_members.last_read_message_id`, so the only
+way to change a badge is to move that cursor (which the chat screen does when it
+opens a thread) and re-read. Two Realtime subscriptions decide when to re-read:
+`messages` (anything the caller can see — no filter is possible, because the
+table has no per-user column and RLS is what scopes it) and the caller's own
+`conversation_members` rows. That is why a badge clears on another device too.
+
+**Presence and last seen**
+
+Two sources, deliberately:
+
+| Signal | Source | Lifetime |
+| --- | --- | --- |
+| "In this conversation right now" | Realtime presence on `realtime:mailchat:presence:<conversationId>` | The channel |
+| Typing | Broadcast on the same channel, 4 s expiry | Ephemeral |
+| Last seen / online elsewhere | `user_presence.last_seen_at` heartbeat (30 s) written by `touch_last_seen()` | Durable |
+
+`get_presence(uuid[])` is the only way to read someone else's row. It returns
+rows only for users you share a conversation with, never across a block in
+either direction, and nulls both fields when the target has `share_last_seen`
+off — null meaning "unknown", which the UI renders as nothing rather than
+"Offline".
 
 ## Where the trust boundary sits
 

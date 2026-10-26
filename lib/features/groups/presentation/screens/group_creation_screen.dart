@@ -88,12 +88,16 @@ class _GroupCreationScreenState extends State<GroupCreationScreen> {
         memberIds: _selectedIds.toList(),
       );
       if (!mounted) return;
+      // Straight into the new group's thread: a group that exists but cannot be
+      // typed into was the previous behaviour, and it left every group message
+      // unreadable and the badge permanently set.
       Navigator.of(context).pushReplacementNamed(
-        AppRoutes.groupDetails,
+        AppRoutes.directChat,
         arguments: {
           'conversationId': conversation.id,
           'title': conversation.name ?? 'Group',
           'currentUserId': _ownerId,
+          'isGroup': true,
         },
       );
     } catch (e, st) {

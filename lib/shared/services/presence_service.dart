@@ -1,14 +1,25 @@
 import 'dart:async';
 
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/network/supabase_realtime.dart';
+import 'package:mailchat/shared/models/peer_presence.dart';
 
-/// Presence and typing indicators for one conversation.
+/// Presence, typing indicators and the durable last-seen heartbeat.
 ///
-/// Both are **ephemeral**: they live on a Realtime channel and are never written
-/// to a table. That matters for two reasons — a "typing" row would be written on
-/// every keystroke, and a stored `is_online` boolean would go stale the moment a
-/// phone loses signal. See docs/architecture.md.
+/// Two different things live here, deliberately:
+///
+///   * **Ephemeral** — who is in *this conversation* right now, and who is
+///     typing. Realtime broadcast/presence only; a "typing" row would be a write
+///     per keystroke and an `is_online` boolean would be wrong the moment a phone
+///     loses signal.
+///   * **Durable** — `touchLastSeen()` writes a heartbeat row
+///     (`user_presence`, migration 0008) and `presenceFor()` reads other people's
+///     through `get_presence()`, which is what makes "last seen 10:41 AM" and the
+///     chat list's online dots possible. Online means "heartbeat within 75 s",
+///     not "a flag someone set".
+///
+/// See docs/architecture.md.
 ///
 /// Channel shape, following Supabase's Realtime conventions:
 ///
@@ -26,10 +37,12 @@ import 'package:mailchat/core/network/supabase_realtime.dart';
 /// expiry logic; only a real two-device session can prove the Realtime server
 /// accepts the join config.
 class PresenceService {
-  PresenceService({SupabaseRealtimeClient? realtime})
-      : _realtime = realtime ?? SupabaseRealtimeClient.instance;
+  PresenceService({SupabaseRealtimeClient? realtime, SupabaseClient? client})
+      : _realtime = realtime ?? SupabaseRealtimeClient.instance,
+        _client = client ?? SupabaseClient.instance;
 
   final SupabaseRealtimeClient _realtime;
+  final SupabaseClient _client;
 
   Channel? _channel;
   String? _userId;
@@ -54,6 +67,70 @@ class PresenceService {
   /// How long a typing event stays true without a repeat. The composer re-sends
   /// every few keystrokes; a shorter window flickers, a longer one lies.
   static const Duration typingTtl = Duration(seconds: 4);
+
+  /// How often the app writes its own heartbeat while in the foreground.
+  static const Duration heartbeatInterval = Duration(seconds: 30);
+
+  /// How recent the last heartbeat must be for the user to count as online.
+  ///
+  /// Must match the `interval '75 seconds'` inside `public.get_presence()`
+  /// (migration 0008), otherwise the dot and the "last seen" line disagree.
+  static const Duration onlineWindow = Duration(seconds: 75);
+
+  /// Writes this user's heartbeat. [share] also sets the privacy flag; null
+  /// leaves it alone, which is what the periodic beat does.
+  ///
+  /// There is no client-side timestamp: the server stamps the row, so a wrong
+  /// device clock cannot make someone look online or offline.
+  Future<void> touchLastSeen({bool? share}) async {
+    if (_client.userId == null) return;
+    await _client.rpc(
+      'touch_last_seen',
+      params: {if (share != null) 'p_share': share},
+    );
+  }
+
+  /// Presence for a set of other users, keyed by user id.
+  ///
+  /// The database decides what may be revealed: users with sharing off come
+  /// back hidden, users you share no conversation with are not returned at all,
+  /// and blocked pairs are filtered in both directions.
+  Future<Map<String, PeerPresence>> presenceFor(Iterable<String> userIds) async {
+    final ids = <String>{};
+    for (final id in userIds) {
+      if (id.isNotEmpty) ids.add(id);
+    }
+    if (ids.isEmpty || _client.userId == null) return const {};
+
+    final raw = await _client.rpc(
+      'get_presence',
+      params: {'p_user_ids': ids.toList()},
+    );
+    final result = <String, PeerPresence>{};
+    if (raw is! List) return result;
+    for (final row in raw) {
+      if (row is! Map) continue;
+      final presence = PeerPresence.fromJson(Map<String, dynamic>.from(row));
+      if (presence.userId.isEmpty) continue;
+      result[presence.userId] = presence;
+    }
+    return result;
+  }
+
+  /// Whether this user shares their status, read from their own row. Defaults
+  /// to true for an account that has never sent a heartbeat.
+  Future<bool> sharesLastSeen() async {
+    final userId = _client.userId;
+    if (userId == null) return true;
+    final rows = await _client.select(
+      'user_presence',
+      select: 'share_last_seen',
+      filter: {'eq': 'user_id,$userId'},
+      limit: 1,
+    );
+    if (rows.isEmpty) return true;
+    return rows.first['share_last_seen'] as bool? ?? true;
+  }
 
   bool get isJoined => _channel != null;
 

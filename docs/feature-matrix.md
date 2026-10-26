@@ -34,9 +34,9 @@ Legend:
 | User search | ✅ | `public.search_users` (0005): username, display name, exact email |
 | 1-to-1 conversations | 🧪 | `get_or_create_direct_conversation`, `direct_chat_screen.dart` |
 | Real-time messaging | 🧪 | Realtime subscription in `message_service.dart` |
-| Online / offline presence | 🧪 | `PresenceService` joins a per-conversation Realtime channel with presence; the chat app bar shows Online/Offline. Ephemeral by design, nothing stored. **Not verified against a live project** |
+| Online / offline presence | 🧪 | Two halves. Live: `PresenceService` joins a per-conversation Realtime channel (shows "Online" while both are in the thread). Durable: a 30 s heartbeat into `user_presence` (0008) plus `get_presence()`, which is what makes "last seen 10:41 AM" and the chat-list dots work at all. Online = heartbeat within 75 s; the privacy switch stores `share_last_seen` and the function returns nulls to everyone else. **Server side written blind — needs a live project** |
 | Typing indicator | 🧪 | Broadcast event on the same channel, debounced to one event per pause, with a 4 s expiry so a dropped socket cannot leave someone typing forever. Shows in the app bar |
-| Sent / delivered / read | ✅ | Reading a thread writes `message_receipts` (`markReceivedAndRead`), receipts are embedded on each message so the tick is derived from them (`ReceiptState`), and a realtime subscription updates the sender's ticks live. Unread counts work off `last_read_message_id` |
+| Sent / delivered / read | ✅ | Reading a thread writes `message_receipts` (`markReceivedAndRead`), receipts are embedded on each message so the tick is derived from them (`ReceiptState`), and a realtime subscription updates the sender's ticks live. Unread counts work off `last_read_message_id`; the chat list reloads on new messages **and** on its own read cursor moving, so a badge clears when the thread is opened (and on another device too) instead of only on pull-to-refresh |
 | Reply | ✅ | Long-press → Reply shows a strip above the composer; the sent message carries `reply_to_message_id`, and the bubble renders the quoted parent (or "Earlier message" when it is off the loaded page) |
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
@@ -45,7 +45,7 @@ Legend:
 | Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
-| Groups | ✅ | Create, members, roles, add/remove, leave — `group_creation_screen.dart`, `group_details_screen.dart` |
+| Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
 | Voice messages | ❌ | No recorder, no player, no upload path |
 | Voice / video calls | 🟡 | **Signalling is real** (0007): call rows, callee-only accept/decline, terminal states, SDP ownership, block check, RLS, ICE candidates, 15 tests. **Media is not** — no audio or video is captured, `callMediaConnected` is false, and the chat buttons still show an explanatory dialog rather than a ringing screen |
 | Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
@@ -101,7 +101,7 @@ Each of these is a decision, not an omission:
 | Brief says | This repo does | Why |
 | --- | --- | --- |
 | `profiles.email` column | No email on `profiles` | The table is readable by every signed-in user, so that column would publish every address. Email search goes through `search_users` (0005), which returns profile fields and never the address |
-| `profiles.is_online boolean` | Not stored | Brief §19 agrees: online state is not trustworthy as a column. It belongs on a Realtime presence channel, which is why it is ❌ rather than a wrong flag |
+| `profiles.is_online boolean` | `user_presence.last_seen_at` (0008), never a boolean | A stored `is_online` is wrong the moment a phone loses signal. A heartbeat is not: `online` is derived from how recent it is, so a killed process simply ages out. The column is on its own table because `profiles` is readable by every signed-in user and `get_presence()` has to be able to mask it |
 | `blocks` / `reports` | `user_blocks`, `user_reports` | Naming only; `user_reports` also carries a moderation status |
 | `last_read_at` timestamp | `last_read_message_id` | A message id is monotonic and immune to clock skew between devices; a timestamp is not |
 | `unique (message_id, user_id)` on reactions | Same intent, enforced as `message_reactions_one_per_user` (0006) | Matches your PK, keeps the surrogate id |
@@ -111,7 +111,7 @@ Each of these is a decision, not an omission:
 
 ## 5. What is actually verified, and what is not
 
-CI proves: the project analyzes clean, 163+ tests pass, and a debug APK builds.
+CI proves: the project analyzes clean, 220+ tests pass, and a debug APK builds.
 
 CI cannot prove, and neither could this environment: that Realtime delivers,
 that storage uploads work, that deep links open on a real device, that any screen
@@ -122,7 +122,7 @@ live project can be checked in one paste.
 ## 6. Order I would build the gaps in
 
 1. ~~Receipts~~ — done: `markReceivedAndRead`, `ReceiptState`, live tick updates.
-2. ~~Presence + typing~~ — done: `PresenceService`, ephemeral, no schema change.
+2. ~~Presence + typing~~ — done: `PresenceService` for the live channel, plus the durable heartbeat (`user_presence`, 0008) that gives last seen and the chat-list dots.
 3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
 4. ~~Notification settings~~ — done: persisted to `notification_preferences`.
 5. ~~Media~~ — done: `file_picker` → `AttachmentService` → storage → attachment row.

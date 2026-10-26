@@ -28,6 +28,20 @@ class AppFormatters {
     return '${_monthName(dateTime.month)} ${dateTime.day}, ${dateTime.year}';
   }
 
+  /// Formats a last-seen timestamp for a presence line.
+  ///
+  /// Today shows the clock time ("10:41 AM"), yesterday the word, anything
+  /// older the short date. Deliberately relative only to the day: "3 hours
+  /// ago" on a heartbeat that is two minutes stale reads worse than a time.
+  static String lastSeen(DateTime dateTime, {DateTime? now}) {
+    final reference = now ?? DateTime.now();
+    final today = DateTime(reference.year, reference.month, reference.day);
+    final seenDay = DateTime(dateTime.year, dateTime.month, dateTime.day);
+    if (seenDay == today) return timeOfDay(dateTime);
+    if (seenDay == today.subtract(const Duration(days: 1))) return 'yesterday';
+    return '${_monthName(dateTime.month)} ${dateTime.day}';
+  }
+
   /// Formats a [DateTime] as a compact date (e.g. "Oct 25").
   static String shortDate(DateTime dateTime) {
     return '${_monthName(dateTime.month)} ${dateTime.day}';

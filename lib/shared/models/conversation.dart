@@ -139,6 +139,22 @@ class ConversationListItem {
 
   String? get subtitle => lastMessageText;
 
+  /// Copy with the fields the chat list changes locally.
+  ///
+  /// Only [unreadCount] is needed today: the badge is zeroed the moment a chat
+  /// is opened, then confirmed against the server when the screen pops.
+  ConversationListItem copyWith({int? unreadCount, bool? isMuted}) {
+    return ConversationListItem(
+      conversation: conversation,
+      otherParticipant: otherParticipant,
+      lastMessageText: lastMessageText,
+      lastMessageAt: lastMessageAt,
+      lastMessageSenderId: lastMessageSenderId,
+      unreadCount: unreadCount ?? this.unreadCount,
+      isMuted: isMuted ?? this.isMuted,
+    );
+  }
+
   factory ConversationListItem.fromJson(Map<String, dynamic> json) {
     return ConversationListItem(
       conversation: Conversation.fromJson(

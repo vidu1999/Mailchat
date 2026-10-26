@@ -63,6 +63,21 @@ select '08. email discovery columns (0005)',
        ) = 2 then 'ok' else 'MISSING - 0005 did not apply' end
 
 union all
+select '12. presence and last seen (0008)',
+       case when (
+         select count(*) from pg_tables
+         where schemaname = 'public' and tablename = 'user_presence' and rowsecurity
+       ) = 1 and exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'touch_last_seen'
+       ) and exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'get_presence'
+       ) then 'ok' else 'MISSING - 0008 did not apply: no online status or last seen' end
+
+union all
 select '11. call signalling tables (0007)',
        case when (
          select count(*) from pg_tables

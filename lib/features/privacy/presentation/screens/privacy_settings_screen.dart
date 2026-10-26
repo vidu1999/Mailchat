@@ -5,6 +5,7 @@ import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/services/auth_service.dart';
+import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 
 /// Privacy settings: who can message, discoverability, read receipts and
@@ -15,9 +16,10 @@ import 'package:mailchat/shared/services/profile_service.dart';
 /// `public.search_users`, so turning a toggle off removes the user from that
 /// kind of search rather than merely hiding a row in the UI.
 ///
-/// Read receipts and presence are still local: there is no column for them yet,
-/// and the note at the bottom of the screen says so rather than implying they
-/// are saved.
+/// Presence sharing is stored too, on `user_presence.share_last_seen` (migration
+/// 0008) and enforced inside `public.get_presence()`, which returns nulls to
+/// everyone but the owner. Read receipts are still local and the note at the
+/// bottom says so rather than implying they are saved.
 class PrivacySettingsScreen extends StatefulWidget {
   const PrivacySettingsScreen({super.key});
 
@@ -32,6 +34,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   bool _allowSearchByEmail = true;
   bool _savingDiscoverability = false;
   bool _loadedDiscoverability = false;
+  bool _savingPresence = false;
+  bool _loadedPresence = false;
 
   String? get _userId => AuthService().currentUser?.id;
 
@@ -39,6 +43,50 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   void initState() {
     super.initState();
     _loadDiscoverability();
+    _loadPresenceSharing();
+  }
+
+  /// Shows the stored presence setting. Defaults to on for an account that has
+  /// never sent a heartbeat, which is what the database will do on its first
+  /// write.
+  Future<void> _loadPresenceSharing() async {
+    var shares = true;
+    try {
+      shares = await PresenceService().sharesLastSeen();
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'privacy_load_presence'});
+    }
+    if (!mounted) return;
+    setState(() {
+      _showOnlineStatus = shares;
+      _loadedPresence = true;
+    });
+  }
+
+  Future<void> _setShowOnlineStatus(bool value) async {
+    final previous = _showOnlineStatus;
+    setState(() {
+      _showOnlineStatus = value;
+      _savingPresence = true;
+    });
+    try {
+      await PresenceService().touchLastSeen(share: value);
+      if (!mounted) return;
+      setState(() => _savingPresence = false);
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'privacy_set_presence'});
+      if (!mounted) return;
+      // Put the switch back: showing it as off while the server still shares
+      // the status would be a lie about who can see what.
+      setState(() {
+        _showOnlineStatus = previous;
+        _savingPresence = false;
+      });
+      final message = e is AppException ? e.message : e.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save: $message')),
+      );
+    }
   }
 
   /// Shows the stored values rather than the defaults; silently keeps the
@@ -119,10 +167,14 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           const Divider(),
           _sectionHeader(context, 'Presence'),
           SwitchListTile(
-            title: const Text('Show online status'),
-            subtitle: const Text('Let others see when you are online.'),
+            title: const Text('Show online status and last seen'),
+            subtitle: const Text(
+                'People you share a chat with see when you are online and when '
+                'you were last active. When off, they see neither.'),
             value: _showOnlineStatus,
-            onChanged: (v) => setState(() => _showOnlineStatus = v),
+            onChanged: _savingPresence || !_loadedPresence
+                ? null
+                : _setShowOnlineStatus,
           ),
           const Divider(),
           _sectionHeader(context, 'Discoverability'),
@@ -156,8 +208,8 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'The two search toggles are saved to your profile and enforced '
-              'by the database. Read receipts and presence are not saved yet — '
+              'The search toggles and the presence switch are saved and '
+              'enforced by the database. Read receipts are not saved yet — '
               'they apply to this device only.',
               style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             ),

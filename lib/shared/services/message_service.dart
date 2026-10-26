@@ -525,6 +525,99 @@ class MessageService {
   StreamController<String> _receiptController =
       StreamController<String>.broadcast();
 
+  // ------------------------------------------------------------------
+  // Inbox (chat list) subscriptions
+  // ------------------------------------------------------------------
+
+  Channel? _inboxChannel;
+  Channel? _readCursorChannel;
+  StreamController<String> _inboxController =
+      StreamController<String>.broadcast();
+
+  /// Conversation ids whose last message or read cursor changed.
+  ///
+  /// The chat list debounces a reload on this rather than patching its own copy
+  /// of the unread count: the count is computed by `conversation_list` from
+  /// `last_read_message_id`, and guessing at it in the client is how badges end
+  /// up disagreeing with the server.
+  Stream<String> get inboxEvents => _inboxController.stream;
+
+  /// Listens for new or edited messages anywhere the user is a member.
+  ///
+  /// No filter is possible: `messages` has no per-user column and Realtime
+  /// filters are single-column equality only. RLS decides delivery — the
+  /// policy is `is_conversation_member(conversation_id)` — so this receives
+  /// exactly the user's own conversations and nothing else.
+  void subscribeToInbox(String userId) {
+    if (_inboxController.isClosed) {
+      _inboxController = StreamController<String>.broadcast();
+    }
+    _inboxChannel ??= _realtime.join(
+      'realtime:mailchat:inbox:$userId',
+      (type, payload) {
+        final record = payload['record'];
+        if (record is! Map) return;
+        final conversationId = record['conversation_id'];
+        if (conversationId is String && !_inboxController.isClosed) {
+          _inboxController.add(conversationId);
+        }
+      },
+      config: {
+        'postgres_changes': [
+          {'event': '*', 'schema': 'public', 'table': 'messages'},
+        ],
+      },
+    );
+  }
+
+  /// Listens for read-cursor changes on this user's own membership rows.
+  ///
+  /// Read here with a filter, because unlike `messages` this table does have
+  /// the column: `conversation_members.user_id`. It is what clears a badge
+  /// recorded on another device.
+  void subscribeToReadCursors(String userId) {
+    if (_inboxController.isClosed) {
+      _inboxController = StreamController<String>.broadcast();
+    }
+    _readCursorChannel ??= _realtime.join(
+      'realtime:mailchat:reads:$userId',
+      (type, payload) {
+        final record = payload['record'];
+        if (record is! Map) return;
+        final conversationId = record['conversation_id'];
+        if (conversationId is String && !_inboxController.isClosed) {
+          _inboxController.add(conversationId);
+        }
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': 'UPDATE',
+            'schema': 'public',
+            'table': 'conversation_members',
+            'filter': 'user_id=eq.$userId',
+          },
+        ],
+      },
+    );
+  }
+
+  /// Leaves the inbox channels. Safe to call twice, and safe when the socket is
+  /// down (a failed leave must not break the screen that is closing).
+  void disposeInbox() {
+    for (final channel in <Channel?>[_inboxChannel, _readCursorChannel]) {
+      if (channel == null) continue;
+      try {
+        unawaited(channel.unsubscribe().catchError((Object _) {}));
+      } catch (e, st) {
+        AppLogger.error(e, st, {'where': 'inbox_unsubscribe'});
+      }
+    }
+    _inboxChannel = null;
+    _readCursorChannel = null;
+  }
+
+
   void _ensureReceiptController() {
     _receiptController = StreamController<String>.broadcast();
   }

@@ -189,8 +189,8 @@ const _applyAllHeader = r'''
 -- MailChat - complete database setup, in one file.
 --
 -- Paste this entire file into the Supabase SQL editor and run it once. It is the
--- SQL from supabase/migrations/0001..0004, in order, plus a health check at the
--- end. Safe on a database in any state: empty, half-applied, or complete.
+-- SQL from every file in supabase/migrations, in order, plus a health check at
+-- the end. Safe on a database in any state: empty, half-applied, or complete.
 --
 -- Why this exists: the migrations must be applied in order and re-run after a
 -- failure, and doing that by hand from separate files goes wrong easily - a
