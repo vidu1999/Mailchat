@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/config/env_file.dart';
 
@@ -96,6 +99,33 @@ SUPABASE_ANON_KEY=abc
 
     test('lets the last duplicate win', () {
       expect(AppConfig.parseEnvFile('A=1\nA=2'), {'A': '2'});
+    });
+  });
+
+  group('bundled server-side secrets', () {
+    // AppConfig must never take the service-role key or SMTP credentials from
+    // the bundled file: everything there is compiled into the APK.
+    test('a JWT with the service_role claim is recognised', () {
+      // {"iss":"supabase","ref":"abcdefghijklmnopqrst","role":"service_role"}
+      const key = 'header.'
+          'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoaWprbG1ub3BxcnN0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSJ9.'
+          'sig';
+      expect(AnonKey.isServiceRole(key), isTrue);
+    });
+
+    test('the env template offers no service-role slot', () {
+      // Guards the file that caused the mistake in the first place.
+      final example = File('assets/config/env.example').readAsStringSync();
+      final values = EnvFile.parse(example);
+      expect(values['SUPABASE_SERVICE_ROLE_KEY'], isNull);
+      expect(values['SMTP_PASS'], isNull);
+    });
+
+    test('the root template does the same', () {
+      final example = File('.env.example').readAsStringSync();
+      final values = EnvFile.parse(example);
+      expect(values['SUPABASE_SERVICE_ROLE_KEY'], isNull);
+      expect(values['SMTP_PASS'], isNull);
     });
   });
 

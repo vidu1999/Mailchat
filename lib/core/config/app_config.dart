@@ -354,6 +354,11 @@ class AppConfig {
     }
     if (supabaseAnonKey.isEmpty || supabaseAnonKey.contains('placeholder')) {
       errors.add('SUPABASE_ANON_KEY is not configured');
+    } else if (AnonKey.isServiceRole(supabaseAnonKey)) {
+      // Catches the key being swapped, including by a --dart-define in CI,
+      // which bypasses tool/check_config.dart entirely.
+      errors.add('SUPABASE_ANON_KEY is a service_role key. It bypasses every '
+          'RLS policy and must never be used by the app');
     }
     if (authRedirectUrl.isEmpty) {
       errors.add('AUTH_REDIRECT_URL is not configured');
