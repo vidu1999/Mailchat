@@ -105,14 +105,15 @@ void main() {
     // `alter publication ... add table` outside a DO block is not re-runnable.
     final guardedPublication = code.contains('pg_publication_tables');
     if (!guardedPublication) {
+      // The line number is the useful part of the report here, so use it.
       for (final match
           in RegExp(r'alter publication [a-z0-9_]+ add table',
                   caseSensitive: false)
               .allMatches(code)) {
         _fail(
           name,
-          'unguarded `alter publication ... add table` aborts with 42710 on '
-          're-run',
+          'unguarded `alter publication ... add table` at '
+          '${_lineOf(code, match.start)} aborts with 42710 on re-run',
         );
         problems++;
       }
