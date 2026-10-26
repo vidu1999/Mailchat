@@ -47,7 +47,7 @@ Legend:
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave — `group_creation_screen.dart`, `group_details_screen.dart` |
 | Voice messages | ❌ | No recorder, no player, no upload path |
-| Voice / video calls | ❌ | Two screens exist with a timer and toggles but no media stack; unreachable, and flagged in-code as not a working call (§4) |
+| Voice / video calls | 🟡 | **Signalling is real** (0007): call rows, callee-only accept/decline, terminal states, SDP ownership, block check, RLS, ICE candidates, 15 tests. **Media is not** — no audio or video is captured, `callMediaConnected` is false, and the chat buttons still show an explanatory dialog rather than a ringing screen |
 | Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
 | Multi-device | 🟡 | `user_devices` table; no session list, no "log out all devices", no token registration |
 | End-to-end encryption | ❌ | Not implemented and not claimed (§4) |
@@ -65,7 +65,7 @@ Legend:
 | — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
 | — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
 | 17 | Attachment preview | 🟡 the picker flow supersedes it; the old placeholder screen is still routed |
-| 18–19 | Voice call, video call | ❌ |
+| 18–19 | Voice call, video call | 🟡 signalling ready, media missing; screens not reachable until then |
 | 20 | My status / stories | ❌ |
 | 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
 | 22–23 | Blocked users, report user | ✅ built |

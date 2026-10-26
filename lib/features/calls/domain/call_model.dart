@@ -1,69 +1,225 @@
-/// Call feature domain model and business rules.
+/// Call domain model.
 ///
-/// Real-time audio/video calling is a later milestone (see requirements
-/// section 17). Before enabling production calls:
-///  1. Document the threat model.
-///  2. Choose a maintained WebRTC implementation (flutter_webrtc).
-///  3. Provide signaling (Supabase Realtime / Edge Functions) + STUN/TURN.
-///  4. Implement call acceptance/rejection, ICE candidate exchange and
-///     connection-state handling.
-///  5. Add microphone/camera permissions and privacy access control.
+/// A call is one row in `public.calls` (migration 0007), and its lifecycle is
+/// decided by a trigger on that table. This model mirrors those rules so the UI
+/// can grey out the wrong button, while the database stays the authority: a
+/// client that lies about who it is gets a 42501, not a connected call.
 ///
-/// This file holds the call state machine and intent types so the UI and a
-/// future WebRTC implementation share a single model.
-class Call {
-  final String id;
-  final String conversationId;
-  final String callerId;
-  final String receiverId;
-  final bool isVideo;
-  final CallState state; // ringing | ongoing | ended | missed | declined
-  final DateTime createdAt;
-  final DateTime? endedAt;
-  final int? durationSeconds;
+/// **Media is not implemented.** Nothing here captures, encodes or transmits
+/// audio or video. What exists is the signalling half: a call can be placed,
+/// ring, be accepted, declined or ended, and SDP/ICE can be exchanged. Wiring
+/// `flutter_webrtc` into [CallService] is the remaining step — see
+/// docs/calls.md.
+library;
 
-  Call({
+/// Whether this build can carry call media.
+///
+/// False until a `RTCPeerConnection` exists. Both the signalling service and
+/// the call screens read this constant, so there is one place to flip when
+/// WebRTC lands — and one place for a test to hold the honest value.
+const bool callMediaConnected = false;
+
+/// Where a call is in its lifecycle. Values match the `calls.status` check
+/// constraint except [ringing]/[ongoing], which are named for readability and
+/// mapped in [Call.fromJson].
+enum CallState { ringing, ongoing, ended, missed, declined, failed }
+
+extension CallStateX on CallState {
+  /// The value stored in the database.
+  String get wire => switch (this) {
+        CallState.ringing => 'ringing',
+        CallState.ongoing => 'accepted',
+        CallState.ended => 'ended',
+        CallState.missed => 'missed',
+        CallState.declined => 'declined',
+        CallState.failed => 'failed',
+      };
+
+  /// Once true, no further state change is possible — matching the trigger,
+  /// which refuses any transition out of a terminal state.
+  bool get isTerminal => switch (this) {
+        CallState.ended => true,
+        CallState.missed => true,
+        CallState.declined => true,
+        CallState.failed => true,
+        _ => false,
+      };
+
+  String get label => switch (this) {
+        CallState.ringing => 'Ringing',
+        CallState.ongoing => 'In progress',
+        CallState.ended => 'Ended',
+        CallState.missed => 'Missed',
+        CallState.declined => 'Declined',
+        CallState.failed => 'Failed',
+      };
+}
+
+class Call {
+  const Call({
     required this.id,
     required this.conversationId,
     required this.callerId,
-    required this.receiverId,
-    required this.isVideo,
+    required this.calleeId,
+    required this.kind,
     required this.state,
     required this.createdAt,
+    this.acceptedAt,
     this.endedAt,
-    this.durationSeconds,
+    this.endedBy,
+    this.offerSdp,
+    this.answerSdp,
   });
 
+  final String id;
+  final String conversationId;
+  final String callerId;
+
+  /// The person being called. Named `calleeId` to match the column; the UI calls
+  /// them the receiver.
+  final String calleeId;
+
+  /// `voice` or `video`.
+  final String kind;
+  final CallState state;
+  final DateTime createdAt;
+  final DateTime? acceptedAt;
+  final DateTime? endedAt;
+  final String? endedBy;
+  final String? offerSdp;
+  final String? answerSdp;
+
+  bool get isVideo => kind == 'video';
   bool get isRinging => state == CallState.ringing;
   bool get isOngoing => state == CallState.ongoing;
-  bool get isEnded => state == CallState.ended;
+  bool get isFinished => state.isTerminal;
+
+  /// Kept for call sites that used the pre-signalling field name.
+  String get receiverId => calleeId;
+
+  /// How long the call was connected, once it has ended. Null unless it was
+  /// accepted: a declined or missed call has no duration, and reporting zero
+  /// would be a small lie.
+  Duration? get duration {
+    final started = acceptedAt;
+    if (started == null) return null;
+    final finished = endedAt;
+    if (finished == null) return null;
+    final span = finished.difference(started);
+    return span.isNegative ? Duration.zero : span;
+  }
+
+  // ---- permissions, mirroring the trigger ---------------------------------
+
+  /// Only the callee may accept, and only while it is ringing.
+  bool canAccept(String userId) =>
+      userId == calleeId && state == CallState.ringing;
+
+  /// Only the callee may decline.
+  bool canDecline(String userId) =>
+      userId == calleeId && state == CallState.ringing;
+
+  /// Either participant may end a connected call.
+  bool canEnd(String userId) =>
+      (userId == callerId || userId == calleeId) && state == CallState.ongoing;
+
+  /// Either participant may report that media never connected.
+  bool canReportFailure(String userId) =>
+      (userId == callerId || userId == calleeId) &&
+      !state.isTerminal &&
+      state != CallState.declined;
+
+  /// Only the caller writes the offer; only the callee writes the answer.
+  bool canSetOffer(String userId) =>
+      userId == callerId && state == CallState.ringing;
+  bool canSetAnswer(String userId) =>
+      userId == calleeId && state == CallState.ongoing;
+
+  factory Call.fromJson(Map<String, dynamic> json) {
+    return Call(
+      id: json['id'] as String,
+      conversationId: json['conversation_id'] as String,
+      callerId: json['caller_id'] as String,
+      calleeId: json['callee_id'] as String,
+      kind: json['kind'] as String? ?? 'voice',
+      state: stateFromWire(json['status'] as String?),
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'] as String) ?? DateTime.now()
+          : DateTime.now(),
+      acceptedAt: json['accepted_at'] != null
+          ? DateTime.tryParse(json['accepted_at'] as String)
+          : null,
+      endedAt: json['ended_at'] != null
+          ? DateTime.tryParse(json['ended_at'] as String)
+          : null,
+      endedBy: json['ended_by'] as String?,
+      offerSdp: json['offer_sdp'] as String?,
+      answerSdp: json['answer_sdp'] as String?,
+    );
+  }
+
+  /// Maps the stored status onto [CallState]. An unknown value becomes [failed]
+  /// rather than throwing: a call the client cannot classify is not a call it
+  /// should pretend to understand.
+  static CallState stateFromWire(String? status) {
+    switch (status) {
+      case 'ringing':
+        return CallState.ringing;
+      case 'accepted':
+        return CallState.ongoing;
+      case 'ended':
+        return CallState.ended;
+      case 'missed':
+        return CallState.missed;
+      case 'declined':
+        return CallState.declined;
+      case 'failed':
+        return CallState.failed;
+      default:
+        return CallState.failed;
+    }
+  }
+
+  Call copyWith({CallState? state, String? answerSdp, DateTime? endedAt}) {
+    return Call(
+      id: id,
+      conversationId: conversationId,
+      callerId: callerId,
+      calleeId: calleeId,
+      kind: kind,
+      state: state ?? this.state,
+      createdAt: createdAt,
+      acceptedAt: acceptedAt,
+      endedAt: endedAt ?? this.endedAt,
+      endedBy: endedBy,
+      offerSdp: offerSdp,
+      answerSdp: answerSdp ?? this.answerSdp,
+    );
+  }
 }
 
-enum CallState { ringing, ongoing, ended, missed, declined }
-
-/// Intent sent through Supabase Realtime to signal an incoming call.
+/// Everything that is exchanged over the signalling channel but never stored:
+/// nothing at present, since SDP lives on the row and ICE candidates live in
+/// `call_ice_candidates`. Kept as the documented shape for future ephemeral
+/// signals (for example "still ringing" heartbeats).
 class CallSignal {
-  final String type; // offer | answer | ice-candidate | hangup | ringing
-  final String callId;
-  final String from;
-  final String to;
-  final Map<String, dynamic>? payload;
-
-  CallSignal({
+  const CallSignal({
     required this.type,
     required this.callId,
     required this.from,
-    required this.to,
     this.payload,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'type': type,
-      'call_id': callId,
-      'from': from,
-      'to': to,
-      'payload': payload,
-    };
-  }
+  /// `answer` | `ice-candidate` | `hangup` | `ringing`
+  final String type;
+  final String callId;
+  final String from;
+  final Map<String, dynamic>? payload;
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'call_id': callId,
+        'from': from,
+        if (payload != null) 'payload': payload,
+      };
 }

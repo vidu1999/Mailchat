@@ -63,6 +63,15 @@ select '08. email discovery columns (0005)',
        ) = 2 then 'ok' else 'MISSING - 0005 did not apply' end
 
 union all
+select '11. call signalling tables (0007)',
+       case when (
+         select count(*) from pg_tables
+         where schemaname = 'public'
+           and tablename in ('calls', 'call_ice_candidates')
+           and rowsecurity
+       ) = 2 then 'ok' else 'MISSING - 0007 did not apply: no calls' end
+
+union all
 select '10. one reaction per user (0006)',
        case when exists (
          select 1 from pg_constraint

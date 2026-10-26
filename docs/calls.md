@@ -1,61 +1,73 @@
-# Voice & video calling — current status
+# Voice & video calling — status and remaining work
 
-**Status: UI only. No calls can be placed, received or carried in this build.**
+**Status: signalling implemented, media not. A call can ring, be accepted,
+declined or ended, and the two sides can exchange SDP and ICE. No audio or video
+is captured or transmitted, so nobody can hear anybody.**
 
-This document exists so the call feature is not mistaken for something that
-works, and so the remaining work is unambiguous.
+The chat screen's call buttons still open an explanatory dialog rather than the
+call UI. That is deliberate: a ringing screen with no audio would be a lie. Flip
+that dialog only together with `callMediaConnected` in
+`lib/features/calls/domain/call_model.dart`.
 
-## What is implemented
+## What exists now (migration 0007 + `lib/features/calls/domain/`)
 
-| Piece | File | Status |
-|---|---|---|
-| Incoming call screen (accept / decline) | `lib/features/calls/presentation/screens/incoming_call_screen.dart` | UI only |
-| Active call screen (timer, mute, camera, speaker, end call) | `lib/features/calls/presentation/screens/active_call_screen.dart` | UI only, timer is local |
-| Call state + signalling message types | `lib/features/calls/domain/call_model.dart` | Types defined |
-| `CallService.placeCall` / `endCall` | `lib/features/calls/domain/call_service.dart` | Throws `UnsupportedError` |
+| Piece | Where | Notes |
+| --- | --- | --- |
+| `calls` table | `0007_call_signalling.sql` | One row per call: participants, kind, status, SDP offer/answer, timestamps |
+| `call_ice_candidates` | same | Append-only candidate stream, ordered by insertion |
+| Transition rules | `enforce_call_transitions()` | Callee-only accept/decline, ended-only-from-accepted, terminal states stay terminal, participants fixed at insert |
+| SDP ownership | same | Caller writes the offer, callee writes the answer, nobody rewrites the other's |
+| Blocking | `enforce_call_not_blocked()` | A blocked user cannot ring; uses `has_block_relation_by(a, b)` because the existing helper reads `auth.uid()` |
+| RLS | same file | Participants only, for select/update; caller-only insert inside their own conversation |
+| Realtime | same file | Both tables added to the publication, guarded like `0004` |
+| `Call` model + permissions | `call_model.dart` | `canAccept`, `canDecline`, `canEnd`, `canSetOffer`, `canSetAnswer`, `duration` that refuses to invent a length for a call that never connected |
+| `CallService` | `call_service.dart` | `placeCall`, `fetch`, `accept`, `decline`, `end`, `markMissed`, `reportFailure`, `sendIceCandidate`, `iceCandidates`, `listenForCalls` |
+| Tests | `test/unit/call_signalling_test.dart` | 15 tests pinning the rules the trigger enforces |
 
-The chat screen's call buttons open an explanatory dialog rather than the call
-screens, so a user can never believe a call connected.
+Two design choices worth knowing:
 
-## What is missing (the actual feature)
+* **Signalling lives in the database, not only in Realtime broadcast.** A
+  broadcast reaches whoever is connected at that moment. A call that arrives
+  while the app is backgrounded, or whose packet is dropped, would leave no
+  trace. A row gives "missed call" a definition and makes the flow auditable.
+* **The server decides, the client mirrors.** `Call.canAccept` exists so the UI
+  greys out the wrong button; it is not the boundary. The trigger raises
+  `42501` regardless of what the client believes.
 
-1. **Media transport.** WebRTC is not included. `flutter_webrtc` (or an
-   equivalent maintained package) must be added; this repository currently has
-   no third-party dependencies at all.
-2. **Signalling.** Call offers, answers, ICE candidates and hang-up events need
-   a transport. Options:
-   - Supabase Realtime broadcast channels (lowest infrastructure cost), or
-   - a `calls` + `call_signals` table with RLS and Realtime enabled, or
-   - an Edge Function that owns call state.
-3. **STUN/TURN.** NAT traversal needs at least a STUN server; reliable calling
-   behind symmetric NAT requires a TURN server with credentials. TURN
-   credentials must be issued per-session from a server function — never
-   embedded in the app.
-4. **Permissions.** `RECORD_AUDIO` and `CAMERA` on Android,
-   `NSMicrophoneUsageDescription` and `NSCameraUsageDescription` on iOS, plus
-   runtime permission prompts and denial handling.
-5. **Call records.** A `calls` table (caller, callee, conversation, type,
-   state, started_at, ended_at, duration_seconds) for history and missed-call
-   badges, with RLS scoping rows to participants.
-6. **Foreground/background behaviour.** Android foreground service for ongoing
-   calls; CallKit (iOS) / ConnectionService (Android) integration so calls ring
-   while the app is backgrounded.
-7. **Abuse controls.** Blocking must prevent calls between blocked users, and
-   rate-limiting repeated call attempts is required.
-8. **Tests.** Signalling state-machine unit tests plus at least one two-client
-   integration test on real devices.
+## What is missing — the media layer
 
-## Security notes
+Three pieces, in this order:
 
-- Do not attempt end-to-end encryption claims. WebRTC media is encrypted in
-  transit (DTLS-SRTP) between peers, but the signalling server sees call
-  metadata. The app must not describe this as E2EE without a reviewed design.
-- Never ship TURN credentials in the binary. Issue short-lived credentials.
-- Emit audit events for call start/end through `AppLogger` (no media content,
-  no participant names in production logs).
+1. **`flutter_webrtc`** — create an `RTCPeerConnection` per call, add the local
+   track, feed `offerSdp`/`answerSdp` through `CallService`, and push every
+   `onIceCandidate` into `sendIceCandidate`, applying the other side's rows to
+   `addCandidate`. This is the only part that needs a new dependency, and it
+   needs camera/microphone permissions in `AndroidManifest.xml` and
+   `Info.plist`.
+2. **A TURN server.** STUN alone works on the same network and fails on mobile
+   carriers, which is most of the time. Either run coturn or use a hosted
+   provider; the ICE servers are supplied to `RTCPeerConnection` as config, so
+   they can come from the same `.env` as the Supabase keys (and must not be
+   committed if they carry a shared secret).
+3. **Two devices.** Media cannot be verified any other way. This is the one part
+   of the project that CI cannot check for me.
 
-## Estimated work
+Then: flip `callMediaConnected`, wire `incoming_call_screen.dart` and
+`active_call_screen.dart` to `CallService.listenForCalls`, replace the dialog in
+`direct_chat_screen.dart`, and add a timeout that marks an unanswered ringing
+call as `missed` (a `pg_cron` job or a check on app start — the row is already
+there, so either works).
 
-This is a milestone of its own — roughly a 2–4 week effort including the
-signalling layer, both platform integrations, TURN provisioning and device
-testing. It should not ship as a partial "it opens a screen" feature.
+## Why the UI is still a dialog
+
+Outstanding, in order of how much they matter:
+
+* No media, as above.
+* No push, so a call only rings if the app is open — see
+  docs/push-notifications.md. A real phone call needs FCM.
+* No ringtone or vibration, and no wake lock, so a call would not wake a
+  sleeping phone.
+
+All three are the same kind of problem: they need infrastructure outside this
+repository. The signalling is the part that could be built here, and it is done
+and tested.
