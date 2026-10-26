@@ -58,9 +58,8 @@ void main() {
     test('never returns an empty name', () {
       expect(AttachmentService.sanitiseFileName(''), 'attachment');
       expect(AttachmentService.sanitiseFileName('...'), 'attachment');
-      // Whitespace becomes underscores, which is a legitimate file name; the
-      // point is that it is never empty.
-      expect(AttachmentService.sanitiseFileName('   '), '___');
+      // Whitespace-only trims to nothing, so it takes the fallback name.
+      expect(AttachmentService.sanitiseFileName('   '), 'attachment');
     });
 
     test('keeps the tail of a long name so the extension survives', () {
