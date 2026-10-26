@@ -834,12 +834,15 @@ class Session {
           isUtc: true);
     }
     if (expiresAt is String && expiresAt.isNotEmpty) {
-      final parsed = DateTime.tryParse(expiresAt);
-      if (parsed != null) return parsed;
-      final epoch = int.tryParse(expiresAt);
+      // Epoch seconds first. `DateTime.tryParse` happily accepts a bare digit
+      // string and reads it as a year, which turns 1792987203 into a date
+      // thousands of years out and makes the token look permanently stale.
+      final epoch = int.tryParse(expiresAt.trim());
       if (epoch != null) {
         return DateTime.fromMillisecondsSinceEpoch(epoch * 1000, isUtc: true);
       }
+      final parsed = DateTime.tryParse(expiresAt);
+      if (parsed != null) return parsed;
     }
     if (expiresIn is int) {
       return DateTime.now().toUtc().add(Duration(seconds: expiresIn));
