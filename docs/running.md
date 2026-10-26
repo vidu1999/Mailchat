@@ -719,10 +719,16 @@ before confirmation there is no session, and RLS would reject the insert.
 - **Session persistence is fragile.** The session is stored as a plaintext JSON
   file in the app's temp directory. Android may clear it, and it is not
   encrypted. Production requires `flutter_secure_storage`.
-- **Attachments do nothing.** The picker and upload path are stubs.
-- **Calls are UI only.** No audio or video is transmitted.
-- **No push notifications.** No FCM credentials are configured.
+- **Attachments are unverified.** The picker, upload and signed-URL viewer all
+  exist; no upload has been exercised against a live bucket.
+- **Calls have signalling but no media.** Rows are created, can be accepted and
+  are visible over Realtime, but nothing captures audio or video, so the call
+  buttons still show a dialog — see `docs/calls.md`.
+- **No push notifications.** No FCM credentials are configured; the preference
+  switches save but nothing is delivered — see `docs/notifications.md`.
 - **Realtime is unverified.** Implemented, never executed.
+- **Presence needs migration 0008.** Without it the chat header shows nothing
+  and the chat list has no dots.
 
 ## 7. First-run checklist
 
@@ -732,6 +738,6 @@ Work through this in order; each step exercises a different layer.
 2. Register an account → signup, `handle_new_user` trigger, profile insert, RLS.
 3. Confirm the account (dashboard, or email if confirmations are on) → login.
 4. Send a message → messages insert, membership trigger, block check.
-5. Kill and relaunch → session restore (expect this to be flaky, see above).
+5. Kill and relaunch → session restore (plaintext file store; see above).
 6. Second client, same conversation → realtime delivery.
 7. Block the other user, try sending → server-side block enforcement.

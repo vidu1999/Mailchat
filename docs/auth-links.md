@@ -1,5 +1,10 @@
 # Email links: confirmation, recovery, and why they are not "global" yet
 
+**Status:** 🧪 built — the app parses both link shapes, and `tool/enable_deep_links.dart`
+adds the Android intent filter at scaffold time. Whether a real mail app hands
+the link to MailChat depends on the project's **Site URL** and **Redirect URLs**,
+which are project settings, not code.
+
 Clicking a MailChat confirmation email on a real device opened a browser tab
 saying **"This site can't be reached — null is unreachable."** That page is
 Chrome's, not the app's. This document explains the cause and the fix, in the
@@ -260,5 +265,6 @@ simplest real test is just to click the email on the device.
   disambiguation prompt, or opens the browser, which is why the custom scheme is
   kept working alongside it.
 - **Session tokens in the fragment are short-lived** (`expires_in`, usually one
-  hour). Token refresh is not implemented, so a link left in a browser tab
-  overnight will land on a dead session — the app will then ask for a password.
+  hour) and are exchanged once. A link left in a browser tab overnight lands on
+  a dead session; the app asks for a password rather than trying to replay it,
+  because the refresh token that would rescue it is not in the fragment.

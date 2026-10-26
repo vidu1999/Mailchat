@@ -57,23 +57,33 @@ Verify policies with the queries in `docs/testing.md`.
 
 These are real and should block a production launch:
 
-1. **Session storage.** `FileSessionStore` writes a plaintext JSON file to
-   `Directory.systemTemp` (the app's private cache directory on Android). The
-   previous implementation used `Directory.current`, which is not writable on
-   Android/iOS, so it silently persisted nothing and every launch returned the
-   user to the login screen. The current version fixes persistence but is
-   **not encrypted** and the OS may clear the cache. Replace with
-   `flutter_secure_storage` (Keychain / Keystore) before shipping.
-2. **Token refresh.** Access tokens are persisted but the refresh flow is not
-   implemented; sessions expire and the user is silently logged out.
-3. **Attachments.** Storage buckets are private and policies exist, but the
-   upload path and signed-URL issuance are not implemented in the app.
-4. **Push notifications.** No FCM credentials or server-side sender exist;
-   no push is delivered.
-5. **Rate limiting.** Auth endpoints are rate-limited by Supabase, but message
-   and call-creation rate limiting is not implemented.
+1. **Session storage is not encrypted.** `FileSessionStore` writes a plaintext
+   JSON file (`mailchat_session.json`) into the app's private cache directory.
+   It survives a restart, but it is readable by anything that can read app data
+   on a rooted device, and the OS may clear the cache. Replace with
+   `flutter_secure_storage` (Keychain / Keystore) before shipping. Token refresh
+   itself *is* implemented: `refreshSession()` runs before any request whose
+   access token is stale, and a rejected refresh clears the session instead of
+   looping.
+2. **Attachments are private but unencrypted.** Buckets are private, paths are
+   authorisation, and every read goes through a short-lived signed URL. The bytes
+   themselves are plaintext at rest, and a signed URL that leaks is valid for its
+   lifetime.
+3. **Presence is coarse.** A heartbeat older than 75 seconds is "offline", so a
+   user whose phone slept looks away even if they are reading. That is honest,
+   but it is not the same as an accurate session state.
+4. **Push notifications.** No FCM credentials or server-side sender exist; no
+   push is delivered. See [notifications.md](notifications.md).
+5. **Rate limiting.** Auth endpoints are rate-limited by Supabase, but message,
+   attachment and call-creation rate limiting is not implemented — nothing stops
+   a member from flooding a conversation or ringing in a loop.
 6. **Abuse reporting review.** `user_reports` rows are written but nothing
-   triages them.
+   triages them, and there is no moderation role.
+7. **Calls carry no media,** so there is no DTLS/SRTP surface to review yet —
+   and equally, no call privacy to claim. Signalling rows do contain the SDP the
+   two sides exchange, which discloses IP candidates to the other participant;
+   that is inherent to WebRTC and will be worth documenting again when media
+   lands.
 
 ## Encryption posture
 

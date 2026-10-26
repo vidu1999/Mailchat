@@ -42,37 +42,39 @@ already handles, and the gaps that are still real.
 
 ## Project status
 
-This is a **work in progress**, not a shippable app. Read this before relying
-on anything below.
+This is a **work in progress**, not a shippable app: one large feature (call
+media) and one integration (push delivery) are missing, and the parts that exist
+have not been exercised against a live database from the build environment.
 
 | Area | State |
 |---|---|
 | Design system, routing, theme | Implemented |
-| Auth screens + `AuthService` (Supabase Auth) | Implemented; **registration verified against a live project**, sign-in not yet exercised end to end |
-| Chat list, direct chat, message send/receive | Implemented; compiles, never exercised against a live database |
-| Groups (create, members, roles, leave) | Implemented; never exercised |
-| Reactions, receipts, edit/delete | Implemented; never exercised |
-| Blocking, reporting, privacy + notification settings | Partially implemented |
-| Profile / search / settings screens | Implemented; never exercised |
-| Database schema, RLS policies, triggers, seed | Written; migrations must be applied by hand (see `docs/running.md` §2) |
-| `flutter analyze` | **Clean** — locally and in CI |
-| Registration against a live Supabase project | Reaches GoTrue; confirms/existing-account/signed-in paths handled |
-| Unit + widget tests | **54 cases, passing in CI** (the last local run, 38 cases, predates the SDK-config and registration suites) |
-| GitHub Actions CI (analyze, test, build APK) | **Green** |
-| Debug APK build | **Builds in CI and locally; installs and launches on a physical Android device** |
-| Attachments (upload/preview) | **Stubbed** — needs a file picker + Storage wiring |
-| Push notifications (FCM) | **Not implemented** — no credentials, no sender |
-| Email link handling (confirm / reset) | Implemented on Android; needs a Site URL + Redirect URLs in Supabase — see `docs/auth-links.md` |
-| Voice / video calls | **UI only** — see `docs/calls.md` |
+| Auth (register, verify, sign in, restore, reset, sign out) | Implemented; registration reaches GoTrue against the live project, the rest awaits the manual checklist |
+| Chat list, direct chat, send/receive | Implemented; never exercised against a live database |
+| Unread badges | Implemented; cleared by a database function (0009), not by the phone |
+| Groups (create, roles, thread, leave) | Implemented; groups now open a real message thread |
+| Reactions, receipts, edit/delete, replies | Implemented; never exercised |
+| Attachments (photos and files) | Implemented: `file_selector` → private bucket → `message_attachments` |
+| Online status, last seen, typing | Implemented: live presence channel + a 30 s heartbeat (0008) |
+| Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
+| Search by username, display name, exact email | Implemented (`search_users`, 0005) |
+| Notification preferences | Implemented and persisted; **nothing is pushed** |
+| Voice / video calls | **Signalling only** — no audio or video, so the buttons still show a dialog. See `docs/calls.md` |
+| Push notifications (FCM) | **Not implemented** — needs a Firebase project |
 | End-to-end encryption | **Not implemented** — and not claimed |
+| Database schema, RLS, triggers, seed | Written; applied by hand in one paste (`supabase/apply_all.sql`) |
+| `flutter analyze` | **Clean** in CI |
+| Unit + widget tests | **250+ cases, passing in CI** |
+| GitHub Actions CI (analyze, tests, APK) | **Green** |
+| Debug APK | **Builds in CI and installs on a physical Android device** |
 
 **Where the evidence stops.** The app builds, installs, launches and completes a
-real signup request against Supabase Auth; analysis and the test suite pass in
-CI. That is the whole of the verified surface. Nothing has been exercised
-against a database with the migrations applied — realtime delivery, sending a
-message, groups, uploads and settings are all untested on a device. Do not
-describe this as a working app until the manual checklist in `docs/testing.md`
-passes.
+real signup request against Supabase Auth; analysis, the test suite and the APK
+build pass in CI. That is the whole of the verified surface. Nothing has been
+exercised against a database with the migrations applied — realtime delivery,
+sending a message, uploads, presence and calls are untested on a device. Do not
+describe this as a working messaging app until the manual checklist in
+`docs/testing.md` passes.
 
 ## Requirements
 
@@ -156,17 +158,32 @@ flutter analyze
 flutter test
 ```
 
-Tests live in `test/unit` (validators, formatters, model parsing) and
-`test/widget` (message bubble rendering). Security checks to run against your
-database are in `docs/testing.md`.
+Tests live in `test/unit` (rules, parsing, state machines) and `test/widget`
+(rendering). The per-file list and the manual device checklist are in
+`docs/testing.md`; the database checks are `supabase/verify.sql`.
 
 ## Documentation
 
-- `docs/running.md` — setup, applying migrations without the Supabase CLI,
-  device options, first-run checklist
-- `docs/security.md` — threat model, key handling, RLS, known gaps
-- `docs/calls.md` — why calling is UI-only and what it needs
-- `docs/testing.md` — test strategy + SQL policy verification
+Every feature has a document in the same shape — what works, how it works, what
+the database enforces, what is missing. Start at **`docs/README.md`** for the
+index, or go straight to:
+
+| Document | Covers |
+|---|---|
+| `docs/running.md` | Install, configure, apply the schema, build an APK, troubleshoot |
+| `docs/auth.md`, `docs/auth-links.md` | Accounts, and why confirmation links bounce |
+| `docs/messaging.md`, `docs/unread.md` | Sending, ticks, edits, replies; unread counts and the read cursor |
+| `docs/attachments.md` | Photos and files |
+| `docs/groups.md`, `docs/search.md` | Groups; finding people by handle or exact email |
+| `docs/presence.md` | Online status, last seen, typing, and the privacy switch |
+| `docs/privacy.md` | Blocking, reporting, discoverability |
+| `docs/notifications.md` | Preferences (real) and push (not delivered) |
+| `docs/calls.md` | Voice and video: signalling built, media not |
+| `docs/architecture.md`, `docs/security.md` | Components, schema, trust boundary |
+| `docs/feature-matrix.md` | Every spec item, with the path that backs the verdict |
+
+`dart run tool/check_docs.dart` fails CI if a document links to something that
+does not exist, so these files cannot quietly rot.
 
 ## Repository layout
 
@@ -182,8 +199,8 @@ lib/
     profile/       view/edit profile
     privacy/       privacy settings, blocked users, report user
     notifications/ notification preferences
-    attachments/   preview + media viewer (stubbed)
-    calls/         call UI + domain types (no media)
+    attachments/   preview + media viewer
+    calls/         signalling, call model, call screens (no media yet)
   shared/          models, services, reusable widgets
 supabase/
   migrations/      schema, functions/triggers, RLS, views + storage

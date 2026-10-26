@@ -1,151 +1,133 @@
 # Testing
 
+**Status:** CI runs analysis, the full test suite and an APK build on every push.
+The **manual checklist at the end has not been executed**: nothing in this
+repository has been exercised against a live Supabase project from the build
+environment, so "the tests pass" is not the same as "the app works".
+
 ## What runs in CI
 
 `.github/workflows/ci.yml` runs on every push and pull request:
 
-1. `flutter pub get`
-2. `dart format --set-exit-if-changed lib test` (non-blocking, reports drift)
-3. `flutter analyze` (blocking — lints configured as errors)
-4. `flutter test --coverage`
-5. A separate job builds a debug APK and uploads it as an artifact
+| Step | Blocking? | What it proves |
+| --- | --- | --- |
+| `flutter pub get` | Yes | Dependencies resolve |
+| `dart format --set-exit-if-changed lib test` | No | Reports formatting drift |
+| `flutter analyze` | Yes | Lints configured as errors; analyzer findings are published as a check run |
+| `dart run tool/check_config.dart` | Yes | Refuses a build with no configuration, and refuses placeholder keys |
+| `dart run tool/check_migrations.dart` | Yes | Every migration is re-runnable; `apply_all.sql` has not drifted |
+| `dart run tool/check_docs.dart` | Yes | Every document is linked and every path it names exists |
+| `flutter test --coverage` | Yes | Unit and widget tests |
+| `flutter build apk --debug --split-per-abi` | Yes | An installable APK exists; Gradle's "What went wrong" is re-emitted as an annotation |
+
+Job logs are not readable from every environment, so the build step converts the
+failure reason into `::error::` annotations. That change is what made the last two
+build failures diagnosable at all.
 
 ## Test layout
 
+```text
+test/unit/
+  validators_test.dart          email, password, username rules
+  formatters_test.dart          timestamps, file sizes, last-seen wording
+  models_test.dart              JSON parsing; conversation_list rows; copyWith
+  attachment_test.dart          file-name sanitising, MIME guessing, size gate
+  auth_deep_link_test.dart      parsing confirmation and recovery links
+  auth_registration_test.dart   RegistrationResult outcomes
+  call_signalling_test.dart     call states, permissions, duration, media flag
+  env_file_test.dart            .env parsing and --dart-define precedence
+  app_config_test.dart          configuration resolution
+  anon_key_test.dart            the anon key is accepted and service_role rejected
+  last_seen_test.dart           heartbeat window, hidden means silent
+  presence_test.dart            presence payload shapes, typing TTL
+  profile_search_test.dart      search query rules and empty-result wording
+  postgrest_error_test.dart     PostgREST and auth errors become readable text
+  reaction_summary_test.dart    reaction chip aggregation
+  receipt_state_test.dart       sent / delivered / read from receipt rows
+  rpc_payload_test.dart         scalar, rows and integer RPC replies
+
+test/widget/
+  message_bubble_test.dart      rendering, deleted placeholder, ticks, long words
+  paste_link_screen_test.dart   the paste-a-link recovery path
 ```
-test/unit/     validators_test.dart   input rules (email, password, username)
-               formatters_test.dart   timestamps and file sizes
-               models_test.dart       JSON parsing for models and the
-                                      conversation_list view row
-test/widget/   message_bubble_test.dart  rendering, deleted placeholder,
-                                         status icons, long-unbroken text,
-                                         long-press callback
-```
 
-These tests are pure Dart/Flutter with no network or database access.
+Everything here is pure Dart/Flutter: no network, no database, no device. That is
+the limit of what CI can prove, and it is why the feature documents distinguish
+🧪 from ✅.
 
-## Manual verification checklist
+## The manual checklist
 
-Nothing below has been executed yet. Work through it on a real device before
-calling this app functional.
+Work through this on a real device before calling the app functional. Every line
+needs two accounts (`supabase/seed.sql` creates `alice@example.com` and
+`bob@example.com`, password `MailChat123!`).
 
 ### Auth
 
-- [ ] Register with a new email; confirm the verification email arrives via
-      Supabase Auth (not simulated)
-- [ ] Attempt login before confirming the email — expect a clear error
-- [ ] Confirm the email, then log in
-- [ ] Log out, restart the app, confirm you land on login (session cleared)
-- [ ] Log in, restart the app, confirm the session restores
-- [ ] Request a password reset and complete it via the emailed link
-- [ ] Register with a duplicate username — expect a friendly error, not a
-      raw `23505` unique-violation message
+- [ ] Register with a new email; the verification mail arrives from Supabase Auth
+      (never simulated)
+- [ ] Log in before confirming — expect a clear "email not confirmed" error
+- [ ] Confirm via the link; it opens the app, not a browser error page
+- [ ] Log in; restart the app; the session restores
+- [ ] Log out; restart; you land on login
+- [ ] Request a password reset and complete it from the emailed link
+- [ ] Register a duplicate username — a friendly error, not a raw `23505`
 
 ### Messaging
 
-- [ ] Send a message; confirm it appears immediately (optimistic) and then
-      persists with status `sent`
-- [ ] Open the same conversation on a second device; confirm new messages
-      arrive in real time
-- [ ] Kill the network and send — confirm the message shows `failed`, not a
-      silent lie
-- [ ] React to a message; confirm the reaction persists after reload
-- [ ] Edit your own message; confirm `edited_at` is set
-- [ ] Delete your own message; confirm it renders as deleted, not blank
-- [ ] Try editing another user's message via the API directly — expect denial
+- [ ] Send a message: immediate bubble, then `sent`
+- [ ] Second device receives it live
+- [ ] Airplane mode + send: bubble shows `failed`, not a lie
+- [ ] React, edit, delete — each persists after a reload
+- [ ] Reply to an older message: the quote renders, or "Earlier message" if off-page
+- [ ] Receipts: the sender's tick goes delivered → read when the reader opens the thread
+
+### Unread badges
+
+- [ ] Message arrives while the list is on screen: preview and badge update without a pull
+- [ ] Open the chat: badge clears, and stays cleared after going back
+- [ ] Read on device B: the badge clears on device A
+- [ ] `supabase/verify.sql` row 14 reads `ok` (a stale `conversation_list` view
+      is the one cause the app cannot fix)
 
 ### Groups
 
-- [ ] Create a group with members; confirm the creator is `owner`
-- [ ] Promote a member to `admin`; confirm a non-owner cannot
-- [ ] Remove a member; confirm they immediately lose access
-- [ ] Leave a group; confirm it disappears from the chat list
+- [ ] Create a group; the creator is `owner`
+- [ ] The new group opens as a **message thread**, not a details page
+- [ ] Post in the group from another account; it arrives live and the badge clears on open
+- [ ] Promote a member to `admin`; a non-owner cannot
+- [ ] Leave the group; it disappears from the list
 
-### Blocking / reporting
+### Attachments
 
-- [ ] Block a user; confirm they can no longer send you messages
-      (the `messages_block_check` trigger should reject the insert)
-- [ ] Confirm the blocked user can no longer see you in search
-- [ ] Unblock; confirm messaging works again
-- [ ] File a report; confirm the row is written with `status = 'open'`
+- [ ] Send a photo: bubble preview renders
+- [ ] Send a PDF: file card with name and size
+- [ ] Tap each: the viewer opens via a signed URL
+- [ ] Try a file over 10 MB: refused before upload
+- [ ] A file with spaces and unicode in the name still uploads
 
-## Verifying RLS (run in the Supabase SQL editor)
+### Presence
 
-These confirm the server — not the client — is enforcing access. Run them as
-two different authenticated users.
+- [ ] Open the same chat on both devices: neither shows "typing" for itself
+- [ ] Type: the other side sees "typing..." then it expires
+- [ ] Background the app: after ~75 s the peer shows "last seen …"
+- [ ] Turn off **Show online status and last seen**: the other side shows no line at all
+- [ ] Direct chat list shows a dot for an online peer, and no dot for a hidden one
 
-```sql
--- 1. A user must not read another user's private conversation.
---    Sign in as Alice, then:
-select * from public.conversations
-where id = '<conversation_alice_is_not_in>';
--- expect: 0 rows (not an error, not data)
+### Privacy
 
--- 2. A user must not insert a message as somebody else.
-insert into public.messages (conversation_id, sender_id, type, text)
-values ('<conv>', '<other_user_id>', 'text', 'spoofed');
--- expect: RLS violation
+- [ ] Block a user: their next message is refused
+- [ ] The blocked user does not appear in search
+- [ ] Unblock: messaging works again
+- [ ] Submit a report; the row lands in `user_reports` with status `open`
 
--- 3. A non-member must not insert at all.
-insert into public.messages (conversation_id, sender_id, type, text)
-values ('<conv_you_are_not_in>', auth.uid(), 'text', 'intruder');
--- expect: RLS violation or the member trigger error
+### Notifications
 
--- 4. Hard delete must be denied to clients.
-delete from public.messages where id = '<own_message_id>';
--- expect: 0 rows affected (no DELETE policy)
+- [ ] The three switches survive an app restart (they are stored)
+- [ ] Nothing is pushed, in foreground or background — expected, see
+      [notifications.md](notifications.md)
 
--- 5. Receipts are self-only.
-insert into public.message_receipts (message_id, recipient_id)
-values ('<msg>', '<other_user_id>');
--- expect: RLS violation
+### Calls
 
--- 6. Reports are readable only by the reporter.
-select * from public.user_reports;
--- expect: only rows you filed
-
--- 7. Service-role key must never work from the client.
---    Search the built APK for the key:
---    unzip -p app-release.apk classes.dex | strings | grep 'service_role'
---    expect: no match
-```
-
-## Known functional gaps (verified by reading the code, not by running it)
-
-- **Realtime delivery is implemented but unverified.** The channel join now
-  sends a `postgres_changes` config scoped to `conversation_id` plus the access
-  token, and the client normalises both known payload shapes. This has never
-  run against a live Supabase project. Verify it first with two devices: send
-  from one, confirm the other appends without a manual refresh. If nothing
-  arrives, check that `messages` is in the `supabase_realtime` publication
-  (migration 0004) and that the Realtime service is enabled in the dashboard.
-- **Session tokens** are stored by `FileSessionStore` in the current working
-  directory. This is not secure storage on Android/iOS and must be replaced
-  before release.
-- **Token refresh** is not implemented; an expired access token logs the user
-  out rather than refreshing.
-
-## Known test gaps
-
-- No integration tests (would need a running Supabase instance + two clients).
-- No tests for the Realtime subscription path.
-- No golden-file tests for the design system.
-- No performance or battery tests.
-
-## Why `flutter analyze` is a hard gate
-
-CI fails the build on any analyzer finding, including deprecation warnings that
-only exist on newer Flutter releases than the one installed locally. That is
-intentional — but it means "clean on my machine" is not proof that the CI
-`Analyze` step passes.
-
-Two consequences:
-
-- Do not call an SDK API that is deprecated on the newest stable, even if it
-  compiles locally. `Color.withOpacity` is the current example: use
-  `withAlphaFactor` from `lib/core/theme/color_alpha.dart` instead, which maps
-  onto `withAlpha` and is valid on every SDK this project supports.
-- If `Analyze` fails, open the run and download the `analyze-log` artifact:
-  the workflow tees the analyzer output there, because the step summary only
-  shows "exit code 1". The `Toolchain versions` step prints the exact Flutter
-  version that produced the findings, which is what makes them reproducible.
+- [ ] The call buttons show the explanatory dialog, not a call screen
+- [ ] `supabase/verify.sql` row 11 is `ok` (tables exist with RLS)
+- [ ] Nothing rings anywhere — expected, media is not built

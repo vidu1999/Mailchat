@@ -31,11 +31,11 @@ Legend:
 | Session restoration | 🧪 | token refresh in `core/network/supabase_client.dart` |
 | Username | ✅ | `profiles.username`, format enforced by a check constraint |
 | Profile / avatar | 🟡 | Profile and edit screens exist; avatar upload still has no picker (the file picker now exists for chat attachments, so this is a small follow-up) |
-| User search | ✅ | `public.search_users` (0005): username, display name, exact email |
+| User search | ✅ | `public.search_users` (0005): username, display name, exact email — see [search.md](search.md) |
 | 1-to-1 conversations | 🧪 | `get_or_create_direct_conversation`, `direct_chat_screen.dart` |
 | Real-time messaging | 🧪 | Realtime subscription in `message_service.dart` |
 | Online / offline presence | 🧪 | Two halves. Live: `PresenceService` joins a per-conversation Realtime channel (shows "Online" while both are in the thread). Durable: a 30 s heartbeat into `user_presence` (0008) plus `get_presence()`, which is what makes "last seen 10:41 AM" and the chat-list dots work at all. Online = heartbeat within 75 s; the privacy switch stores `share_last_seen` and the function returns nulls to everyone else. **Server side written blind — needs a live project** |
-| Typing indicator | 🧪 | Broadcast event on the same channel, debounced to one event per pause, with a 4 s expiry so a dropped socket cannot leave someone typing forever. Shows in the app bar |
+| Typing indicator | 🧪 | Broadcast event on the same channel, debounced to one event per pause, with a 4 s expiry so a dropped socket cannot leave someone typing forever. Shows in the app bar — [presence.md](presence.md) |
 | Sent / delivered / read | ✅ | Reading a thread writes `message_receipts` (`markReceivedAndRead`), receipts are embedded on each message so the tick is derived from them (`ReceiptState`), and a realtime subscription updates the sender's ticks live. Unread counts work off `last_read_message_id`, cleared by `mark_conversation_read()` (0009) which picks the newest message **in the database** and only moves forward — so a missed realtime event or a stale page can no longer leave a badge behind. The chat list reloads on new messages **and** on its own read cursor moving, zeroes the badge on tap, and logs `unread_count_not_cleared` if the server still disagrees |
 | Reply | ✅ | Long-press → Reply shows a strip above the composer; the sent message carries `reply_to_message_id`, and the bubble renders the quoted parent (or "Earlier message" when it is off the loaded page) |
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |

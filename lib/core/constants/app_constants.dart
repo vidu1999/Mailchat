@@ -20,15 +20,14 @@ class AppConstants {
   static const int defaultPageSize = 20;
   static const int messagesPageSize = 50;
 
-  // File limits (bytes)
-  static const int maxAttachmentSize = 100 * 1024 * 1024; // 100 MB
-  static const int maxImageSize = 20 * 1024 * 1024; // 20 MB
-  static const int maxVideoSize = 100 * 1024 * 1024; // 100 MB
-
-  // Presence / typing
-  static const Duration onlineThreshold = Duration(minutes: 5);
-  static const Duration typingDebounce = Duration(milliseconds: 600);
-  static const Duration typingDisplay = Duration(seconds: 5);
+  // File limits and presence windows are deliberately NOT duplicated here.
+  // They used to be, and the copies disagreed with the code that enforces them
+  // (100 MB here vs 10 MB in AttachmentService, a 5-minute online threshold
+  // here vs 75 seconds in get_presence). A single source of truth each:
+  //   * attachment size  -> AttachmentService.maxBytes
+  //   * online window    -> PresenceService.onlineWindow (mirrors the SQL)
+  //   * heartbeat period -> PresenceService.heartbeatInterval
+  //   * typing expiry    -> PresenceService.typingTtl
 
   // ------------------------------------------------------------------
   // Usernames: case-insensitive unique, 3-30 chars,

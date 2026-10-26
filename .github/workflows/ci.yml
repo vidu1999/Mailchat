@@ -77,6 +77,10 @@ jobs:
           # not re-runnable strands the user halfway with 42710.
           dart run tool/check_migrations.dart
 
+          # The documents claim which file implements what. A rename would make
+          # those claims false, so every path a document mentions must exist.
+          dart run tool/check_docs.dart
+
           # And a root .env must be picked up and copied into the asset. The
           # template still holds placeholders, so it must still be rejected.
           cp .env.example .env

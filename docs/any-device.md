@@ -104,10 +104,10 @@ Be aware of these before saying "it works everywhere":
 |---|---|---|
 | **iOS is not wired** | Deep links do not reach the app; `Info.plist` URL type + `openURL` forwarding are missing | `docs/auth-links.md` |
 | **Session storage is a plaintext file** | Works on device, but a rooted device can read the tokens. Needs a keystore-backed store | `docs/security.md` |
-| **Attachments are stubbed** | No file picker / upload wiring yet | `README.md` |
+| **Attachments are unverified** | Picker and upload path exist, but no upload has ever run against a live bucket | `docs/attachments.md` |
 | **Push notifications absent** | No background alerts; the app must be open | `docs/running.md` §6 |
 | **Realtime unverified** | Code exists; nothing has exercised it against a provisioned database | `docs/testing.md` |
-| **Calls are UI-only** | No media stack; do not present them as working | `docs/calls.md` |
+| **Calls have signalling only** | Rows ring and can be accepted, but no audio or video; the UI stays behind a dialog | `docs/calls.md` |
 | **No rate limiting / abuse handling** | RLS protects data, but nothing throttles a hostile client | `docs/security.md` |
 
 None of these stop the app from *installing and running* on another Android

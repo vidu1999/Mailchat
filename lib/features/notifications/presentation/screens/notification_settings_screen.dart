@@ -13,7 +13,7 @@ import 'package:mailchat/shared/services/notification_service.dart';
 /// Sound and vibration are device settings, not account settings: they are kept
 /// in this screen's state and will move to local storage with the FCM work. Push
 /// delivery itself still requires Firebase credentials — see
-/// docs/push-notifications.md — and this screen does not claim otherwise.
+/// docs/notifications.md — and this screen does not claim otherwise.
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
 
