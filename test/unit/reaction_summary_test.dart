@@ -82,13 +82,23 @@ void main() {
     });
 
     test('order is stable for equal counts', () {
-      final chips = ReactionSummary.chips(
+      // Ties break on the emoji's code units (👍 U+1F44D before 😂 U+1F602),
+      // not on visual order. The point of the test is that it does not depend
+      // on the order the rows arrived in, which would make chips jump between
+      // rebuilds.
+      final forwards = ReactionSummary.chips(
         [_reaction('u1', '😂'), _reaction('u2', '👍')],
         'nobody',
       );
+      final backwards = ReactionSummary.chips(
+        [_reaction('u2', '👍'), _reaction('u1', '😂')],
+        'nobody',
+      );
 
-      expect(chips.map((c) => c.emoji).toList(), ['😂', '👍']);
-      expect(chips.every((c) => !c.mine), isTrue);
+      expect(forwards.map((c) => c.emoji).toList(), ['👍', '😂']);
+      expect(backwards.map((c) => c.emoji).toList(),
+          forwards.map((c) => c.emoji).toList());
+      expect(forwards.every((c) => !c.mine), isTrue);
     });
   });
 
