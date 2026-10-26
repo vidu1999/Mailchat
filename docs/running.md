@@ -139,6 +139,25 @@ The project needs four migrations, applied **in order**:
 | 3 | `supabase/migrations/0003_rls_policies.sql` | row level security on every table |
 | 4 | `supabase/migrations/0004_views_storage_realtime.sql` | `conversation_list` view, storage buckets + policies, realtime publication |
 
+### Option C — the whole schema in one paste (recommended when in doubt)
+
+`supabase/apply_all.sql` is all four files concatenated, plus the health check at
+the end. Paste it once; there is nothing to edit and no order to get right.
+
+```
+Dashboard -> SQL Editor -> New query -> paste supabase/apply_all.sql -> Run
+```
+
+Its last statement prints a table where every row must read `ok`. That is the
+whole setup verified in one step.
+
+Use this when you are unsure what state the database is in — after a failed run,
+after a `git pull` that changed the migrations, or when the app reports a missing
+column. It is safe on an empty database, a half-applied one, and a complete one.
+
+If you cannot pull from git, open the file on GitHub
+(`supabase/apply_all.sql` -> **Raw**) and copy it from the browser.
+
 ### Option A — Supabase CLI
 
 ```powershell
@@ -165,7 +184,15 @@ Every file is written to be applied more than once. That matters because these
 are pasted into a SQL editor by hand, and a half-applied set is otherwise hard to
 recover from. `dart run tool/check_migrations.dart` enforces it in CI:
 `create trigger` has no `if not exists`, so each trigger is dropped first, and
-publication membership is checked before it is added.
+publication membership is checked before it is added. The same script checks that
+`apply_all.sql` still matches the migrations, and rebuilds it after a change:
+
+```powershell
+dart run tool/check_migrations.dart --write-apply-all
+```
+
+The migrations remain the source of truth; `apply_all.sql` is generated and its
+header says so.
 
 **If you applied the migrations before 2026-10-26, re-run `0004`.** The
 `conversation_list` view gained an `updated_at` column that the chat list orders
@@ -175,7 +202,9 @@ columns, so re-running it is safe and does not touch data.
 
 ### Verify it worked
 
-Run this in the SQL editor after the four files:
+`supabase/verify.sql` is read-only and does all of the checks below in one table,
+with each row reading `ok`. It is also the tail of `apply_all.sql`, so Option C
+prints it automatically. The individual checks:
 
 ```sql
 select tablename, rowsecurity
@@ -485,6 +514,10 @@ Use a page you control (GitHub Pages, your own domain) if you want the fallback
 to be useful. `docs/auth-links.md` has the details.
 
 ### `trigger "..." for relation "..." already exists` (42710)
+
+**Fastest way out: run `supabase/apply_all.sql` instead** (Option C in §2). One
+paste, no editing, and it cannot hit this error. The rest of this entry explains
+the cause and the manual fixes.
 
 The migration was applied before and the statement is not re-runnable — the SQL
 editor runs the whole file as one transaction, so it aborts and nothing in that
