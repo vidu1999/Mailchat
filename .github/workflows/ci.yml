@@ -183,11 +183,25 @@ jobs:
       # Split per ABI: a fat debug APK bundles the engine for every
       # architecture (100-200 MB). Splitting keeps artifacts small enough to
       # install on a phone with limited free space.
+      # Job logs are not readable from every environment (the API redirects to
+      # storage that may be blocked), so the tail of a failed build is re-emitted
+      # as annotations, which are readable through the checks API.
       - name: Build debug APKs
         run: |
+          set +e
           flutter build apk --debug --split-per-abi \
             --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
-            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}" \
+            2>&1 | tee /tmp/build-apk.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::flutter build apk failed with exit $rc"
+            tail -60 /tmp/build-apk.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$rc"
+          fi
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
