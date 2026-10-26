@@ -106,11 +106,14 @@ class _NewConversationScreenState extends State<NewConversationScreen> {
       return const AppEmptyState(
         icon: Icons.group_add_outlined,
         title: 'Start a conversation',
-        subtitle: 'Search for someone by username or email.',
+        subtitle: 'Search for someone by username, display name, or full '
+            'email address.',
       );
     }
     if (_results.isEmpty) {
-      return const AppEmptyState(
+      // Not const: the wording depends on whether an address or a handle was
+      // searched for.
+      return AppEmptyState(
         icon: Icons.search_off,
         title: 'No users found',
         subtitle: SearchQuery(_controller.text).normalised().emptyResultMessage,

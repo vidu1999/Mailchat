@@ -59,7 +59,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       // controls are permanently greyed out is worse than one that saves into
       // an error the user can see.
       if (profile != null) {
-        _allowSearchByEmail = profile!.discoverableByEmail;
+        _allowSearchByEmail = profile.discoverableByEmail;
         _allowSearchByUsername = profile.discoverableByUsername;
       }
       _loadedDiscoverability = true;
