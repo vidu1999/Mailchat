@@ -62,6 +62,8 @@ Legend:
 | 12–13 | New conversation, direct chat | ✅ built |
 | 14–15 | Group chat, group details | ✅ built |
 | 16 | Media viewer | 🟡 screen exists, no way to reach it |
+| — | Profile counters (Following / Followers, wireframe 7) | ❌ no follow graph; the screen shows identity only |
+| — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it |
 | 17 | Attachment preview | 🟡 same |
 | 18–19 | Voice call, video call | ❌ |
 | 20 | My status / stories | ❌ |
