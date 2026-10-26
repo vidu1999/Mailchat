@@ -1580,7 +1580,7 @@ begin
   on conflict (user_id) do update
     set last_seen_at    = now(),
         share_last_seen = coalesce(p_share, up.share_last_seen)
-  returning up.last_seen_at into seen;
+  returning last_seen_at into seen;
 
   return seen;
 end;
