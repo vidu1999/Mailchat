@@ -52,9 +52,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  void _openConversation(ConversationListItem item) {
+  Future<void> _openConversation(ConversationListItem item) async {
     final isGroup = item.conversation.type == 'group';
-    Navigator.of(context).pushNamed(
+    await Navigator.of(context).pushNamed(
       isGroup ? AppRoutes.groupDetails : AppRoutes.directChat,
       arguments: {
         'conversationId': item.conversation.id,
@@ -64,6 +64,25 @@ class _ChatListScreenState extends State<ChatListScreen> {
         'otherUserId': item.otherParticipant?.id,
       },
     );
+    // Reading happens inside the chat, so the unread badge and the preview are
+    // both stale by the time we get back here. Reload rather than leaving a
+    // badge on a conversation that has just been read.
+    if (!mounted) return;
+    _load();
+  }
+
+  /// The line under the name: the last message, or what state the chat is in.
+  ///
+  /// A message of your own is prefixed, which is how every messaging app
+  /// distinguishes "you said this" from "they said this" in a one-line preview.
+  String _previewText(ConversationListItem item) {
+    final text = item.lastMessageText?.trim();
+    if (text == null || text.isEmpty) {
+      return item.otherParticipant == null && item.conversation.isGroup
+          ? 'Group created'
+          : 'No messages yet';
+    }
+    return text;
   }
 
   @override
@@ -118,7 +137,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           final title = isGroup
               ? (item.conversation.name ?? 'Group')
               : (item.otherParticipant?.displayNameOrUsername ?? 'Unknown');
-          final subtitle = item.lastMessageText ?? 'No messages yet';
+          final subtitle = _previewText(item);
 
           return ListTile(
             contentPadding:

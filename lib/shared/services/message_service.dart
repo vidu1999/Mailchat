@@ -218,26 +218,37 @@ class MessageService {
     AppLogger.info('message_deleted', details: {'messageId': messageId});
   }
 
-  /// Adds or removes a reaction on [messageId] by [userId].
-  Future<void> toggleReaction({
+  /// Applies a reaction to [messageId] with replace semantics.
+  ///
+  /// One user, one reaction per message: tapping the emoji already chosen
+  /// removes it, tapping a different one swaps it. The previous implementation
+  /// only deleted when the *exact same* emoji was tapped again, so picking a
+  /// second emoji left both rows behind and the count went up instead of
+  /// changing — which is what "can't react properly" looked like.
+  ///
+  /// Returns true when the user now has that reaction, false when it was
+  /// removed, so the caller can update the bubble without a round trip.
+  Future<bool> toggleReaction({
     required String messageId,
     required String userId,
     required String reaction,
   }) async {
-    final existing = await _supabase.select(
+    final mine = await _supabase.select(
       'message_reactions',
-      select: 'id',
-      filter: {
-        'eq': 'message_id,$messageId,user_id,$userId,reaction,$reaction',
-      },
-      limit: 1,
+      select: 'reaction',
+      filter: {'eq': 'message_id,$messageId,user_id,$userId'},
     );
-    if (existing.isNotEmpty) {
+    final alreadyThis = mine.any((row) => row['reaction'] == reaction);
+
+    // Delete first, then add: doing it the other way round would momentarily
+    // hold two emoji for one user.
+    if (mine.isNotEmpty) {
       await _supabase.delete(
         'message_reactions',
-        filter: {'eq': 'id,${existing.first['id']}'},
+        filter: {'eq': 'message_id,$messageId,user_id,$userId'},
       );
-    } else {
+    }
+    if (!alreadyThis) {
       await _supabase.insert(
         'message_reactions',
         data: {
@@ -251,7 +262,21 @@ class MessageService {
       'messageId': messageId,
       'userId': userId,
       'reaction': reaction,
+      'applied': !alreadyThis,
     });
+    return !alreadyThis;
+  }
+
+  /// Reactions on one message, newest last. Used to refresh a bubble after a
+  /// toggle without re-fetching the whole thread.
+  Future<List<MessageReaction>> getReactions(String messageId) async {
+    final rows = await _supabase.select(
+      'message_reactions',
+      select: 'id, message_id, user_id, reaction, created_at',
+      filter: {'eq': 'message_id,$messageId'},
+      order: 'created_at.asc',
+    );
+    return rows.map((row) => MessageReaction.fromJson(row)).toList();
   }
 
   /// Marks [messageId] as delivered and/or read by [recipientId].
@@ -376,6 +401,47 @@ class MessageService {
     _channel = channel;
   }
 
+  /// Subscribes to reaction changes anywhere in the project.
+  ///
+  /// The channel cannot be filtered by conversation — `message_reactions` has
+  /// no such column, and Realtime filters only support equality on a column —
+  /// so the screen filters by message id and ignores the rest. RLS still
+  /// applies: rows the caller may not read are not delivered.
+  void subscribeToReactions() {
+    if (_reactionController.isClosed) _ensureReactionController();
+    _reactionChannel = _realtime.join(
+      'realtime:mailchat:reactions',
+      (type, payload) {
+        final record = payload['record'] ?? payload['old_record'];
+        if (record is! Map) return;
+        final messageId = record['message_id'];
+        if (messageId is String && !_reactionController.isClosed) {
+          _reactionController.add(messageId);
+        }
+      },
+      config: {
+        'postgres_changes': [
+          {
+            'event': '*',
+            'schema': 'public',
+            'table': 'message_reactions',
+          },
+        ],
+      },
+    );
+  }
+
+  Channel? _reactionChannel;
+  StreamController<String> _reactionController =
+      StreamController<String>.broadcast();
+
+  void _ensureReactionController() {
+    _reactionController = StreamController<String>.broadcast();
+  }
+
+  /// Emits the message id whenever anyone's reaction on it changes.
+  Stream<String> get reactionEvents => _reactionController.stream;
+
   Channel? _channel;
   // Recreated on demand: closing it in unsubscribe() would otherwise make a
   // second subscribe on the same service instance throw.
@@ -392,8 +458,13 @@ class MessageService {
   void unsubscribe() {
     _channel?.unsubscribe();
     _channel = null;
+    _reactionChannel?.unsubscribe();
+    _reactionChannel = null;
     if (!_messageEventController.isClosed) {
       _messageEventController.close();
+    }
+    if (!_reactionController.isClosed) {
+      _reactionController.close();
     }
   }
 }

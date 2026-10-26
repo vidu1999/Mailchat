@@ -1,6 +1,7 @@
 import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/rpc_payload.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/models/conversation.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
@@ -35,7 +36,96 @@ class ConversationService {
       offset: offset,
       // RLS on the underlying tables ensures only authorized rows are returned.
     );
-    return data.map((e) => ConversationListItem.fromJson(e)).toList();
+    final items = data.map((e) => ConversationListItem.fromJson(e)).toList();
+    return _fillMissingPreviews(items);
+  }
+
+  /// Fills in a preview for conversations the view reported as empty.
+  ///
+  /// `conversation_list` builds `last_message_text` from a lateral join over
+  /// `messages`. When that comes back null for a conversation that does have
+  /// messages — a stale view definition is the usual cause, since the view is
+  /// applied by hand — the list showed "No messages yet" under a chat the user
+  /// had just been talking in. Rather than display something untrue, ask the
+  /// table directly for the conversations that need it.
+  ///
+  /// Logged as a warning because it means the view and the data disagree, which
+  /// is worth fixing rather than papering over forever.
+  Future<List<ConversationListItem>> _fillMissingPreviews(
+    List<ConversationListItem> items,
+  ) async {
+    final missing = items
+        .where((item) => item.lastMessageText == null ||
+            item.lastMessageText!.trim().isEmpty)
+        .map((item) => item.conversation.id)
+        .toList();
+    if (missing.isEmpty) return items;
+
+    AppLogger.warning('conversation_preview_missing', details: {
+      'count': missing.length,
+      'conversationIds': missing,
+    });
+
+    final previews = <String, Map<String, dynamic>>{};
+    for (final conversationId in missing) {
+      try {
+        final rows = await _supabase.select(
+          'messages',
+          select: 'text, created_at, sender_id, deleted_at',
+          filter: {'eq': 'conversation_id,$conversationId'},
+          order: 'created_at.desc',
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+        final row = rows.first;
+        // A soft-deleted last message is not "No messages yet" either.
+        final text = row['deleted_at'] != null
+            ? 'This message was deleted'
+            : (row['text'] as String?);
+        if (text == null || text.trim().isEmpty) continue;
+        previews[conversationId] = row;
+      } catch (e, st) {
+        AppLogger.error(e, st, {
+          'where': 'chat_list_preview',
+          'conversationId': conversationId,
+        });
+      }
+    }
+    if (previews.isEmpty) return items;
+
+    return items.map((item) {
+      final row = previews[item.conversation.id];
+      if (row == null) return item;
+      final deleted = row['deleted_at'] != null;
+      return ConversationListItem(
+        conversation: item.conversation,
+        otherParticipant: item.otherParticipant,
+        lastMessageText: deleted ? 'This message was deleted' : row['text'] as String?,
+        lastMessageAt: DateTime.tryParse('${row['created_at']}'),
+        lastMessageSenderId: row['sender_id'] as String?,
+        unreadCount: item.unreadCount,
+        isMuted: item.isMuted,
+      );
+    }).toList();
+  }
+
+  /// Records that the current user has read up to [messageId].
+  ///
+  /// The chat list's `unread_count` counts messages newer than
+  /// `conversation_members.last_read_message_id`, so this single column is what
+  /// clears the badge. RLS limits the row to the caller's own membership
+  /// (`conversation_members_update_own`), so no user id is needed here.
+  Future<void> markRead({
+    required String conversationId,
+    required String messageId,
+  }) async {
+    final userId = _supabase.userId;
+    if (userId == null) return;
+    await _supabase.update(
+      'conversation_members',
+      filter: {'eq': 'conversation_id,$conversationId,user_id,$userId'},
+      data: {'last_read_message_id': messageId},
+    );
   }
 
   // ------------------------------------------------------------------
@@ -72,10 +162,16 @@ class ConversationService {
       params: {'other_user_id': otherUserId},
     );
 
-    // PostgREST returns a bare uuid string for a scalar return type.
-    final conversationId =
-        raw is String ? raw : (raw is List && raw.isNotEmpty ? raw.first : null);
-    if (conversationId is! String || conversationId.isEmpty) {
+    // PostgREST returns a bare uuid string for a scalar return type; the shape
+    // is read by RpcPayload rather than assumed here.
+    final conversationId = RpcPayload.scalar(raw);
+    if (conversationId == null) {
+      AppLogger.error(
+        'direct_conversation_bad_payload',
+        StackTrace.current,
+        {'function': 'get_or_create_direct_conversation',
+         'payloadType': raw.runtimeType.toString()},
+      );
       throw AppException('Failed to open the conversation');
     }
 

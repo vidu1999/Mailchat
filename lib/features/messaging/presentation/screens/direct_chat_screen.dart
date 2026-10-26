@@ -7,6 +7,7 @@ import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/message.dart';
+import 'package:mailchat/shared/models/reaction_summary.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
@@ -41,6 +42,8 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
 
   List<Message> _messages = const [];
   StreamSubscription<Message>? _messageEvents;
+  StreamSubscription<String>? _reactionEvents;
+  bool _reactionsSubscribed = false;
   bool _loading = true;
   bool _sending = false;
   AppException? _error;
@@ -75,11 +78,20 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       _messages = withoutDuplicate;
     });
     _scrollToBottom();
+    if (message.senderId != _currentUserId) _markRead();
+  }
+
+  /// Reactions changed somewhere: refresh that message if it is on screen.
+  void _onReactionEvent(String messageId) {
+    if (!mounted) return;
+    if (!_messages.any((m) => m.id == messageId)) return;
+    _refreshReactions(messageId);
   }
 
   @override
   void dispose() {
     _messageEvents?.cancel();
+    _reactionEvents?.cancel();
     _messageService.unsubscribe();
     _messageController.dispose();
     _scrollController.dispose();
@@ -111,7 +123,16 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       // Live updates: the service keeps its cache current; this listener
       // merges incoming messages into the rendered list.
       _messageEvents ??= _messageService.messageEvents.listen(_onMessageEvent);
+      _reactionEvents ??=
+          _messageService.reactionEvents.listen(_onReactionEvent);
       _messageService.subscribeToConversation(_conversationId);
+      if (!_reactionsSubscribed) {
+        _reactionsSubscribed = true;
+        _messageService.subscribeToReactions();
+      }
+      // Opening the thread is reading it, which is what clears the unread
+      // count on the chat list.
+      _markRead();
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_load'});
       if (!mounted) return;
@@ -189,13 +210,41 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
     if (picked == null) return;
     try {
-      await _messageService.toggleReaction(
+      final applied = await _messageService.toggleReaction(
         messageId: message.id,
         userId: _currentUserId,
         reaction: picked,
       );
+      // Refetch this message's reactions rather than guessing: the server is
+      // the one place that knows whether the tap replaced or removed one.
+      await _refreshReactions(message.id);
+      AppLogger.info('reaction_ui_applied',
+          details: {'messageId': message.id, 'applied': applied});
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_reaction'});
+      _showSnack('Could not update the reaction. ${_reason(e)}');
+    }
+  }
+
+  String _reason(Object e) => e is AppException ? e.message : e.toString();
+
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Pulls one message's reactions and swaps them into the loaded list.
+  Future<void> _refreshReactions(String messageId) async {
+    try {
+      final reactions = await _messageService.getReactions(messageId);
+      if (!mounted) return;
+      setState(() {
+        _messages = _messages
+            .map((m) => m.id == messageId ? m.copyWith(reactions: reactions) : m)
+            .toList();
+      });
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_refresh_reactions'});
     }
   }
 
@@ -215,17 +264,13 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                 _openReactionPicker(message);
               },
             ),
-            if (message.senderId == _currentUserId)
+            if (message.senderId == _currentUserId && !message.isDeleted)
               ListTile(
                 leading: const Icon(Icons.delete_outline),
-                title: const Text('Delete'),
+                title: const Text('Delete message'),
                 onTap: () async {
                   Navigator.of(context).pop();
-                  await _messageService.deleteMessage(
-                    messageId: message.id,
-                    senderId: _currentUserId,
-                  );
-                  if (mounted) _loadMessages();
+                  await _confirmDelete(message);
                 },
               ),
             ListTile(
@@ -288,6 +333,72 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
+  /// Deleting is one tap away from a long-press, so it asks first — but only
+  /// once, and it reports failure instead of failing silently.
+  Future<void> _confirmDelete(Message message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this message?'),
+        content: const Text(
+          'It will be replaced with "This message was deleted" for everyone in '
+          'the chat. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await _messageService.deleteMessage(
+        messageId: message.id,
+        senderId: _currentUserId,
+      );
+      // Mark it locally as well: the UPDATE arrives over realtime too, but the
+      // bubble must not keep showing the old text if that channel is slow.
+      if (!mounted) return;
+      setState(() {
+        _messages = _messages
+            .map((m) =>
+                m.id == message.id ? m.copyWith(deletedAt: DateTime.now()) : m)
+            .toList();
+      });
+      AppLogger.info('message_delete_applied', details: {'messageId': message.id});
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'chat_delete'});
+      _showSnack('Could not delete the message. ${_reason(e)}');
+    }
+  }
+
+  /// Records how far this user has read, which is what clears the unread badge
+  /// on the chat list. Nothing called this before, so a conversation that had
+  /// ever received a message stayed unread forever.
+  Future<void> _markRead() async {
+    if (_conversationId.isEmpty || _messages.isEmpty) return;
+    final lastFromOther = _messages.lastWhere(
+      (m) => m.senderId != _currentUserId,
+      orElse: () => _messages.last,
+    );
+    try {
+      await ConversationService().markRead(
+        conversationId: _conversationId,
+        messageId: lastFromOther.id,
+      );
+    } catch (e, st) {
+      // Not fatal: the badge simply stays. Logged so it is not invisible.
+      AppLogger.error(e, st, {'where': 'chat_mark_read'});
+    }
+  }
+
   Widget _buildMessageList() {
     if (_loading) return const AppLoading(message: 'Loading messages...');
     if (_error != null) {
@@ -311,6 +422,8 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           message: message,
           isMe: message.senderId == _currentUserId,
           showStatus: message.senderId == _currentUserId,
+          reactionChips:
+              ReactionSummary.chips(message.reactions, _currentUserId),
           onLongPress: () => _showMessageActions(message),
         );
       },

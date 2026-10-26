@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/shared/models/message.dart';
+import 'package:mailchat/shared/models/reaction_summary.dart';
 import 'package:mailchat/core/theme/color_alpha.dart';
 
 /// A single message bubble in a direct chat.
@@ -13,6 +14,10 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
 
+  /// Chips for this message. Empty renders nothing, so a message with no
+  /// reactions looks exactly as it did before reactions existed.
+  final List<ReactionChip> reactionChips;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -21,6 +26,7 @@ class MessageBubble extends StatelessWidget {
     this.senderName,
     this.onLongPress,
     this.onRetry,
+    this.reactionChips = const [],
   });
 
   @override
@@ -85,6 +91,39 @@ class MessageBubble extends StatelessWidget {
                   const Text(
                     'edited',
                     style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic),
+                  ),
+                if (reactionChips.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Semantics(
+                      label: ReactionSummary.describe(reactionChips),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          for (final chip in reactionChips)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                // The user's own reaction is tinted, so a tap
+                                // that did not visibly change the count still
+                                // shows that it registered.
+                                color: chip.mine
+                                    ? colorScheme.onPrimary
+                                        .withAlphaFactor(0.28)
+                                    : Colors.black.withAlphaFactor(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${chip.emoji} ${chip.count}',
+                                style: TextStyle(
+                                    fontSize: 12, color: textColor),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 6),
                 Row(

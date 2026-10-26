@@ -438,7 +438,10 @@ class SupabaseClient {
   /// RLS would otherwise block because it inserts another user's membership).
   Future<dynamic> rpc(String function, {Map<String, dynamic>? params}) async {
     final uri = Uri.parse('$_restUrl/rpc/$function');
-    return _postUri(uri, body: params ?? const {}, authRequired: true);
+    // Deliberately not _postUri: that returns `_asMap(...)`, which reduces a
+    // scalar to `{}` and a table to its first row. Callers read the shape with
+    // RpcPayload instead.
+    return _postRawUri(uri, body: params ?? const {}, authRequired: true);
   }
 
   /// Selects rows from [table] with optional filters, ordering and pagination.
@@ -672,6 +675,30 @@ class SupabaseClient {
     } catch (e, st) {
       if (e is AppException) rethrow;
       AppLogger.error(e, st, {'where': 'supabase_post', 'uri': uri.toString()});
+      rethrow;
+    }
+  }
+
+  /// Like [_postUri] but returns the decoded body untouched.
+  ///
+  /// Used by [rpc], where the payload may legitimately be a string, an array
+  /// or a map instead of the single object that [_asMap] assumes.
+  Future<dynamic> _postRawUri(Uri uri,
+      {required Map<String, dynamic> body, bool authRequired = false}) async {
+    await _refreshIfStale(authRequired: authRequired);
+    try {
+      final request = await _http.postUrl(uri);
+      _applyHeaders(request, authRequired: authRequired);
+      request.add(utf8.encode(jsonEncode(body)));
+      final response = await request.close();
+      return await _decodeResponse(response);
+    } on SocketException catch (e) {
+      throw _networkError('supabase_rpc', uri, e);
+    } on TimeoutException catch (e) {
+      throw _networkError('supabase_rpc_timeout', uri, e);
+    } catch (e, st) {
+      if (e is AppException) rethrow;
+      AppLogger.error(e, st, {'where': 'supabase_rpc', 'uri': uri.toString()});
       rethrow;
     }
   }

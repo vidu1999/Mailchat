@@ -1,5 +1,6 @@
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/rpc_payload.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/models/profile_search.dart';
@@ -61,20 +62,19 @@ class ProfileService {
       params: {'p_query': typed.text, 'p_limit': limit},
     );
 
-    // PostgREST returns an array of rows for a set-returning function. A
-    // scalar-shaped reply would mean the function signature changed, so treat
-    // anything else as an empty result rather than throwing on the cast.
-    if (data is! List) {
-      AppLogger.warning(
-        'search_users_unexpected_shape',
-        details: {'type': data.runtimeType.toString()},
-      );
-      return const [];
+    final rows = RpcPayload.rows(data);
+    if (rows.isEmpty && data != null) {
+      // Not an error — an empty array is the normal "nobody matched" reply.
+      // Logged only when the payload was something other than a list, which
+      // would mean the RPC's return type changed.
+      if (data is! List) {
+        AppLogger.warning(
+          'search_users_unexpected_shape',
+          details: {'type': data.runtimeType.toString()},
+        );
+      }
     }
-    return data
-        .whereType<Map>()
-        .map((row) => Profile.fromJson(Map<String, dynamic>.from(row)))
-        .toList();
+    return rows.map((row) => Profile.fromJson(row)).toList();
   }
 
   /// Reads the discoverability flags for [userId] so Privacy settings can show

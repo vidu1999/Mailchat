@@ -18,6 +18,11 @@ class Message {
   /// Client-side delivery state (not persisted to the server).
   final String status;
 
+  /// Reactions on this message. Populated when the query embeds
+  /// `message_reactions(*)`; empty otherwise, and replaced wholesale when a
+  /// reaction changes.
+  final List<MessageReaction> reactions;
+
   Message({
     required this.id,
     required this.conversationId,
@@ -30,6 +35,7 @@ class Message {
     this.deletedAt,
     this.clientId,
     this.status = AppConstants.messageStatusSent,
+    this.reactions = const [],
   });
 
   bool get isText => type == 'text';
@@ -56,6 +62,7 @@ class Message {
           : null,
       clientId: json['client_id'] as String?,
       status: json['status'] as String? ?? AppConstants.messageStatusSent,
+      reactions: _parseReactions(json),
     );
   }
 
@@ -87,6 +94,7 @@ class Message {
     DateTime? deletedAt,
     String? clientId,
     String? status,
+    List<MessageReaction>? reactions,
   }) {
     return Message(
       id: id ?? this.id,
@@ -100,7 +108,27 @@ class Message {
       deletedAt: deletedAt ?? this.deletedAt,
       clientId: clientId ?? this.clientId,
       status: status ?? this.status,
+      reactions: reactions ?? this.reactions,
     );
+  }
+
+  /// Reads the embedded rows from `message_reactions(*)`.
+  ///
+  /// PostgREST returns this either as a list of rows or, for a to-one
+  /// relationship, as a single object; both are accepted so an embedding change
+  /// cannot silently drop every reaction from the UI.
+  static List<MessageReaction> _parseReactions(Map<String, dynamic> json) {
+    final raw = json['message_reactions'];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((row) => MessageReaction.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    }
+    if (raw is Map) {
+      return [MessageReaction.fromJson(Map<String, dynamic>.from(raw))];
+    }
+    return const [];
   }
 }
 
