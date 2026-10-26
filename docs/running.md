@@ -55,6 +55,31 @@ Consequences:
 - The anon key is inside the APK. That is intended — it is a publishable key and
   every table is behind RLS — which is precisely why RLS must stay enabled.
 
+### `git pull` refuses: local changes to `.env.example`
+
+`.env.example` is a **template and tracked by git**; `.env` is your copy and is
+gitignored. Editing the template is what causes this, and the fix never involves
+committing it.
+
+```powershell
+# Keep whatever you typed — .env is gitignored, so this is the safe place for it.
+Copy-Item .env.example .env
+
+# Throw the template edit away so the pull can proceed.
+git restore .env.example
+
+git pull
+notepad .env    # re-check it against the new template
+```
+
+If the values you typed included the service-role key or SMTP credentials, delete
+those lines now: the build refuses them, because everything in `.env` is compiled
+into the APK (`docs/security.md` § Key hygiene).
+
+`git stash` also works (`git stash` → `git pull` → `git stash pop`), but it
+restores your template edit on top of the new one, which is how the conflict
+reappears. Copying to `.env` is the one-way route.
+
 ### Email links
 
 AUTH_REDIRECT_URL must also appear under **Authentication → URL Configuration →
