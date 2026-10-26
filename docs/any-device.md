@@ -15,7 +15,7 @@ These are not code changes and cannot be done from this repository.
 | # | Task | Where | Why it blocks other devices |
 |---|---|---|---|
 | A1 | **Apply the four migrations** (`0001`→`0004`) | Supabase → SQL Editor | Without them every screen fails with `relation does not exist`. This is the single most common "it crashes on my friend's phone" cause. |
-| A2 | **Set Site URL** to a real `https://` address | Authentication → URL Configuration | A `localhost` Site URL sends confirmation emails to the phone's own localhost. |
+| A2 | **Set Site URL** to a real `https://` **page** (`https://example.com` is fine) | Authentication → URL Configuration | `localhost` sends the link to the phone itself; the project host (`https://<ref>.supabase.co`) answers `{"error":"requested path is invalid"}`. |
 | A3 | **Allow-list the redirect** `mailchat://auth/callback` | Authentication → URL Configuration → Redirect URLs | Without it GoTrue ignores the app's redirect and falls back to the Site URL. |
 | A4 | **Configure custom SMTP** | Authentication → Emails → SMTP | The built-in sender is rate-limited and mainly delivers to team addresses. This is what makes confirmation emails reach strangers. |
 | A5 | **Build with your credentials** | `tool/build_apk.ps1`, or repo secrets | The URL and anon key are compiled into the APK; an APK built without them shows a configuration screen. |

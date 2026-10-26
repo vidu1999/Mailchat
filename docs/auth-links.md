@@ -64,16 +64,38 @@ Any of these is valid. Pick the first that applies.
 
 | Situation | Site URL |
 |---|---|
-| No website, just want it to work | `https://<PROJECT-REF>.supabase.co` — your own project host. Always valid, no domain needed. It resolves to a JSON 404 if reached, which is harmless because a correctly configured app never goes there. |
-| Have a GitHub account | `https://<username>.github.io/mailchat/` after enabling GitHub Pages for the repo. Costs nothing and gives a page you control. |
 | Own a domain | `https://mailchat.example.com` — the right answer for anything public. |
+| Have a GitHub account | `https://<username>.github.io/mailchat/` after enabling Pages. Free, and a page you control. |
+| No website at all | `https://example.com` — a plain https page. It is only a fallback, so a placeholder is enough **provided** `mailchat://auth/callback` is allow-listed. |
 
-Never `http://localhost:3000`: that is the local-development default, and on a
-phone `localhost` means the phone itself, which is exactly how a confirmation
-email ends up on "site can't be reached".
+Two values are actively wrong:
 
-Changing the Site URL does not repair links already in an inbox — request a new
-email after saving.
+- **`http://localhost:3000`** — the development default. On a phone `localhost`
+  means the phone, so the link dies on "site can't be reached".
+- **`https://<PROJECT-REF>.supabase.co`** — the project's API host. GoTrue
+  redirects there, no route serves `/`, and the browser shows
+  `{"error":"requested path is invalid"}`. It looks like a safe choice because it
+  is your own project, and it is not: nothing is served at that path.
+
+Request a new email after saving: links already in an inbox were built with the
+old settings.
+
+### `{"error":"requested path is invalid"}`
+
+A JSON error from Supabase, not from the app. The link verified and then
+redirected somewhere that serves nothing. In practice one of:
+
+| Cause | Fix |
+|---|---|
+| Site URL is the project host (`https://<ref>.supabase.co`) | Use a real web page (table above). The API host has no `/` route. |
+| Site URL is a path that does not exist on a real host | Correct the path, or use `https://example.com`. |
+| `redirect_to` was not allow-listed, so GoTrue fell back to one of the above | Add `mailchat://auth/callback` to Redirect URLs. |
+
+The important part: **the account is usually confirmed anyway.** GoTrue consumes
+the token when it verifies; only the session hand-off failed. Check
+Authentication → Users — a confirmed address has a date in *Email Confirmed At* —
+then sign in with the password. If the link was opened twice, or the address
+still shows unconfirmed, request a fresh email.
 
 ### 2. `assets/config/env`
 
@@ -154,7 +176,7 @@ is consumed on first successful verification, so use one route, not several.
 
 | Field | Value |
 |---|---|
-| Site URL | `https://YOUR-SITE` — a real https address. **Not** `http://localhost:3000`. |
+| Site URL | A real web page — see the table above. **Not** `http://localhost:3000`, **not** `https://<ref>.supabase.co`. |
 | Redirect URLs | `mailchat://auth/callback` (the app) and, if you develop against a local host, `http://localhost:3000/auth/callback`. |
 
 `localhost` is only ever correct for a machine-local web client. A phone cannot

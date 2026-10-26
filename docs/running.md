@@ -454,16 +454,20 @@ service is rate-limited and only delivers to team addresses).
 
 ### What do I put in Site URL?
 
-Any stable `https://` address — it is only the fallback destination, not the
-app's URL (an app has none). With no website, use your own project host:
+Any real `https://` **web page**. It is only the fallback destination, not the
+app's URL (an app has none), so `https://example.com` is enough — provided
+`mailchat://auth/callback` is in Redirect URLs, which is the setting that
+actually matters.
 
-```
-https://xcokviruqhnxbshadahp.supabase.co   (replace with your project ref)
-```
+Two values break the link:
 
-Your ref is the `<ref>` in `https://<ref>.supabase.co`, and `dart run
-tool/check_config.dart` prints it from your anon key. `docs/auth-links.md` has
-the full explanation and the other options (GitHub Pages, own domain).
+| Value | What happens |
+|---|---|
+| `http://localhost:3000` | On a phone, localhost is the phone → "site can't be reached" |
+| `https://<ref>.supabase.co` | The API host serves no `/` route → `{"error":"requested path is invalid"}` |
+
+Use a page you control (GitHub Pages, your own domain) if you want the fallback
+to be useful. `docs/auth-links.md` has the details.
 
 ### The confirmation link opens "null is unreachable" / "localhost unreachable"
 
