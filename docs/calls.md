@@ -200,6 +200,34 @@ filter: `CAMERA`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`,
 marked `required="false"` so a tablet without a camera can still install the app
 and take voice calls. The runtime prompt is raised by `getUserMedia`.
 
+## When a call kills the app
+
+Media runs in native code (camera, WebRTC, video textures), so a failure there
+ends the process instead of raising a Dart exception: the console stops with
+`Lost connection to device.` and there is nothing to read in it.
+
+`CallMedia.initialise()` therefore logs each step **before** running it:
+
+```text
+INFO call_media_step {step: renderers_begin, video: true}
+INFO call_media_step {step: renderers_ready, video: true}
+INFO call_media_step {step: getUserMedia_begin, video: true}
+INFO call_media_step {step: getUserMedia_ready, video: true}
+INFO call_media_step {step: peer_connection_begin, video: true}
+INFO call_media_step {step: tracks_added, video: true}
+INFO call_media_ready {video: true, iceServers: 5, turn: true}
+```
+
+The last line before the process ends names the failing step, and
+[running.md](running.md) § "The app closes (or restarts) when a call starts" maps
+each step and crash type to a cause. Two behaviours are worth knowing:
+
+* **A voice call never creates a video texture.** Only a video call initialises
+  the renderers, and only then is `srcObject` assigned — a voice call that
+  touched the renderer path would be taking a native trip it does not need.
+* **A refused microphone or camera is a Dart exception**, caught by the call
+  screen and shown as "could not start the call", never a silent ring.
+
 ## What still needs doing
 
 | Item | Why it is not done here |

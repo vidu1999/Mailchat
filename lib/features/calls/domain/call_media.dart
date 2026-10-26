@@ -45,6 +45,12 @@ class CallMedia {
   /// Connection state changed (connected, disconnected, failed).
   void Function(RTCPeerConnectionState state)? onConnectionState;
 
+  /// Logs the step about to start. See [initialise] for why.
+  void _step(String name) => AppLogger.info('call_media_step', details: {
+        'step': name,
+        'video': _video,
+      });
+
   bool get isDisposed => _disposed;
   bool get hasLocalVideo => _video && _localStream != null;
   bool get hasRemoteVideo => _remoteStream?.getVideoTracks().isNotEmpty ?? false;
@@ -58,12 +64,24 @@ class CallMedia {
   Future<void> initialise({required bool video}) async {
     _video = video;
 
-    if (!_renderersReady) {
+    // Each step is logged *before* it runs. WebRTC, the camera and the video
+    // textures are native code: when one of them takes the process down there
+    // is no Dart exception and no stack, only a dead app. The last
+    // `call_media_step` line then says where it happened, which is the
+    // difference between "the microphone permission" and "the Vulkan texture".
+    _step('renderers_begin');
+
+    // Textures are only needed when video is on. A voice call that creates two
+    // unused ones is a needless trip into the renderer, which is exactly the
+    // native code that can fail on a device.
+    if (video && !_renderersReady) {
       await localRenderer.initialize();
       await remoteRenderer.initialize();
       _renderersReady = true;
     }
+    _step(video ? 'renderers_ready' : 'renderers_skipped');
 
+    _step('getUserMedia_begin');
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       // Ask for the front camera at a resolution that survives a mobile
@@ -77,11 +95,16 @@ class CallMedia {
           : false,
     });
 
-    localRenderer.srcObject = _localStream;
+    _step('getUserMedia_ready');
+
+    if (_renderersReady) {
+      localRenderer.srcObject = _localStream;
+    }
 
     final config = _config ?? AppConfig.instance;
     final iceServers = config.iceServers;
 
+    _step('peer_connection_begin');
     _peer = await createPeerConnection({
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
@@ -100,7 +123,9 @@ class CallMedia {
       final stream = event.streams.isNotEmpty ? event.streams.first : null;
       if (stream == null) return;
       _remoteStream = stream;
-      remoteRenderer.srcObject = stream;
+      // A voice call never initialised the renderer, and assigning to one that
+      // was not initialised is a call into native code for no reason.
+      if (_renderersReady) remoteRenderer.srcObject = stream;
       onRemoteStream?.call(stream);
     };
 
@@ -112,6 +137,7 @@ class CallMedia {
     for (final track in _localStream!.getTracks()) {
       await _peer!.addTrack(track, _localStream!);
     }
+    _step('tracks_added');
 
     AppLogger.info('call_media_ready', details: {
       'video': video,

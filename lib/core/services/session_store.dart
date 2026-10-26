@@ -101,10 +101,24 @@ class FileSessionStore implements SessionStore {
 
   Future<Map<String, dynamic>?> _read() async {
     try {
-      if (!(await _file.exists())) return null;
+      final exists = await _file.exists();
+      // Logged once per process at startup, because "the app forgot me" has two
+      // very different causes: the file is not there (the OS cleared the cache
+      // directory) or it is there and unreadable. The path is inside the app's
+      // own sandbox and names no secret; without it there is nothing to check.
+      AppLogger.info('session_store_read', details: {
+        'found': exists,
+        'path': _file.path,
+      });
+      if (!exists) return null;
       final contents = await _file.readAsString();
-      return jsonDecode(contents) as Map<String, dynamic>?;
-    } catch (_) {
+      final decoded = jsonDecode(contents);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (e) {
+      AppLogger.warning('session_store_read_failed', details: {
+        'path': _file.path,
+        'error': e.toString(),
+      });
       return null;
     }
   }

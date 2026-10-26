@@ -543,6 +543,84 @@ unless the networking layer is rewritten on `package:http` and
 
 ## 4. Troubleshooting installs
 
+### The app closes (or restarts) when a call starts
+
+There is no exception in `flutter run` — the console simply stops and
+`Lost connection to device.` appears, followed by a **new process id** and a
+restart at the login screen. That is not a Dart error: the process was killed
+below Dart, in native code (the camera, WebRTC itself, or the video texture).
+A Dart exception would have been caught by the call screen and shown as
+"Could not start the call".
+
+**First, get the crash.** `flutter run` does not print it; Android does:
+
+```powershell
+adb logcat -b crash -d
+```
+
+Two outcomes, two different causes:
+
+| Crash buffer shows | Cause | Fix |
+| --- | --- | --- |
+| `FATAL EXCEPTION` … `SecurityException` … `BLUETOOTH_CONNECT` / `CAMERA` / `RECORD_AUDIO` | A missing runtime permission. `flutter_webrtc` requests camera and microphone itself but **not** `BLUETOOTH_CONNECT`, which Android 12+ requires before an audio call touches Bluetooth | Grant the permission: **Settings → Apps → MailChat → Permissions** → allow Microphone, Camera, and **Nearby devices** |
+| `Fatal signal 11 (SIGSEGV)` / `SIGABRT`, with `libflutter.so`, `libwebrtc` or Vulkan frames | A native crash in rendering or WebRTC | Test with the software renderer, below |
+
+**Test the renderer** (30 seconds, no rebuild of anything but the app):
+
+```powershell
+flutter run --no-enable-impeller
+```
+
+If the call now works, Impeller's Vulkan backend is the cause on this GPU. To
+make that permanent, add this inside `<application>` in
+`android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<meta-data
+    android:name="io.flutter.embedding.android.EnableImpeller"
+    android:value="false" />
+```
+
+and run `flutter clean && flutter run`. (`dart run tool/fix_android_build.dart
+--reset --yes` would discard the edit, because `android/` is generated.)
+
+**Which step died.** `call_media.dart` logs each step *before* it runs, so the
+last line in the log before the process ends localises the crash:
+
+```text
+INFO call_media_step {step: renderers_begin, video: false}
+INFO call_media_step {step: renderers_skipped, video: false}
+INFO call_media_step {step: getUserMedia_begin, video: false}   <- died here
+```
+
+| Last step | Meaning |
+| --- | --- |
+| `renderers_begin` | The video texture (**only** for a video call; voice calls skip it) |
+| `getUserMedia_begin` | Camera/microphone permission or the camera driver |
+| `peer_connection_begin` | WebRTC initialisation, including the audio device |
+| `tracks_added` | Attaching the local tracks |
+
+Send that last line with the crash buffer — it plus the crash type identifies
+the cause without another round trip.
+
+### The app forgets the login after a restart
+
+Sessions are stored as a plaintext JSON file in the app's **cache** directory
+(`docs/security.md` explains why that is temporary). The startup log now says
+which case it is:
+
+```text
+INFO session_store_read {found: false, path: /data/user/0/com.mailchat.mailchat/cache/mailchat_session.json}
+```
+
+* `found: false` — the file is gone. Android may clear the cache directory;
+  which is why this storage is not production-grade.
+* `found: true` and still sent to `/login` — the refresh token was rejected, and
+  `auth_restore_attempting_refresh` appears above it.
+
+The fix for both is the same and is on the outstanding list: replace
+`FileSessionStore` with a keystore-backed store (`flutter_secure_storage`).
+
 ### `INSTALL_FAILED_INSUFFICIENT_STORAGE`
 
 Seen on a physical device with:
