@@ -502,6 +502,24 @@ drop trigger if exists profiles_set_updated_at on public.profiles;
 Then run the file again. `dart run tool/check_migrations.dart` reports any file
 that would fail this way, without touching the database.
 
+The same error appears in another form:
+
+```
+ERROR: 42710: relation "messages" is already member of publication "supabase_realtime"
+```
+
+That is the same root cause in `0004`. It was fixed in the same commit, so seeing
+it means the file being run is older than the repository. Confirm with Ctrl+F:
+
+| search for | present | absent |
+| --- | --- | --- |
+| `pg_publication_tables` | current `0004` | stale — pull before running |
+| `drop trigger if exists` | current `0001` | stale — pull before running |
+
+If you cannot pull, delete the four `alter publication ... add table` lines and
+run the rest of the file: the tables are already published, so those lines have
+nothing left to do and nothing else in `0004` depends on them.
+
 ### `column conversation_list.updated_at does not exist` (or any "does not exist")
 
 The app is ahead of the database: PostgREST answered a query for a column or table
