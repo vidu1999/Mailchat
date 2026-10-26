@@ -32,6 +32,14 @@ key in the app. Details: `docs/running.md` §1.
 
 ---
 
+## Running it anywhere
+
+`docs/any-device.md` lists what makes the difference between "runs on my phone"
+and "runs on anyone's": the dashboard steps only you can do, what the code
+already handles, and the gaps that are still real.
+
+---
+
 ## Project status
 
 This is a **work in progress**, not a shippable app. Read this before relying

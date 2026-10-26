@@ -148,6 +148,52 @@ void main() {
     });
   });
 
+  group('Session expiry parsing', () {
+    // GoTrue sends `expires_at` as an INTEGER of Unix epoch seconds. The old
+    // code cast it to String, which throws `_TypeError` the first time a
+    // session is parsed — i.e. on the first successful sign-in. Signup never
+    // showed it, because signup returns no session.
+    test('accepts expires_at as an epoch integer', () {
+      final session = Session.fromJson({
+        'access_token': 'token',
+        'refresh_token': 'refresh',
+        'expires_at': 1792987203,
+        'expires_in': 3600,
+      });
+
+      expect(session.accessToken, 'token');
+      expect(session.expiresAt, isNotNull);
+      expect(session.expiresAt!.isUtc, isTrue);
+      expect(session.expiresAt!.millisecondsSinceEpoch, 1792987203000);
+    });
+
+    test('accepts expires_at as a numeric string from a redirect fragment', () {
+      final session = Session.fromJson({
+        'access_token': 'token',
+        'expires_at': '1792987203',
+      });
+
+      expect(session.expiresAt!.millisecondsSinceEpoch, 1792987203000);
+    });
+
+    test('computes the expiry from expires_in when expires_at is absent', () {
+      final before = DateTime.now().toUtc();
+      final session = Session.fromJson({
+        'access_token': 'token',
+        'expires_in': 3600,
+      });
+
+      final delta = session.expiresAt!.difference(before).inMinutes;
+      expect(delta, inInclusiveRange(59, 61));
+    });
+
+    test('a session without expiry information still parses', () {
+      final session = Session.fromJson({'access_token': 'token'});
+
+      expect(session.expiresAt, isNull);
+    });
+  });
+
   group('RegistrationResult', () {
     final user = AuthUser.fromJson(userJson(withIdentity: true));
 

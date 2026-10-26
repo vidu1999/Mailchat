@@ -98,6 +98,21 @@ jobs:
 
       # Same treatment as the analyzer: `flutter test` reports only the exit
       # code in the step summary, so keep the output and publish it.
+      # The tool scripts are part of the product: a broken checker would block
+      # every build. Exercise them against the shipped template — the check must
+      # fail (exit 1) because the template holds placeholders.
+      - name: Smoke-test the tooling
+        run: |
+          set +e
+          dart run tool/check_config.dart --quiet
+          rc=$?
+          set -e
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::check_config.dart should reject the placeholder template (got exit $rc)"
+            exit 1
+          fi
+          echo "check_config correctly rejected the template"
+
       - name: Run unit & widget tests
         run: |
           set -o pipefail

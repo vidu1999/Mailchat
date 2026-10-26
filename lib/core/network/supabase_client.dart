@@ -40,6 +40,15 @@ class SupabaseClient {
   /// grant_type=refresh_token) is tracked in docs/security.md.
   String? get refreshToken => _refreshToken;
 
+  /// When the current access token stops being accepted, as reported by
+  /// GoTrue. Used to refresh *before* a request fails, rather than after.
+  DateTime? _expiresAt;
+
+  /// Called with the new token pair after a silent refresh, so the persisted
+  /// session is updated too. Without this the app would keep a dead token on
+  /// disk and ask for a password on the next launch.
+  Future<void> Function(Session session)? onSessionRefreshed;
+
   AuthUser? _currentUser;
 
   /// Current session user, or null.
@@ -68,10 +77,70 @@ class SupabaseClient {
   Future<void> setSession({
     required String accessToken,
     String? refreshToken,
+    DateTime? expiresAt,
   }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
+    _expiresAt = expiresAt;
     await _loadCurrentUser();
+  }
+
+  /// True when the access token is expired or about to expire.
+  ///
+  /// A minute of slack: a request that starts just before expiry would
+  /// otherwise fail in flight.
+  bool get _accessTokenStale {
+    final expiry = _expiresAt;
+    if (expiry == null) return false;
+    return DateTime.now().toUtc()
+        .isAfter(expiry.subtract(const Duration(minutes: 1)));
+  }
+
+  /// Exchanges the refresh token for a new session.
+  ///
+  /// Returns false when there is nothing to refresh with, or GoTrue rejected
+  /// the refresh token (revoked, reused, or a password change). A false result
+  /// means the user must sign in again — which the caller turns into a clean
+  /// sign-out rather than an error screen.
+  Future<bool> refreshSession() async {
+    final refreshToken = _refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) return false;
+    try {
+      final data = await _post(
+        '/auth/v1/token?grant_type=refresh_token',
+        body: {'refresh_token': refreshToken},
+        authRequired: false,
+      );
+      final session = Session.fromJson(data);
+      _accessToken = session.accessToken;
+      _refreshToken = session.refreshToken ?? refreshToken;
+      _expiresAt = session.expiresAt;
+      await _loadCurrentUser();
+      await onSessionRefreshed?.call(session);
+      AppLogger.info('supabase_session_refreshed');
+      return true;
+    } on SupabaseException catch (e) {
+      AppLogger.warning('supabase_session_refresh_rejected',
+          details: {'status': e.code, 'body': e.original.toString()});
+      await clearSession();
+      return false;
+    } catch (e, st) {
+      // A network failure is not a dead session: keep the tokens so the next
+      // launch can try again rather than forcing a password.
+      AppLogger.warning('supabase_session_refresh_failed',
+          details: {'error': e.toString()});
+      return false;
+    }
+  }
+
+  /// Drops the local session without calling the network. Used when GoTrue
+  /// tells us the session is no longer valid.
+  Future<void> clearSession() async {
+    _accessToken = null;
+    _refreshToken = null;
+    _expiresAt = null;
+    _currentUser = null;
+    _authStateController.add(null);
   }
 
   Future<void> _loadCurrentUser() async {
@@ -470,7 +539,19 @@ class SupabaseClient {
   }
 
   /// Map-returning GET, used by the auth endpoints (single-object payloads).
+  /// Refreshes proactively when the token is about to expire.
+  ///
+  /// Called before every authenticated request. Silently doing nothing when a
+  /// refresh is not possible keeps the request honest: it either succeeds or
+  /// fails with its own error, rather than being skipped.
+  Future<void> _refreshIfStale({required bool authRequired}) async {
+    if (!authRequired || _accessToken == null) return;
+    if (!_accessTokenStale) return;
+    await refreshSession();
+  }
+
   Future<Map<String, dynamic>> _getUri(Uri uri, {bool authRequired = false}) async {
+    await _refreshIfStale(authRequired: authRequired);
     return _asMap(await _getRawUri(uri, authRequired: authRequired));
   }
 
@@ -500,6 +581,7 @@ class SupabaseClient {
 
   Future<Map<String, dynamic>> _postUri(Uri uri,
       {required Map<String, dynamic> body, bool authRequired = false}) async {
+    await _refreshIfStale(authRequired: authRequired);
     try {
       final request = await _http.postUrl(uri);
       _applyHeaders(request, authRequired: authRequired);
@@ -519,6 +601,7 @@ class SupabaseClient {
 
   Future<Map<String, dynamic>> _patchUri(Uri uri,
       {required Map<String, dynamic> body, bool authRequired = false}) async {
+    await _refreshIfStale(authRequired: authRequired);
     try {
       final request = await _http.postUrl(uri);
       _applyHeaders(request, authRequired: authRequired);
@@ -538,6 +621,7 @@ class SupabaseClient {
   }
 
   Future<void> _deleteUri(Uri uri, {bool authRequired = false}) async {
+    await _refreshIfStale(authRequired: authRequired);
     try {
       final request = await _http.deleteUrl(uri);
       _applyHeaders(request, authRequired: authRequired);
@@ -575,6 +659,7 @@ class SupabaseClient {
     if (session != null) {
       _accessToken = session.accessToken;
       _refreshToken = session.refreshToken;
+      _expiresAt = session.expiresAt;
     }
     // Only an authenticated session counts as a signed-in user. Signup with
     // email confirmation enabled returns a user and no session; treating that
@@ -729,10 +814,43 @@ class Session {
     return Session(
       accessToken: json['access_token'] as String,
       refreshToken: json['refresh_token'] as String?,
-      expiresAt: json['expires_at'] != null
-          ? DateTime.tryParse(json['expires_at'] as String)
-          : null,
+      expiresAt: _parseExpiry(json['expires_at'], json['expires_in']),
     );
+  }
+
+  /// Reads the expiry from whichever form GoTrue used.
+  ///
+  /// `expires_at` is an **integer** of Unix epoch seconds in the JSON body (and
+  /// a string when it arrives in a redirect fragment). Casting it to String
+  /// threw a TypeError on the first successful sign-in — a crash that could not
+  /// show up during signup, because signup returns no session.
+  static DateTime? _parseExpiry(Object? expiresAt, Object? expiresIn) {
+    if (expiresAt is int) {
+      return DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000, isUtc: true);
+    }
+    if (expiresAt is num) {
+      return DateTime.fromMillisecondsSinceEpoch(
+          (expiresAt * 1000).round(),
+          isUtc: true);
+    }
+    if (expiresAt is String && expiresAt.isNotEmpty) {
+      final parsed = DateTime.tryParse(expiresAt);
+      if (parsed != null) return parsed;
+      final epoch = int.tryParse(expiresAt);
+      if (epoch != null) {
+        return DateTime.fromMillisecondsSinceEpoch(epoch * 1000, isUtc: true);
+      }
+    }
+    if (expiresIn is int) {
+      return DateTime.now().toUtc().add(Duration(seconds: expiresIn));
+    }
+    if (expiresIn is String) {
+      final seconds = int.tryParse(expiresIn);
+      if (seconds != null) {
+        return DateTime.now().toUtc().add(Duration(seconds: seconds));
+      }
+    }
+    return null;
   }
 }
 

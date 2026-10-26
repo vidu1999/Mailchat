@@ -34,15 +34,40 @@ class AuthService {
   bool get isAuthenticated => currentUser != null;
 
   /// Initializes the service, restoring any persisted session.
+  ///
+  /// Restoring is two steps because that is what the platform actually needs:
+  /// the stored access token is used when it is still valid, and otherwise the
+  /// stored refresh token is exchanged for a new one. Without the second step
+  /// every launch an hour after signing in would land on the login screen,
+  /// because the access token's lifetime is one hour.
   Future<void> init() async {
+    // Keep the persisted copy in step with silent refreshes.
+    _supabase.onSessionRefreshed = (session) async {
+      await _store.saveAccessToken(session.accessToken);
+      await _store.saveRefreshToken(session.refreshToken);
+    };
+
     final accessToken = await _store.getAccessToken();
     final refreshToken = await _store.getRefreshToken();
+
     if (accessToken != null && accessToken.isNotEmpty) {
       await _supabase.setSession(
         accessToken: accessToken,
         refreshToken: refreshToken,
       );
+      // setSession verifies the token against /auth/v1/user; a null user means
+      // it was rejected (expired, revoked, secret rotated). Try the refresh
+      // token before giving up on the session.
+      if (!isAuthenticated && refreshToken != null && refreshToken.isNotEmpty) {
+        AppLogger.info('auth_restore_attempting_refresh');
+        if (!await _supabase.refreshSession()) {
+          // Unrecoverable: clear the dead tokens so the next launch does not
+          // repeat a doomed request.
+          await _store.clear();
+        }
+      }
     }
+
     AppLogger.info('auth_initialized', details: {
       'authenticated': isAuthenticated,
       'emailConfirmed': currentUser?.emailConfirmed,

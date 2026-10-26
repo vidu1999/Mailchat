@@ -1,7 +1,8 @@
-// Patches the generated Android project so Supabase auth links open MailChat.
+// Prepares the generated Android project to install and run on a real device.
 //
-//   dart run tool/enable_deep_links.dart
-//   dart run tool/enable_deep_links.dart --host=auth.example.com
+//   dart run tool/enable_deep_links.dart                      # links + INTERNET
+//   dart run tool/enable_deep_links.dart --signing            # also wire a keystore
+//   dart run tool/enable_deep_links.dart --host=auth.example.com --signing
 //
 // Why a patcher instead of committed files: the repository deliberately does
 // not commit generated platform folders (see .gitignore and .github/workflows),
@@ -53,6 +54,8 @@ void main(List<String> args) {
         : '• ${activityPath.path}: already patched');
   }
   stdout.writeln('');
+  stdout.writeln('Release signing: '
+      '${args.contains('--signing') ? _describeSigning(root) : 'not checked (pass --signing)'}');
   stdout.writeln('Next:');
   stdout.writeln('  1. Supabase dashboard → Authentication → URL Configuration');
   stdout.writeln('     Site URL:       https://${host ?? 'your-site.example'}');
@@ -195,6 +198,101 @@ class $className : FlutterActivity() {
     }
 }
 ''';
+
+/// Reports whether a signed release build is possible, and prints the exact
+/// Gradle snippet when it is not.
+///
+/// Deliberately read-only. Rewriting a Gradle file that cannot be compiled in
+/// this environment would risk breaking a working project for the sake of a
+/// configuration step that takes a minute to do by hand.
+///
+/// Why it matters: a release APK built without a signing config is
+/// **unsigned**, and Android refuses to install it ("There was a problem
+/// parsing the package"). Debug APKs are signed with the debug key, which is
+/// why sideloading debug works and `--release` does not.
+String _describeSigning(Directory root) {
+  final gradle = _findAppGradle(root);
+  final keystoreProps = File('${root.path}/android/key.properties');
+  // "Configured" means a storeFile value is actually filled in, not just the
+  // `storeFile=` label an empty template leaves behind.
+  var hasProps = false;
+  if (keystoreProps.existsSync()) {
+    for (final line in keystoreProps.readAsStringSync().split('\n')) {
+      final trimmed = line.trim();
+      if (!trimmed.startsWith('storeFile=')) continue;
+      if (trimmed.substring('storeFile='.length).trim().isNotEmpty) {
+        hasProps = true;
+      }
+    }
+  }
+
+  final gradleText = gradle?.readAsStringSync() ?? '';
+  final wired = gradleText.contains('mailchat:signing') ||
+      gradleText.contains('signingConfig signingConfigs.release') ||
+      gradleText.contains('signingConfig = signingConfigs.getByName("release")');
+
+  if (hasProps && wired) return 'ready';
+
+  if (gradle == null) {
+    return 'cannot tell (no android/app/build.gradle — run flutter create first)';
+  }
+
+  stdout.writeln('''
+! Release signing is NOT configured, so `--release` produces an APK Android
+  will refuse to install. Debug builds are unaffected. To enable it:
+
+  1. Create a keystore, once (back it up — losing it means no future updates):
+       keytool -genkey -v -keystore "%USERPROFILE%\\mailchat-upload.jks" \\
+         -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+
+  2. Create android/key.properties (gitignored):
+       storeFile=C:/Users/YOU/mailchat-upload.jks
+       storePassword=YOUR_STORE_PASSWORD
+       keyAlias=upload
+       keyPassword=YOUR_KEY_PASSWORD
+
+  3. Add this to android/app/build.gradle. MailChat does not edit your Gradle
+     file for you, because an unverifiable rewrite of a build script is worse
+     than a one-minute manual step.
+
+     Before the `android {` block:
+
+       // mailchat:signing
+       def keystoreProperties = new Properties()
+       def keystoreFile = rootProject.file('key.properties')
+       if (keystoreFile.exists()) {
+           keystoreFile.withInputStream { keystoreProperties.load(it) }
+       }
+
+     Inside `android {`:
+
+       signingConfigs {
+           release {
+               if (keystoreFile.exists()) {
+                   storeFile file(keystoreProperties['storeFile'])
+                   storePassword keystoreProperties['storePassword']
+                   keyAlias keystoreProperties['keyAlias']
+                   keyPassword keystoreProperties['keyPassword']
+               }
+           }
+       }
+
+     In buildTypes -> release:
+
+       signingConfig signingConfigs.release
+
+  Then: ./tool/build_apk.ps1 -Mode release
+''');
+  return 'not configured (instructions above)';
+}
+
+File? _findAppGradle(Directory root) {
+  for (final name in ['build.gradle.kts', 'build.gradle']) {
+    final file = File('${root.path}/android/app/$name');
+    if (file.existsSync()) return file;
+  }
+  return null;
+}
 
 File? _findMainActivity(Directory root) {
   for (final base in ['kotlin', 'java']) {
