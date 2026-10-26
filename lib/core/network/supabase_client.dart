@@ -124,7 +124,7 @@ class SupabaseClient {
           details: {'status': e.code, 'body': e.original.toString()});
       await clearSession();
       return false;
-    } catch (e, st) {
+    } catch (e) {
       // A network failure is not a dead session: keep the tokens so the next
       // launch can try again rather than forcing a password.
       AppLogger.warning('supabase_session_refresh_failed',
