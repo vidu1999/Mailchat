@@ -341,7 +341,7 @@ buildscript {
 
     test('keeps the JVM heap settings the template wrote', () {
       // Losing these turns a Kotlin error into an out-of-memory one.
-      final before = 'org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G\n'
+      const before = 'org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G\n'
           'android.useAndroidX=true\n';
       final out = disableKotlinIncremental(before);
       expect(out, contains('org.gradle.jvmargs=-Xmx4G'));

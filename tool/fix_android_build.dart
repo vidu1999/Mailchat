@@ -591,7 +591,7 @@ String disableKotlinIncremental(String properties) {
   final body = properties.isEmpty || properties.endsWith('\n')
       ? properties
       : '$properties\n';
-  return '${body}$kotlinIncrementalMarker\n'
+  return '$body$kotlinIncrementalMarker\n'
       '# Kotlin stores incremental-cache paths relative to the module, which\n'
       '# fails with "this and base files have different roots" when the pub\n'
       '# cache is on another drive (C:) than this project. See docs/running.md.\n'
