@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
 
 /// Application configuration, resolved from two sources.
@@ -86,6 +87,18 @@ class AppConfig {
   bool get loadedEnvFile => _loadedEnvFile;
   bool _loadedEnvFile = false;
 
+  /// Server-side settings found in the bundled env file.
+  ///
+  /// They are ignored — SMTP credentials belong to the Supabase dashboard, and
+  /// the service-role key must never leave a trusted server — but the startup
+  /// log and the validation message name them, because their presence means the
+  /// file was copied from a template that invites the mistake.
+  final List<String> _bundledSecretsIgnored = [];
+
+  /// Names (never values) of bundled settings that were intentionally ignored.
+  List<String> get ignoredBundledSecrets =>
+      List<String>.unmodifiable(_bundledSecretsIgnored);
+
   /// Reads the bundled env file (if present) and resolves every setting.
   ///
   /// Never throws: a missing or malformed env file falls back to `--dart-define`
@@ -160,12 +173,21 @@ class AppConfig {
       _defaultSupabaseAnonKey,
     ).trim();
 
-    // Absent unless explicitly provided; never required by the client.
+    // Read from `--dart-define` ONLY. This must never come from the bundled
+    // file: anything in assets/config/env is compiled into the APK, and this key
+    // bypasses every RLS policy. A server-side tool can pass it as a define; a
+    // mobile build must not receive it at all.
     supabaseServiceRoleKey = _pickNullable(
       const String.fromEnvironment('SUPABASE_SERVICE_ROLE_KEY'),
-      file,
+      const {},
       'SUPABASE_SERVICE_ROLE_KEY',
     );
+    if (file.containsKey('SUPABASE_SERVICE_ROLE_KEY')) {
+      _bundledSecretsIgnored.add('SUPABASE_SERVICE_ROLE_KEY');
+    }
+    for (final key in const ['SMTP_PASS', 'SMTP_USER', 'SMTP_HOST']) {
+      if (file.containsKey(key)) _bundledSecretsIgnored.add(key);
+    }
 
     authRedirectUrl = _pick(
       const String.fromEnvironment('AUTH_REDIRECT_URL'),
@@ -301,6 +323,12 @@ class AppConfig {
       'supabaseHost=$supabaseHost emailConfirmationRequired=$emailConfirmationRequired '
       'source=$sourceLabel',
     );
+    if (_bundledSecretsIgnored.isNotEmpty) {
+      // Names only. A value here would be the leak we are warning about.
+      debugPrint('[AppConfig] WARNING ignored server-side settings found in '
+          '$envAssetPath: ${_bundledSecretsIgnored.join(', ')}. These are not '
+          'used by the app and must not be bundled into an APK.');
+    }
     // Secrets are intentionally never logged: only the host, not the URL or key.
   }
 
@@ -331,10 +359,16 @@ class AppConfig {
       errors.add('AUTH_REDIRECT_URL is not configured');
     }
     if (errors.isNotEmpty) {
+      final secretNote = _bundledSecretsIgnored.isEmpty
+          ? ''
+          : '\n\nAlso: ${_bundledSecretsIgnored.join(', ')} was found in '
+              '$envAssetPath and ignored. Server-side credentials do not belong '
+              'in the app bundle.';
       throw ConfigurationException(
         '${errors.join('; ')}.\n\nConfiguration was read from $sourceLabel. '
         'Copy assets/config/env.example to assets/config/env and fill it in '
-        '(see docs/running.md §1), or pass the values as --dart-define.',
+        '(see docs/running.md §1), or pass the values as --dart-define.'
+        '$secretNote',
       );
     }
   }

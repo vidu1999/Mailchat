@@ -84,3 +84,44 @@ These are real and should block a production launch:
   keeps message bodies in a single `text` column so an E2EE layer (per-
   conversation keys, ciphertext in that column) can be added later without a
   schema rewrite.
+
+## Key hygiene
+
+The mobile app is configured from `assets/config/env`, and **everything in that
+file is compiled into the APK**. Anyone can unzip an APK and read its assets, so
+the rule is simple: only client-safe values go there.
+
+| Value | In the app bundle? | Where it belongs |
+|---|---|---|
+| `SUPABASE_URL` | yes — public | `assets/config/env` |
+| `SUPABASE_ANON_KEY` / `sb_publishable_…` | yes — designed to be public; RLS is the boundary | `assets/config/env` |
+| `SUPABASE_SERVICE_ROLE_KEY` | **never** — bypasses every RLS policy | server-side code only (Edge Functions secret), passed as `--dart-define` for tooling |
+| `SMTP_PASS` / `SMTP_USER` / `SMTP_HOST` | **never** — the app never sends mail | Supabase dashboard → Authentication → Emails → SMTP |
+| FCM server key | **never** | your push sender |
+
+Two guards enforce this rather than relying on care:
+
+- `tool/check_config.dart` **fails the build** when the service-role key or SMTP
+  credentials appear in the bundled file, and when `SUPABASE_ANON_KEY` turns out
+  to be a service-role key (verified from the JWT's `role` claim, not just the
+  text).
+- `AppConfig` reads the service-role key from `--dart-define` only. If it is in
+  the bundled file it is ignored, and the startup log and configuration-error
+  screen name it.
+
+### If a privileged key has been exposed
+
+Rotating is the only remedy — deleting the file or the message does not help,
+because the key itself is the credential.
+
+1. **Supabase dashboard → Project Settings → API → JWT Settings → generate a new
+   secret.** This invalidates every issued token, including the `anon` key, so
+   update `assets/config/env` and any deployment that uses it. (Projects on the
+   new API keys rotate the `sb_secret_…` key instead.)
+2. If SMTP credentials were exposed, rotate them with the provider.
+3. Rebuild the APK: the old key is inside any APK that was built with it, and
+   nothing in the app can revoke that copy.
+4. Check the Supabase logs for requests you did not make.
+
+Treat "the key was only in a chat/file that I deleted" as exposure. Assume it
+was read.

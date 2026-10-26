@@ -19,8 +19,13 @@ These are not code changes and cannot be done from this repository.
 | A3 | **Allow-list the redirect** `mailchat://auth/callback` | Authentication → URL Configuration → Redirect URLs | Without it GoTrue ignores the app's redirect and falls back to the Site URL. |
 | A4 | **Configure custom SMTP** | Authentication → Emails → SMTP | The built-in sender is rate-limited and mainly delivers to team addresses. This is what makes confirmation emails reach strangers. |
 | A5 | **Build with your credentials** | `tool/build_apk.ps1`, or repo secrets | The URL and anon key are compiled into the APK; an APK built without them shows a configuration screen. |
+| A8 | **Keep server-side keys out of the app** | `.env` / `assets/config/env` | Anything in the bundled file ships inside the APK. The service-role key and SMTP password belong to the server and the dashboard; the build refuses them. |
 | A6 | **Sign the release** (only for release builds) | keystore + `android/key.properties` | An unsigned release APK will not install at all. Debug APKs are already signed with the debug key. |
 | A7 | *(optional)* Own a domain for https app links | DNS + `assetlinks.json` | Only needed if you want the link to open without the browser chooser. |
+
+Your `SUPABASE_URL` can be derived from the key itself: the JWT payload's `ref`
+claim is the `<ref>` in `https://<ref>.supabase.co`. `tool/check_config.dart`
+prints the exact URL when it is blank.
 
 Run this to see which of A5–A6 are done:
 
