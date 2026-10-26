@@ -73,8 +73,8 @@ jobs:
           fi
           echo "check_config correctly failed with no configuration"
 
-          # And a root .env must be picked up, copied into the asset, and then
-          # rejected for holding the service-role key.
+          # And a root .env must be picked up and copied into the asset. The
+          # template still holds placeholders, so it must still be rejected.
           cp .env.example .env
           set +e
           dart run tool/check_config.dart --quiet
@@ -86,7 +86,7 @@ jobs:
           fi
           test -f assets/config/env || { echo "::error::.env was not copied to assets/config/env"; exit 1; }
           echo "check_config read .env, synced it, and rejected the placeholders"
-          rm -f .env assets/config/env"
+          rm -f .env assets/config/env
 
       # `flutter test` reports only the exit code in the step summary, so keep
       # the output for the publish steps below.
