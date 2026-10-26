@@ -17,7 +17,7 @@ dependencies:
   # Picking a photo or a file to send. Deliberately the only added dependency:
   # it covers images and arbitrary files through the platform picker, with no
   # extra Android permissions (the system picker grants access per file).
-  file_picker: ^8.0.0
+  file_picker: ^6.2.1
 
 dev_dependencies:
   flutter_test:
