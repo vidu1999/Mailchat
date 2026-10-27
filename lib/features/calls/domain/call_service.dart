@@ -109,6 +109,50 @@ class CallService {
   Future<Call> markMissed(String callId) =>
       _update(callId, {'status': 'missed'});
 
+  /// Newest ringing call for [userId] that is still worth showing.
+  ///
+  /// Also stops leftover ringing rows from popping up as a new call. A row
+  /// left `ringing` — a closed tab, a hang-up write that failed — used to
+  /// ring again on every login. Fresh rings are left alone.
+  Future<Call?> takeFreshIncoming(String userId) async {
+    final rows = await _supabase.select(
+      'calls',
+      filter: {
+        'or': '(caller_id.eq.$userId,callee_id.eq.$userId)',
+        'eq': 'status,ringing',
+      },
+      order: 'created_at.desc',
+      limit: 8,
+    );
+    final now = DateTime.now().toUtc();
+    Call? incoming;
+    for (final row in rows) {
+      final call = Call.fromJson(row);
+      final incomingForMe = call.calleeId == userId;
+      if (incomingCallShouldClear(
+        createdAt: call.createdAt,
+        now: now,
+        isCallee: incomingForMe,
+      )) {
+        try {
+          await markMissed(call.id);
+        } catch (e) {
+          AppLogger.warning(
+            'call_stale_clear_failed',
+            details: {'error': e.toString()},
+          );
+        }
+        continue;
+      }
+      if (incomingForMe &&
+          incoming == null &&
+          incomingCallIsFresh(call.createdAt, now)) {
+        incoming = call;
+      }
+    }
+    return incoming;
+  }
+
   /// Publishes this side's ICE candidate.
   Future<void> sendIceCandidate({
     required String callId,

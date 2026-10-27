@@ -125,10 +125,11 @@ blocked UDP port cannot take the working TCP/TLS addresses down with it.
 
 Without a relay a call connects on the same Wi-Fi and on many home routers, and
 fails on mobile data; the caller's screen says exactly that rather than blaming
-the network in general. When a relay is configured, media is forced through it
-(`iceTransportPolicy: relay` in `lib/features/calls/domain/call_media.dart`),
-including on the same Wi-Fi. A wrong password then fails every call, and the
-screen says the relay refused the phone.
+the network in general. A configured relay is still offered
+(`iceServers` in `lib/features/calls/domain/call_media.dart`), but the policy
+stays `all`. Forcing `relay` left a computer with no pasted relay and a phone
+with no other path, so the call rang and never connected. A wrong password
+fails the relay path; same Wi-Fi can still connect.
 
 The credential is a per-server secret, not a Supabase key, but it still belongs
 in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
@@ -325,9 +326,9 @@ The same facts are logged once, as `call_connect_slow` with `waited_seconds`,
 (`relay`, `remote_relay`, no IP addresses), so a bug report carries the answer
 rather than the symptom.
 
-A configured relay is used exclusively (`iceTransportPolicy: relay` in
-`call_media.dart`). Direct paths are what stall a mobile call, so they are not
-tried once a relay exists. Candidates gathered before the call id exists are
+A configured relay is offered, and the policy stays `all` so a computer on
+the same network can connect even when that browser has no relay of its own.
+Candidates gathered before the call id exists are
 buffered, candidates that arrive before the answer are held until
 `setRemoteDescription`, and the offer/answer wait up to 8 seconds so the SDP
 itself contains the relay address. The call row and `call_ice_candidates` are

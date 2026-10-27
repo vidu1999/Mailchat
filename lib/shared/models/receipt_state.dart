@@ -40,4 +40,29 @@ class ReceiptState {
     return rows.every((row) =>
         row is! Map || (row['read_at'] == null && row['delivered_at'] == null));
   }
+
+  /// Keeps the better tick when a newer row has no receipt embed.
+  ///
+  /// A realtime `messages` update is the message row alone. Building a
+  /// [status] from that row always looks like "sent", and replacing the
+  /// bubble with it used to wipe a seen double tick.
+  static String keepStatus({
+    required String previous,
+    required String incoming,
+  }) {
+    return _rank(incoming) >= _rank(previous) ? incoming : previous;
+  }
+
+  static int _rank(String status) {
+    switch (status) {
+      case AppConstants.messageStatusRead:
+        return 3;
+      case AppConstants.messageStatusDelivered:
+        return 2;
+      case AppConstants.messageStatusSent:
+        return 1;
+      default:
+        return 0;
+    }
+  }
 }

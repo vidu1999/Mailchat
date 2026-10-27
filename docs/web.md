@@ -23,7 +23,7 @@ The page asks for `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Those are the same two
 
 - Not the Flutter app, and not a claim that `flutter run -d chrome` works.
 - Not end-to-end encryption.
-- Not push notifications. The phone still needs the app installed to ring when the browser is closed. While this page is open, an incoming call is shown here.
+- Not push notifications. The phone still needs the app installed to ring when the browser is closed. While this page is open, an incoming call is shown here. A ringing row older than 45 seconds is not shown, and is marked missed, so a leftover call cannot appear by itself.
 - Not verified against a live project from the build environment. Hearing each other still requires two signed-in devices.
 
 Group calls are not offered. The `calls` table is one caller and one callee, same as the phone.

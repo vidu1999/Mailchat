@@ -187,4 +187,12 @@ void main() {
       expect(both, isNot(contains('relay has not taken over')));
     });
   });
+
+  test('sdpForInterop drops the browser-only line and keeps the rest', () {
+    const raw = 'v=0\r\na=extmap-allow-mixed\r\na=group:BUNDLE 0\r\n';
+    final cleaned = sdpForInterop(raw);
+    expect(cleaned, isNot(contains('extmap-allow-mixed')));
+    expect(cleaned, contains('a=group:BUNDLE 0'));
+    expect(sdpForInterop('v=0\r\n'), 'v=0\r\n');
+  });
 }

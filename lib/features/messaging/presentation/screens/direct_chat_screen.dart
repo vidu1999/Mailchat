@@ -4,6 +4,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 
+import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
@@ -67,6 +68,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   bool _markingRead = false;
   bool _markReadAgain = false;
   Timer? _presenceRefreshTimer;
+  Timer? _receiptPoll;
   bool _isGroup = false;
   StreamSubscription<Set<String>>? _typingEvents;
   Set<String> _onlineUserIds = const {};
@@ -122,14 +124,29 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   void _onMessageEvent(Message message) {
     if (!mounted) return;
     setState(() {
+      var next = message;
+      for (final existing in _messages) {
+        final same = existing.id == message.id ||
+            (message.clientId != null &&
+                message.clientId!.isNotEmpty &&
+                existing.clientId == message.clientId);
+        if (!same) continue;
+        next = message.copyWith(
+          status: ReceiptState.keepStatus(
+            previous: existing.status,
+            incoming: message.status,
+          ),
+        );
+        break;
+      }
       final withoutDuplicate = _messages.where((m) {
-        if (m.id == message.id) return false;
-        if (message.clientId != null && m.clientId == message.clientId) {
+        if (m.id == next.id) return false;
+        if (next.clientId != null && m.clientId == next.clientId) {
           return false;
         }
         return true;
       }).toList()
-        ..add(message);
+        ..add(next);
       withoutDuplicate.sort((a, b) => a.createdAt.compareTo(b.createdAt));
       _messages = withoutDuplicate;
     });
@@ -152,7 +169,10 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     try {
       final rows = await _messageService.getReceipts(messageId);
       if (!mounted) return;
-      final status = ReceiptState.statusFrom(rows);
+      final status = ReceiptState.keepStatus(
+        previous: _messages[index].status,
+        incoming: ReceiptState.statusFrom(rows),
+      );
       setState(() {
         _messages = _messages
             .map((m) => m.id == messageId ? m.copyWith(status: status) : m)
@@ -211,6 +231,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     _typingEvents?.cancel();
     _typingStopTimer?.cancel();
     _presenceRefreshTimer?.cancel();
+    _receiptPoll?.cancel();
     _presence.dispose();
     _messageService.unsubscribe();
     _messageController.dispose();
@@ -256,6 +277,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         _receiptEvents ??=
             _messageService.receiptEvents.listen(_onReceiptEvent);
       }
+      _startReceiptPoll();
       // Opening the thread is reading it, which is what clears the unread
       // count on the chat list. Awaited: the list re-reads the view as soon as
       // this screen pops, and a read still in flight would show up as a badge
@@ -479,6 +501,53 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         ],
       ),
     );
+  }
+
+  /// Re-reads receipts for my own messages while this chat is open.
+  ///
+  /// A realtime receipt event can be missed, and a message update can arrive
+  /// without the receipt rows. Without this poll the seen tick never appears.
+  void _startReceiptPoll() {
+    _receiptPoll ??= Timer.periodic(const Duration(seconds: 3), (_) {
+      _refreshOwnReceipts();
+    });
+    _refreshOwnReceipts();
+  }
+
+  Future<void> _refreshOwnReceipts() async {
+    if (!mounted || _currentUserId.isEmpty) return;
+    final mine = _messages
+        .where((message) =>
+            message.senderId == _currentUserId &&
+            message.status != AppConstants.messageStatusRead &&
+            message.status != AppConstants.messageStatusPending &&
+            message.status != AppConstants.messageStatusFailed)
+        .toList();
+    if (mine.length > 12) {
+      mine.removeRange(0, mine.length - 12);
+    }
+    for (final message in mine) {
+      try {
+        final rows = await _messageService.getReceipts(message.id);
+        if (!mounted) return;
+        final status = ReceiptState.keepStatus(
+          previous: message.status,
+          incoming: ReceiptState.statusFrom(rows),
+        );
+        if (status == message.status) continue;
+        setState(() {
+          _messages = _messages
+              .map((item) =>
+                  item.id == message.id ? item.copyWith(status: status) : item)
+              .toList();
+        });
+      } catch (e) {
+        AppLogger.warning(
+          'chat_receipt_poll_failed',
+          details: {'error': e.toString()},
+        );
+      }
+    }
   }
 
   /// Starts the timer that keeps "last seen" honest while the thread is open.

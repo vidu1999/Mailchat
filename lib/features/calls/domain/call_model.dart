@@ -267,3 +267,38 @@ class CallSignal {
         if (payload != null) 'payload': payload,
       };
 }
+
+/// How long a ringing row may still interrupt someone.
+///
+/// A call left ringing because a tab closed, or a hang-up write failed, used
+/// to ring again every time the other person opened MailChat. Forty-five
+/// seconds is long enough for a real ring and short enough that an old row
+/// is not a call.
+const Duration incomingCallWindow = Duration(seconds: 45);
+
+/// A call this user placed is not cleared on the same short window. Clearing
+/// it at 45 seconds would hang up a ring they are still waiting on.
+const Duration outgoingRingClearAfter = Duration(minutes: 3);
+
+/// True when [createdAt] is a ring that should still be shown.
+bool incomingCallIsFresh(DateTime createdAt, DateTime now) {
+  final age = now.toUtc().difference(createdAt.toUtc());
+  if (age.isNegative) return age.abs() <= const Duration(minutes: 2);
+  return age <= incomingCallWindow;
+}
+
+/// True when a leftover ringing row should be marked missed.
+///
+/// Incoming leftovers are cleared as soon as they are too old to show.
+/// Outgoing leftovers wait [outgoingRingClearAfter], so this user's own
+/// ring is not ended while they are still on the call screen.
+bool incomingCallShouldClear({
+  required DateTime createdAt,
+  required DateTime now,
+  required bool isCallee,
+}) {
+  final age = now.toUtc().difference(createdAt.toUtc());
+  if (age.isNegative) return false;
+  if (isCallee) return age > incomingCallWindow;
+  return age > outgoingRingClearAfter;
+}

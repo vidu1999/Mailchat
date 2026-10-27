@@ -157,15 +157,16 @@ class CallMedia {
     }
 
     _step('peer_connection_begin');
-    // Direct paths between two phones on mobile data almost never succeed, and
-    // the default policy sits on them until the call is given up — which is
-    // exactly "the relay has not taken over". When a relay is configured, use
-    // only that path so it is tried immediately.
-    final useRelay = config.hasTurnRelay;
+    // Policy stays `all` even when a relay is configured. A computer often
+    // has no relay of its own. Forcing this phone onto relay-only then left
+    // the two sides with no shared path: the call rang and never connected.
+    // TURN servers stay in iceServers, so a gathered relay address is still
+    // offered and mobile data can use it. Same-network calls use the direct
+    // path.
     _peer = await createPeerConnection({
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
-      if (useRelay) 'iceTransportPolicy': 'relay',
+      'iceTransportPolicy': 'all',
     });
 
     _peer!.onIceCandidate = (candidate) {
@@ -233,7 +234,7 @@ class CallMedia {
       'video': video,
       'iceServers': iceServers.length,
       'turn': config.hasTurnRelay,
-      'policy': useRelay ? 'relay' : 'all',
+      'policy': 'all',
     });
   }
 
@@ -257,7 +258,9 @@ class CallMedia {
   /// lets the callee write.
   Future<String> createAnswer(String offerSdp) async {
     final peer = _requirePeer();
-    await peer.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+    await peer.setRemoteDescription(
+      RTCSessionDescription(sdpForInterop(offerSdp), 'offer'),
+    );
     _noteRemoteSdp(offerSdp);
     await _flushRemote();
     _armGathering();
@@ -274,7 +277,9 @@ class CallMedia {
   Future<void> applyAnswer(String answerSdp) async {
     if (answerSdp.isEmpty || answerSdp == _appliedRemoteSdp) return;
     final peer = _requirePeer();
-    await peer.setRemoteDescription(RTCSessionDescription(answerSdp, 'answer'));
+    await peer.setRemoteDescription(
+      RTCSessionDescription(sdpForInterop(answerSdp), 'answer'),
+    );
     _appliedRemoteSdp = answerSdp;
     _noteRemoteSdp(answerSdp);
     await _flushRemote();
@@ -365,12 +370,12 @@ class CallMedia {
     try {
       final current = await _requirePeer().getLocalDescription();
       final sdp = current?.sdp;
-      if (sdp != null && sdp.isNotEmpty) return sdp;
+      if (sdp != null && sdp.isNotEmpty) return sdpForInterop(sdp);
     } catch (e, st) {
       AppLogger.warning('call_local_sdp_failed', details: {'error': e.toString()});
       AppLogger.error(e, st, {'where': 'call_local_sdp'});
     }
-    return created.sdp ?? '';
+    return sdpForInterop(created.sdp ?? '');
   }
 
   void _noteRemoteSdp(String sdp) {

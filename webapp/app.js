@@ -528,16 +528,19 @@
       if (mine) continue;
       var now = new Date().toISOString();
       try {
-        var updated = await api(
-          '/rest/v1/message_receipts?message_id=eq.' + msg.id + '&recipient_id=eq.' + me(),
-          { method: 'PATCH', body: { delivered_at: now, read_at: now } }
-        );
-        if (!rowsOf(updated).length) {
-          await api('/rest/v1/message_receipts', {
+        await api(
+          '/rest/v1/message_receipts?on_conflict=message_id,recipient_id',
+          {
             method: 'POST',
-            body: { message_id: msg.id, recipient_id: me(), delivered_at: now, read_at: now },
-          });
-        }
+            prefer: 'resolution=merge-duplicates,return=minimal',
+            body: {
+              message_id: msg.id,
+              recipient_id: me(),
+              delivered_at: now,
+              read_at: now,
+            },
+          }
+        );
       } catch (err) { /* a missed tick is not a failed send */ }
     }
   }
@@ -787,6 +790,11 @@
   function showIncoming(row) {
     if (!row || dismissedCalls[row.id] || (call && call.id === row.id)) return;
     if (row.callee_id !== me() || row.status !== 'ringing') return;
+    if (!L.ringIsFresh(row.created_at)) {
+      clearStaleRing(row.id);
+      return;
+    }
+    var already = state.incoming && state.incoming.id === row.id;
     state.incoming = row;
     var box = $('incoming');
     if (!box) return;
@@ -794,6 +802,7 @@
     $('incoming-title').textContent = row.kind === 'video' ? 'Incoming video call' : 'Incoming voice call';
     var person = names[row.caller_id];
     $('incoming-detail').textContent = (person && (person.display_name || person.username)) || 'Someone in your chats';
+    if (already) return;
     try {
       var ctx = new (window.AudioContext || window.webkitAudioContext)();
       var osc = ctx.createOscillator();
@@ -815,14 +824,37 @@
     showIncoming(row);
   }
 
+  function clearStaleRing(id) {
+    if (!id || dismissedCalls[id]) return;
+    dismissedCalls[id] = true;
+    api('/rest/v1/calls?id=eq.' + id, {
+      method: 'PATCH',
+      body: { status: 'missed' },
+    }).catch(function () { /* already cleared, or the other side ended it */ });
+  }
+
   async function pollIncoming() {
     if (!session) return;
     try {
       var data = await api(
-        '/rest/v1/calls?callee_id=eq.' + me() + '&status=eq.ringing&select=*&order=created_at.desc&limit=1'
+        '/rest/v1/calls?or=(caller_id.eq.' + me() + ',callee_id.eq.' + me() + ')' +
+        '&status=eq.ringing&select=*&order=created_at.desc&limit=5'
       );
-      var row = rowsOf(data)[0];
-      if (row) considerIncoming(row);
+      var rows = rowsOf(data);
+      var shown = false;
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var incoming = row.callee_id === me();
+        if (L.ringShouldClear(row.created_at, incoming)) {
+          clearStaleRing(row.id);
+          if (state.incoming && state.incoming.id === row.id) hideIncoming();
+          continue;
+        }
+        if (!shown && incoming) {
+          considerIncoming(row);
+          shown = true;
+        }
+      }
     } catch (err) { /* the next poll retries */ }
   }
 
@@ -877,7 +909,7 @@
     var ice = iceConfig();
     var pc = new RTCPeerConnection({
       iceServers: ice.iceServers,
-      iceTransportPolicy: ice.forceRelay ? 'relay' : 'all',
+      iceTransportPolicy: 'all',
     });
     stream.getTracks().forEach(function (track) { pc.addTrack(track, stream); });
     var local = $('local-video');
@@ -923,7 +955,7 @@
   function callHint() {
     var ice = iceConfig();
     if (!ice.forceRelay) {
-      return 'This browser has no relay. On mobile data the call stays here until Settings has the same TURN lines as the phone.';
+      return 'Same Wi-Fi can connect. On mobile data, paste the same TURN lines into Settings on this page.';
     }
     return 'Still connecting. Turn off any VPN and Data saver, on this browser and on the phone.';
   }
@@ -1038,7 +1070,7 @@
       call.answerApplied = true;
       call.remoteSet = true;
       try {
-        await call.pc.setRemoteDescription({ type: 'answer', sdp: row.answer_sdp });
+        await call.pc.setRemoteDescription({ type: 'answer', sdp: L.sdpForPhone(row.answer_sdp) });
         await flushRemoteIce();
         if (!call.connected) setCallText('Connecting...', 'The other side answered.');
       } catch (err) {
@@ -1087,7 +1119,7 @@
           callee_id: peerId,
           kind: video ? 'video' : 'voice',
           status: 'ringing',
-          offer_sdp: local,
+          offer_sdp: L.sdpForPhone(local),
         },
       });
       var row = rowsOf(inserted)[0];
@@ -1131,7 +1163,7 @@
         title: title,
       };
       pc.onicecandidate = function (ev) { if (ev.candidate) queueLocalIce(ev.candidate); };
-      await pc.setRemoteDescription({ type: 'offer', sdp: fresh.offer_sdp });
+      await pc.setRemoteDescription({ type: 'offer', sdp: L.sdpForPhone(fresh.offer_sdp) });
       call.remoteSet = true;
       var answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1139,7 +1171,7 @@
       var local = pc.localDescription && pc.localDescription.sdp;
       await api('/rest/v1/calls?id=eq.' + fresh.id, {
         method: 'PATCH',
-        body: { status: 'accepted', answer_sdp: local },
+        body: { status: 'accepted', answer_sdp: L.sdpForPhone(local) },
       });
       seenIce = {};
       await flushLocalIce();

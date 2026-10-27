@@ -148,6 +148,23 @@ void main() {
       expect(message.status, AppConstants.messageStatusPending);
     });
 
+    test('a realtime row cannot wipe a seen tick', () {
+      expect(
+        ReceiptState.keepStatus(
+          previous: AppConstants.messageStatusRead,
+          incoming: AppConstants.messageStatusSent,
+        ),
+        AppConstants.messageStatusRead,
+      );
+      expect(
+        ReceiptState.keepStatus(
+          previous: AppConstants.messageStatusSent,
+          incoming: AppConstants.messageStatusDelivered,
+        ),
+        AppConstants.messageStatusDelivered,
+      );
+    });
+
     test('keeps the reply target', () {
       final message = Message.fromJson({
         'id': 'm2',

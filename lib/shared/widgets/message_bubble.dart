@@ -230,7 +230,7 @@ class MessageBubble extends StatelessWidget {
                     ),
                     if (isMyOwn && showStatus) ...[
                       const SizedBox(width: 6),
-                      _statusIcon(message.status, colorScheme),
+                      _statusIcon(message.status),
                       if (onRetry != null &&
                           message.status == AppConstants.messageStatusFailed)
                         GestureDetector(
@@ -254,13 +254,19 @@ class MessageBubble extends StatelessWidget {
     return content;
   }
 
-  Widget _statusIcon(String status, ColorScheme colorScheme) {
+  Widget _statusIcon(String status) {
+    // Own bubbles are painted in the theme primary. A tick in that same
+    // colour sits on top of itself and looks missing. Seen is a light blue
+    // double tick so it stays visible on the bubble.
+    const seen = Color(0xFF7DD3FC);
     final data = switch (status) {
-      AppConstants.messageStatusPending => _Status(Icons.access_time, colorScheme.onSurfaceVariant),
-      AppConstants.messageStatusSent => _Status(Icons.check, colorScheme.onSurfaceVariant),
-      AppConstants.messageStatusDelivered => _Status(Icons.check, colorScheme.onSurface),
-      AppConstants.messageStatusRead => _Status(Icons.done_all, colorScheme.primary),
-      _ => _Status(Icons.error, Colors.redAccent),
+      AppConstants.messageStatusPending =>
+        const _Status(Icons.access_time, Colors.white70),
+      AppConstants.messageStatusSent => const _Status(Icons.check, Colors.white70),
+      AppConstants.messageStatusDelivered =>
+        const _Status(Icons.done_all, Colors.white70),
+      AppConstants.messageStatusRead => const _Status(Icons.done_all, seen),
+      _ => const _Status(Icons.error, Colors.redAccent),
     };
     return Icon(data.icon, size: 16, color: data.color);
   }
@@ -269,5 +275,5 @@ class MessageBubble extends StatelessWidget {
 class _Status {
   final IconData icon;
   final Color color;
-  _Status(this.icon, this.color);
+  const _Status(this.icon, this.color);
 }

@@ -64,6 +64,13 @@ assert(L.jwtRole('aaa.' + header + '.sig') === 'service_role', 'service role');
 const anon = Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url');
 assert(L.jwtRole('aaa.' + anon + '.sig') === 'anon', 'anon role');
 
+var now = Date.parse('2026-10-27T12:00:00Z');
+assert(L.ringIsFresh('2026-10-27T11:59:40Z', now), 'fresh ring');
+assert(!L.ringIsFresh('2026-10-27T11:00:00Z', now), 'old ring');
+assert(L.ringShouldClear('2026-10-27T11:00:00Z', true, now), 'clear old incoming');
+assert(!L.ringShouldClear('2026-10-27T11:59:00Z', false, now), 'keep a live outgoing ring');
+assert(L.sdpForPhone('v=0\r\na=extmap-allow-mixed\r\n').indexOf('extmap-allow-mixed') === -1, 'sdp line dropped');
+
 assert(L.esc('<b>"') === '&lt;b&gt;&quot;', 'escape');
 assert(L.sanitiseFileName('../a b.png') === 'a_b.png', 'file name');
 
@@ -72,5 +79,9 @@ assert(html.includes('logic.js') && html.includes('app.js'), 'scripts linked');
 assert(html.includes('id="call-layer"'), 'call layer present');
 assert(!html.includes('service_role'), 'no service role in the page');
 
-vm.runInContext(fs.readFileSync(appPath, 'utf8'), context, { filename: appPath });
+const app = fs.readFileSync(appPath, 'utf8');
+assert(app.includes("iceTransportPolicy: 'all'"), 'policy all');
+assert(!app.includes("iceTransportPolicy: ice.forceRelay"), 'no relay-only policy');
+assert(app.includes('on_conflict=message_id,recipient_id'), 'receipt upsert');
+vm.runInContext(app, context, { filename: appPath });
 console.log('web client checks ok');

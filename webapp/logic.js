@@ -75,6 +75,8 @@
       }
       servers.push(entry);
     });
+    // forceRelay means a relay is configured. It is not a transport policy:
+    // relay-only has no path to a computer that did not paste the same relay.
     return { iceServers: servers, forceRelay: relays.length > 0, relays: relays };
   }
 
@@ -194,6 +196,32 @@
     return base.slice(0, 80);
   }
 
+  var RING_WINDOW_MS = 45000;
+  var OUTGOING_CLEAR_MS = 180000;
+
+  function ringIsFresh(createdAt, nowMs) {
+    var created = Date.parse(createdAt || '');
+    if (isNaN(created)) return false;
+    var age = (nowMs == null ? Date.now() : nowMs) - created;
+    if (age < 0) return age > -120000;
+    return age <= RING_WINDOW_MS;
+  }
+
+  function ringShouldClear(createdAt, isCallee, nowMs) {
+    if (ringIsFresh(createdAt, nowMs)) return false;
+    var created = Date.parse(createdAt || '');
+    if (isNaN(created)) return false;
+    var age = (nowMs == null ? Date.now() : nowMs) - created;
+    if (age < 0) return false;
+    return isCallee ? age > RING_WINDOW_MS : age > OUTGOING_CLEAR_MS;
+  }
+
+  function sdpForPhone(sdp) {
+    return String(sdp || '').split(/\r\n|\n|\r/).filter(function (line) {
+      return line !== 'a=extmap-allow-mixed';
+    }).join('\r\n');
+  }
+
   function pageAddress() {
     if (typeof location === 'undefined') return '';
     return location.origin + location.pathname;
@@ -213,6 +241,9 @@
     formatWhen: formatWhen,
     dayLabel: dayLabel,
     sanitiseFileName: sanitiseFileName,
+    ringIsFresh: ringIsFresh,
+    ringShouldClear: ringShouldClear,
+    sdpForPhone: sdpForPhone,
     pageAddress: pageAddress,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

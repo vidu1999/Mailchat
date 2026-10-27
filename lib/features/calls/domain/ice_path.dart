@@ -268,10 +268,24 @@ String? callConnectAdvice({
         'phone. Both phones need the new app, and both need internet.';
   }
   if (path.remoteRelay == 0) {
-    return 'This phone reached the relay. The other phone did not. Install '
-        'the new app on that phone too, with the same relay username and '
-        'password.';
+    return 'This phone reached the relay. The other phone did not. A computer '
+        'needs the same TURN lines pasted in the page Settings. Same Wi-Fi '
+        'can still connect without that.';
   }
   return 'Both phones reached the relay, but the audio is still blocked. '
       'Turn off Data saver and any VPN on both phones, then call again.';
+}
+
+/// Drops `a=extmap-allow-mixed`.
+///
+/// A browser offer includes that line. Some mobile WebRTC stacks reject the
+/// whole description, so the call rings and then never connects. Removing
+/// the line does not change the media.
+String sdpForInterop(String sdp) {
+  if (!sdp.contains('extmap-allow-mixed')) return sdp;
+  final lines = sdp.split(RegExp(r'\r\n|\n|\r'));
+  final kept = lines.where((line) => line != 'a=extmap-allow-mixed');
+  final joined = kept.join('\r\n');
+  if (sdp.endsWith('\n') || sdp.endsWith('\r')) return '$joined\r\n';
+  return joined;
 }

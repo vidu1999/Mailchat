@@ -70,6 +70,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription<String>? _inboxSubscription;
   Timer? _reloadDebounce;
   Timer? _presenceTimer;
+  Timer? _incomingPoll;
+  bool _pollingIncoming = false;
 
   @override
   void initState() {
@@ -80,6 +82,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
     _load();
     _subscribeInbox();
     _listenForCalls();
+    // Realtime can miss the insert. A poll is what makes a computer call
+    // actually ring here. Old ringing rows are cleared inside the same call.
+    _pollIncoming();
+    _incomingPoll = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _pollIncoming(),
+    );
     // The heartbeat refreshes other people's status no faster than it writes
     // our own, so polling on the same cadence is enough to keep dots honest.
     _presenceTimer = Timer.periodic(
@@ -91,6 +100,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void dispose() {
     _incomingCalls?.cancel();
+    _incomingPoll?.cancel();
     _callService.dispose();
     _inboxSubscription?.cancel();
     _reloadDebounce?.cancel();
@@ -116,10 +126,48 @@ class _ChatListScreenState extends State<ChatListScreen> {
       // (accepted, ended) arrive on the same stream and must be ignored here.
       if (call.state != CallState.ringing) return;
       if (call.calleeId != userId) return;
-      if (_ringingCallId == call.id) return;
-      _ringingCallId = call.id;
-      _showIncomingCall(call, userId);
+      if (!incomingCallIsFresh(call.createdAt, DateTime.now().toUtc())) {
+        _callService.markMissed(call.id).catchError((Object e) {
+          AppLogger.warning(
+            'call_stale_clear_failed',
+            details: {'error': e.toString()},
+          );
+          return call;
+        });
+        return;
+      }
+      _promptIncoming(call, userId);
     });
+  }
+
+  /// Asks the server for a fresh ringing call. This is what rings a computer
+  /// call when the realtime insert was missed, and what retires a leftover
+  /// ringing row so it cannot appear by itself.
+  Future<void> _pollIncoming() async {
+    if (_pollingIncoming) return;
+    final userId = SupabaseClient.instance.userId;
+    if (userId == null || !mounted) return;
+    _pollingIncoming = true;
+    try {
+      final call = await _callService.takeFreshIncoming(userId);
+      if (!mounted || call == null) return;
+      _promptIncoming(call, userId);
+    } catch (e) {
+      AppLogger.warning(
+        'call_incoming_poll_failed',
+        details: {'error': e.toString()},
+      );
+    } finally {
+      _pollingIncoming = false;
+    }
+  }
+
+  void _promptIncoming(Call call, String userId) {
+    if (!mounted || _ringingCallId != null) return;
+    if (call.state != CallState.ringing || call.calleeId != userId) return;
+    if (!incomingCallIsFresh(call.createdAt, DateTime.now().toUtc())) return;
+    _ringingCallId = call.id;
+    _showIncomingCall(call, userId);
   }
 
   Future<void> _showIncomingCall(Call call, String userId) async {
