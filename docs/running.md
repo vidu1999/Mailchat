@@ -1120,6 +1120,8 @@ before confirmation there is no session, and RLS would reject the insert.
   `dart run tool/check_config.dart` confirms it with `relay: 4 addresses` and
   refuses a list that has no TCP/TLS address. See "Setting up a hosted TURN
   relay" in `docs/calls.md`. Both phones must be rebuilt after the edit.
+  Before blaming the app, the same network can be tested from a computer and a
+  phone with `tool/call_test_server.py` — see `docs/calls.md`.
 - **No push notifications.** No FCM credentials are configured; the preference
   switches save but nothing is delivered — see `docs/notifications.md`.
 - **Realtime is unverified.** Implemented, never executed.

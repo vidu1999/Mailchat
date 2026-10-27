@@ -150,3 +150,4 @@ different accounts with a direct conversation open in the chat list.
 - [ ] Ring, then leave B's prompt untouched and swipe it away: the row ends `missed`
 - [ ] Over mobile data with **no** TURN configured: the screen says this build has no relay. That is the documented behaviour, not a bug — add a relay to `TURN_URL` (see `docs/calls.md`).
 - [ ] With a relay configured, two phones on different networks reach "Connected". If not, the sentence under Connecting names the gap (password, missing `turns:` address, the other phone, or Data saver).
+- [ ] Call test page (`tool/call_test_server.py`): computer and phone hear each other, and the page says whether the path was the relay or direct.
