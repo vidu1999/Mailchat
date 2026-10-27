@@ -338,23 +338,21 @@ and the call never connected.
 
 The Flutter app cannot run in a browser (`dart:io`). A separate page does the
 network half of a call, so a computer and a phone can be the two ends without
-installing anything:
+installing anything.
 
-```text
-python3 tool/call_test_server.py
-```
+The page is published by `.github/workflows/call-test-page.yml` from
+`tool/call_test/index.html`. Open that https address on both devices. One taps
+**Start**, sends the new link to the other, and the other taps **Join**. The
+page says whether the audio went through the relay or only directly. A relay
+password typed on the computer is put in that link for the phone; it is not
+written to disk. Do not use a sandbox preview host: that name is not in
+Cloudflare DNS, so the browser reports that the host was not found.
 
-Open the page on both devices (`tool/call_test/index.html`, served by
-`tool/call_test_server.py`). One taps **Start**, the other opens the link and
-taps **Join**. The page says whether the audio went through the relay or only
-directly. A relay password typed on the computer is forwarded to the phone for
-that test only; it is not written to disk.
-
-The phone must open an `https://` address. A plain `http://` link that is not
-localhost cannot use the microphone, so the phone cannot join a page served
-from the computer's LAN address. Hearing each other on this page proves the
-network, not the Flutter app — the app still has to be the new build on both
-phones.
+`python3 tool/call_test_server.py` serves the same page on this computer. The
+phone still cannot use it over a plain `http://` LAN address, because the
+microphone requires `https://` or localhost. Hearing each other on this page
+proves the network, not the Flutter app — the app still has to be the new
+build on both phones.
 
 ## What still needs doing
 

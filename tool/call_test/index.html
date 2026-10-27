@@ -180,7 +180,7 @@
   <main>
     <div class="mark"><span class="dot"></span> MailChat</div>
     <h1>Call test</h1>
-    <p class="lead">Open this same page on the computer and on the phone. If you can hear each other here, the network can carry a call. This is not the MailChat app.</p>
+    <p class="lead">Open this page on the computer and on the phone. If you can hear each other, the network can carry a call. Do not use a sandbox link. Cloudflare cannot find that host. This is not the MailChat app.</p>
 
     <div class="banner" id="frame-banner">
       The microphone does not work inside the small preview.
@@ -239,6 +239,7 @@
     <audio id="remote-audio" autoplay playsinline></audio>
     <footer>Audio is not recorded. This page is a network test, not the MailChat app.</footer>
   </main>
+  <script src="peerjs.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const frameBanner = $("frame-banner");
@@ -251,12 +252,14 @@
 
     const params = new URLSearchParams(location.search);
     const preset = (params.get("room") || "").replace(/\D/g, "").slice(0, 4);
-    if (preset) {
-      $("code-input").value = preset;
+    const peerPreset = params.get("peer") || "";
+    if (preset || peerPreset) {
+      if (preset) $("code-input").value = preset;
       $("relay-box").open = false;
       $("start").classList.add("hidden");
       $("join").textContent = "Join this test";
     }
+    if (peerPreset) $("code-input").classList.add("hidden");
 
     let pc = null;
     let localStream = null;
@@ -275,6 +278,10 @@
     let counts = { host: 0, srflx: 0, relay: 0 };
     let gathering = false;
     let wantRelay = false;
+    let useLocal = false;
+    let shareLink = "";
+    let helper = null;
+    let mediaCall = null;
 
     function say(title, detail, kind) {
       $("title").textContent = title;
@@ -620,16 +627,216 @@
       }
       if (pc) pc.close();
       pc = null;
+      if (mediaCall) {
+        try { mediaCall.close(); } catch (err) { /* already closed */ }
+      }
+      mediaCall = null;
+      if (helper) {
+        try { helper.destroy(); } catch (err) { /* already closed */ }
+      }
+      helper = null;
       if (localStream) localStream.getTracks().forEach((track) => track.stop());
       localStream = null;
+    }
+
+    function peerErrorText(err) {
+      const type = err && err.type;
+      if (type === "network" || type === "server-error" || type === "socket-error" || type === "socket-closed") {
+        return "The connection helper cannot be reached from this network. Tell me this sentence.";
+      }
+      if (type === "peer-unavailable") {
+        return "The computer is not in the test yet. On the computer, tap Start, then open the new link on the phone.";
+      }
+      if (type === "unavailable-id") return "That test is already in use. Start again on the computer.";
+      return (err && err.message) || "The call test could not start.";
+    }
+
+    function waitHelper(p) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error("The connection helper did not answer. Reload this page and try again."));
+        }, 12000);
+        p.on("open", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        p.on("error", (err) => {
+          clearTimeout(timer);
+          reject(new Error(peerErrorText(err)));
+        });
+      });
+    }
+
+    function buildIce(body) {
+      const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+      const chunks = String(body.urls || "").split(/[,;\n]/);
+      const turn = [];
+      chunks.forEach((chunk) => {
+        let url = chunk.trim();
+        if (!url) return;
+        const lower = url.toLowerCase();
+        if (lower.startsWith("stun:")) return;
+        if (lower.startsWith("https:")) url = "turns:" + url.slice(6).replace(/^\/+/, "");
+        else if (lower.startsWith("http:")) url = "turn:" + url.slice(5).replace(/^\/+/, "");
+        else if (!lower.startsWith("turn:") && !lower.startsWith("turns:")) return;
+        turn.push(url);
+      });
+      if (turn.length && (!body.username || !body.credential)) {
+        throw new Error("Relay username and password are both required.");
+      }
+      if ((body.username || body.credential) && !turn.length) {
+        throw new Error("Relay address is missing. Paste the line that starts with turns:.");
+      }
+      turn.forEach((url) => {
+        iceServers.push({ urls: url, username: body.username, credential: body.credential });
+      });
+      return {
+        iceServers: iceServers,
+        forceRelay: !!(body.forceRelay && turn.length),
+        urls: turn.join(","),
+        username: body.username || "",
+        credential: body.credential || "",
+      };
+    }
+
+    function iceFromLink() {
+      const q = new URLSearchParams(location.search);
+      return buildIce({
+        urls: q.get("tl") || "",
+        username: q.get("tu") || "",
+        credential: q.get("tp") || "",
+        forceRelay: q.get("fr") === "1",
+      });
+    }
+
+    async function openMic() {
+      showSession();
+      say("Allow the microphone", "Tap Allow when the browser asks. Nothing is recorded.", "warn");
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: $("use-camera").checked ? { facingMode: "user" } : false,
+        });
+      } catch (err) {
+        const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+        say(
+          denied ? "Microphone blocked" : "No microphone",
+          denied
+            ? "Tap the lock icon in the address bar, allow the microphone, then reload this page."
+            : "This device has no microphone the browser can use.",
+          "bad"
+        );
+        $("mic-state").textContent = "blocked";
+        throw err;
+      }
+      $("mic-state").textContent = "on";
+      startMeter();
+      if (localStream.getVideoTracks().length) {
+        const localVideo = $("local-video");
+        localVideo.hidden = false;
+        localVideo.srcObject = localStream;
+      }
+    }
+
+    function watchMedia(conn) {
+      mediaCall = conn;
+      conn.on("stream", (stream) => {
+        pc = conn.peerConnection || pc;
+        $("remote-audio").srcObject = stream;
+        unlockAudio();
+        if (stream.getVideoTracks().length) {
+          const remoteVideo = $("remote-video");
+          remoteVideo.hidden = false;
+          remoteVideo.srcObject = stream;
+        }
+        connected = true;
+        $("peer-state").textContent = "joined";
+        $("code-view").classList.add("hidden");
+        describePath();
+      });
+      conn.on("error", (err) => {
+        if (!connected) say("Could not connect", peerErrorText(err), "bad");
+      });
+    }
+
+    async function startPeer() {
+      if (typeof Peer !== "function") {
+        throw new Error("This page did not load completely. Reload it.");
+      }
+      const ice = buildIce(relayBody());
+      wantRelay = ice.forceRelay;
+      await openMic();
+      const id = "mc" + Math.random().toString(36).slice(2, 10);
+      helper = new Peer(id, {
+        config: {
+          iceServers: ice.iceServers,
+          iceTransportPolicy: ice.forceRelay ? "relay" : "all",
+        },
+      });
+      helper.on("call", (incoming) => {
+        $("peer-state").textContent = "joined";
+        say("Connecting...", "The phone joined. Waiting for the audio path.", "");
+        incoming.answer(localStream);
+        watchMedia(incoming);
+      });
+      await waitHelper(helper);
+      const query = new URLSearchParams();
+      query.set("peer", id);
+      if (ice.urls) {
+        query.set("tl", ice.urls);
+        query.set("tu", ice.username);
+        query.set("tp", ice.credential);
+        query.set("fr", ice.forceRelay ? "1" : "0");
+      }
+      const url = new URL(location.href);
+      url.search = query.toString();
+      url.hash = "";
+      shareLink = url.toString();
+      history.replaceState(null, "", "?" + query.toString());
+      $("code-view").textContent = "Link ready";
+      $("code-view").classList.remove("hidden");
+      say(
+        "Waiting for the phone",
+        ice.urls
+          ? "Send this link to the phone. It is only for your phone. Then tap Join there."
+          : "Send this link to the phone, then tap Join there. If the phone uses mobile data, fill the relay on the computer and start again.",
+        "warn"
+      );
+    }
+
+    async function joinPeer() {
+      if (typeof Peer !== "function") {
+        throw new Error("This page did not load completely. Reload it.");
+      }
+      const target = new URLSearchParams(location.search).get("peer");
+      if (!target) {
+        throw new Error("Open the link from the computer. Do not use an old sandbox link.");
+      }
+      const ice = iceFromLink();
+      wantRelay = ice.forceRelay;
+      await openMic();
+      helper = new Peer({
+        config: {
+          iceServers: ice.iceServers,
+          iceTransportPolicy: ice.forceRelay ? "relay" : "all",
+        },
+      });
+      await waitHelper(helper);
+      say("Connecting...", "Calling the computer.", "");
+      $("peer-state").textContent = "calling";
+      watchMedia(helper.call(target, localStream));
     }
 
     $("start").onclick = async () => {
       $("start").disabled = true;
       try {
-        const created = await post("/api/rooms", relayBody());
-        history.replaceState(null, "", "?room=" + created.code);
-        await startCall("caller", created.code, created);
+        if (useLocal) {
+          const created = await post("/api/rooms", relayBody());
+          history.replaceState(null, "", "?room=" + created.code);
+          await startCall("caller", created.code, created);
+        } else {
+          await startPeer();
+        }
       } catch (err) {
         $("start").disabled = false;
         alert(err.message || "Could not start the test.");
@@ -637,24 +844,29 @@
     };
 
     $("join").onclick = async () => {
-      const entered = $("code-input").value.replace(/\D/g, "");
-      if (entered.length !== 4) {
-        alert("Enter the 4 digit code from the other device.");
-        return;
-      }
       $("join").disabled = true;
       try {
-        const joined = await post("/api/rooms/" + entered + "/join", {});
-        history.replaceState(null, "", "?room=" + entered);
-        await startCall("callee", entered, joined);
+        if (useLocal && !peerPreset) {
+          const entered = $("code-input").value.replace(/\D/g, "");
+          if (entered.length !== 4) {
+            $("join").disabled = false;
+            alert("Enter the 4 digit code from the other device.");
+            return;
+          }
+          const joined = await post("/api/rooms/" + entered + "/join", {});
+          history.replaceState(null, "", "?room=" + entered);
+          await startCall("callee", entered, joined);
+        } else {
+          await joinPeer();
+        }
       } catch (err) {
         $("join").disabled = false;
-        alert(err.message || "Could not join that code.");
+        alert(err.message || "Could not join that test.");
       }
     };
 
     $("copy").onclick = async () => {
-      const link = location.origin + location.pathname + "?room=" + code;
+      const link = shareLink || (location.origin + location.pathname + "?room=" + code);
       try {
         if (navigator.share) {
           await navigator.share({ title: "MailChat call test", url: link });
@@ -690,6 +902,23 @@
 
     // Do not hang up on pagehide. On a phone, switching to WhatsApp to send the
     // link fires that event and would kill the test the other device is joining.
+    $("start").disabled = true;
+    $("join").disabled = true;
+    fetch("/api/health", { cache: "no-store" }).then((res) => {
+      useLocal = res.ok;
+    }).catch(() => {
+      useLocal = false;
+    }).then(() => {
+      if (!useLocal) {
+        $("code-input").classList.add("hidden");
+        const label = document.querySelector("#join-box label");
+        if (label && !peerPreset) {
+          label.textContent = "On the phone, open the link from the computer. Do not type a code.";
+        }
+      }
+      $("start").disabled = false;
+      $("join").disabled = false;
+    });
   </script>
 </body>
 </html>

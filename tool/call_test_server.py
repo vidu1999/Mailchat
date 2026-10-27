@@ -25,7 +25,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-PAGE = Path(__file__).resolve().parent / "call_test" / "index.html"
+PAGE_DIR = Path(__file__).resolve().parent / "call_test"
+PAGE = PAGE_DIR / "index.html"
 ROOM_TTL_SECONDS = 30 * 60
 MAX_CANDIDATES = 80
 MAX_BODY = 100_000
@@ -307,13 +308,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
-        if path in ("/", "/index.html"):
-            if not PAGE.is_file():
-                self._send(500, {"error": "call test page is missing"})
-                return
-            data = PAGE.read_bytes()
-            self._send(200, body=data, content_type="text/html; charset=utf-8")
-            return
         if path == "/favicon.ico":
             self._send(204, body=b"", content_type="image/x-icon")
             return
@@ -342,7 +336,28 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, state)
             return
-        self._send(404, {"error": "not found"})
+        self._send_static(path)
+
+    def _send_static(self, path: str) -> None:
+        name = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
+        if not name or ".." in name or name.startswith(("/", "\\")):
+            self._send(404, {"error": "not found"})
+            return
+        file = (PAGE_DIR / name).resolve()
+        root = PAGE_DIR.resolve()
+        if root not in file.parents and file != root:
+            self._send(404, {"error": "not found"})
+            return
+        if not file.is_file():
+            self._send(404, {"error": "not found"})
+            return
+        if name.endswith(".html"):
+            content_type = "text/html; charset=utf-8"
+        elif name.endswith(".js"):
+            content_type = "text/javascript; charset=utf-8"
+        else:
+            content_type = "application/octet-stream"
+        self._send(200, body=file.read_bytes(), content_type=content_type)
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
