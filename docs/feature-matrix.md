@@ -48,7 +48,7 @@ Legend:
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
 | Voice messages | ❌ | No recorder, no player, no upload path |
-| Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, mute and camera toggles. Not verified on a device, and needs a TURN relay for mobile data — paste the provider's list into `TURN_URL`, see [calls.md](calls.md) |
+| Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, mute and camera toggles. Not verified on a device, and needs a TURN relay for mobile data — paste the provider's list into `TURN_URL`, see [calls.md](calls.md). Each call logs `call_ice_config` (relay count, credentials redacted) so "no relay" is distinguishable from "network blocking" |
 | Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
 | Multi-device | 🟡 | `user_devices` table; no session list, no "log out all devices", no token registration |
 | End-to-end encryption | ❌ | Not implemented and not claimed (§4) |

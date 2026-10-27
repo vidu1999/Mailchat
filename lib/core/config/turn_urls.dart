@@ -55,6 +55,41 @@ class TurnUrls {
     return List<String>.unmodifiable(urls);
   }
 
+  /// The host and port of each relay in [raw], without scheme, query or
+  /// credentials.
+  ///
+  /// Why not just print the URL: `turn:user:secret@relay.example.com:3478` is a
+  /// valid TURN URL, and this list goes into a log line the user is asked to
+  /// paste into a bug report. The host is the part that answers "is a relay
+  /// configured at all, and which one?"; the rest is the shared secret.
+  static List<String> hosts(String? raw) {
+    final result = <String>[];
+    for (final url in parse(raw)) {
+      final host = _hostOf(url);
+      if (host != null && !result.contains(host)) result.add(host);
+    }
+    return List<String>.unmodifiable(result);
+  }
+
+  /// True when at least one relay can carry media over TCP or TLS.
+  ///
+  /// This is the difference between a relay that works and one that works only
+  /// where UDP is allowed: mobile networks and restrictive Wi-Fi routinely drop
+  /// UDP, and a UDP-only relay then fails exactly like no relay at all.
+  static bool hasFallback(String? raw) => parse(raw).any(
+        (url) => url.startsWith('turns:') || url.contains('transport=tcp'),
+      );
+
+  static String? _hostOf(String url) {
+    var rest = url.substring(url.indexOf(':') + 1);
+    final at = rest.lastIndexOf('@');
+    if (at >= 0) rest = rest.substring(at + 1);
+    final query = rest.indexOf('?');
+    if (query >= 0) rest = rest.substring(0, query);
+    rest = rest.replaceFirst(RegExp(r'^/+'), '');
+    return rest.isEmpty ? null : rest;
+  }
+
   /// Rewrites [raw] to a scheme `RTCPeerConnection` accepts, or returns null.
   ///
   /// The `http(s)://` translation is not pedantry: `RTCPeerConnection` only

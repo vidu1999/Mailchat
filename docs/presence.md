@@ -45,6 +45,24 @@ as offline about a minute after they leave, which is correct rather than a bug.
 dropped beat would flicker everyone offline and back. A test pins that
 relationship.
 
+### When the phone has no network
+
+A heartbeat on a phone with no signal cannot succeed, so firing it every 30
+seconds only produces identical failures. The first one is reported in full
+(`ERROR … where: last_seen_heartbeat`); after that `HeartbeatBackoff` spaces the
+attempts out — 30 s, 60 s, 2 min, 4 min, then every 5 minutes until one succeeds —
+and each skip is a single `heartbeat_skipped` / `heartbeat_backoff` line carrying
+the retry window:
+
+```text
+INFO heartbeat_backoff {consecutive_failures: 3, retry_in_seconds: 120}
+```
+
+A success clears the counter immediately, so coming back onto Wi-Fi shows the
+user online on the next beat, not up to five minutes later. The policy is pure
+state plus a clock (`HeartbeatBackoff`), which is what lets
+`test/unit/last_seen_test.dart` check it without waiting real seconds.
+
 ## Privacy
 
 `user_presence.share_last_seen` is the switch behind **Privacy → Show online

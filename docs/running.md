@@ -879,6 +879,41 @@ If you reach the host and get `SupabaseException: Request failed (401)`, that is
 `SUPABASE_ANON_KEY` being wrong — a different problem. Check that the key is the
 `anon` / `public` key from Project Settings → API.
 
+### `Failed host lookup` with `errno = 7`, and `UDP send … failed with error 1`
+
+Two log lines that usually appear together, and that both mean *the phone is
+withholding the network from this app* rather than *the server is down*:
+
+```text
+I/flutter: ERROR SocketException: Failed host lookup: 'xxxx.supabase.co' (errno = 7)
+E/stun_port.cc: UDP send of 20 bytes to host stun.l.google.com:19302 failed with error 1
+```
+
+`errno = 7` is `EAI_NONAME`: the name never resolved, so no request left the
+phone. `error 1` on a UDP send is `EPERM`: the kernel refused the packet. Google's
+STUN server is fine — something on the device is blocking this app's traffic.
+
+The app already names the cause in its own message ("this is a name-resolution
+problem, not a bad key"), and it retries with backoff instead of hammering. Check,
+in this order:
+
+| Check | Where |
+| --- | --- |
+| Airplane mode off, mobile data or Wi-Fi actually on | notification shade |
+| **Data saver** off, or MailChat allowed | Settings → Connections → Data usage → Data saver |
+| **Background data** allowed for MailChat | Settings → Apps → MailChat → Mobile data → allow background data |
+| **Private DNS** set to Automatic | Settings → Connections → More connection settings → Private DNS |
+| No VPN / ad-blocking app intercepting traffic | Settings → Connections → VPN |
+| The host resolves from the phone at all | `adb shell ping -c 1 YOUR-PROJECT.supabase.co` |
+
+That last one splits the two halves cleanly: if `ping` fails too, the phone's
+network is down; if `ping` works and the app still cannot resolve, it is a
+per-app restriction (data saver, background data, VPN).
+
+Mid-call this also explains a call that rings, records audio and never connects:
+see [calls.md](calls.md) § "The call rings, the microphone works, but it never
+connects".
+
 ### `Request timed out`
 
 `HttpClient.connectionTimeout` is 30 seconds. A timeout with a valid URL usually

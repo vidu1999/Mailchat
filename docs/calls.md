@@ -245,6 +245,65 @@ reached `dispose()`. `test/unit/call_trace_test.dart` pins the two properties
 that make it meaningful — valid JSON survives, and a clean end leaves no file —
 so a leftover file can keep being trusted as evidence.
 
+## The call rings, the microphone works, but it never connects
+
+This is the commonest "calls are broken" report, and it is almost never the call
+code. A device log from one such attempt, in order:
+
+```text
+E/stun_port.cc: UDP send of 20 bytes to host stun.l.google.com:19302 failed with error 1
+I/flutter: ERROR SocketException: Failed host lookup: 'xxxx.supabase.co' (errno = 7)
+I/audio_device_buffer.cc: [REC : 10000msec, 48kHz] callbacks: 984, samples: 472320, level: 0
+I/flutter: INFO realtime_reconnect {attempt: 2, after_seconds: 10}
+```
+
+Read it as three separate facts:
+
+| Line | Meaning |
+| --- | --- |
+| `[REC : …] callbacks: 984` | the microphone **is** capturing. `getUserMedia` succeeded and the native audio device is running: the app is not stuck before the call. |
+| `failed host lookup … errno = 7` | **DNS is dead** for this app. No request left the phone. |
+| `UDP send … failed with error 1` | `EPERM` — the kernel refused the packet. This is not a STUN outage; `stun.l.google.com` is fine. |
+
+DNS dead *and* UDP refused together means the app has no usable network at all,
+while its native audio thread keeps running: the call has sound going nowhere and
+no candidates to pair with. On Android that combination usually means the
+system is withholding network from the app — **Data saver**, a per-app
+"restrict background data" setting, a VPN, or a private-DNS setting that does not
+resolve. The fix is in the phone, not in the code:
+
+```text
+Settings → Apps → MailChat → Mobile data → allow background data
+Settings → Connections → Data usage → Data saver → off (or allow MailChat)
+Settings → Connections → More connection settings → Private DNS → Automatic
+```
+
+**Then the relay question.** One line now answers it at the start of every call:
+
+```text
+INFO call_ice_config {stun: stun.l.google.com:19302, relay_count: 0, relay_hosts: [], relay_fallback: false}
+WARN call_no_relay {detail: no TURN relay configured: media can only flow when the two phones reach each other directly…}
+```
+
+`relay_count: 0` is the whole story of a call that works on the office Wi-Fi and
+dies on mobile data: without a relay, media has to travel directly between the
+two phones, and most mobile networks cannot do that. `relay_fallback: false`
+with a non-zero count is the second half of the story — a UDP-only relay stops
+working on a network that blocks UDP, which is why a hosted provider's
+`turns:…:443?transport=tcp` entry matters more than its `turn:…:80` one. How to
+set one up is below, in [Setting up a hosted TURN relay](#setting-up-a-hosted-turn-relay).
+
+After **15 seconds** still connecting, the call screen says which of the two
+cases it is instead of showing "Connecting..." forever:
+
+* no relay configured → *"This build has no relay (TURN), so the call only works
+  when both phones can reach each other — mobile data usually cannot."*
+* relay configured → *"The two phones cannot reach each other directly and the
+  relay has not taken over — the network is blocking the call."*
+
+Both are also logged once, as `call_connect_slow {waited_seconds, has_relay}`, so
+a bug report carries the answer rather than the symptom.
+
 ## What still needs doing
 
 | Item | Why it is not done here |

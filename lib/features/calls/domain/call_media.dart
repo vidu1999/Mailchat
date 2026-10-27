@@ -113,6 +113,18 @@ class CallMedia {
     final config = _config ?? AppConfig.instance;
     final iceServers = config.iceServers;
 
+    // One line that answers "is a relay even configured?" — the question every
+    // "the call never connects" report comes down to. Never includes the TURN
+    // credential: this log gets pasted into bug reports.
+    AppLogger.info('call_ice_config', details: config.iceSummary);
+    if (!config.hasTurnRelay) {
+      AppLogger.warning('call_no_relay', details: {
+        'detail': 'no TURN relay configured: media can only flow when the two '
+            'phones reach each other directly, which mobile data and most '
+            'public Wi-Fi do not allow',
+      });
+    }
+
     _step('peer_connection_begin');
     _peer = await createPeerConnection({
       'iceServers': iceServers,

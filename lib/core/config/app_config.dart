@@ -146,6 +146,18 @@ class AppConfig {
     return servers;
   }
 
+  /// A credential-free description of the ICE configuration, for the log.
+  ///
+  /// Exists because "the call never connected" is indistinguishable on screen
+  /// from "this build has no relay": one line at call start settles it, and the
+  /// user can paste it without leaking the TURN secret.
+  Map<String, Object?> get iceSummary => {
+        'stun': stunUrl,
+        'relay_count': TurnUrls.parse(turnUrl).length,
+        'relay_hosts': TurnUrls.hosts(turnUrl),
+        'relay_fallback': TurnUrls.hasFallback(turnUrl),
+      };
+
   /// True when a TURN relay is configured. Without one, a call can fail to
   /// connect on mobile data instead of merely sounding bad.
   ///

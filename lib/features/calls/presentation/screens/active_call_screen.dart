@@ -57,6 +57,16 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   Timer? _ticker;
   Duration _elapsed = Duration.zero;
 
+  /// How long this call has been waiting for a peer connection, and whether it
+  /// has waited long enough to say something about it.
+  ///
+  /// A call that cannot connect otherwise sits on "Connecting..." forever, which
+  /// the user reads as the app being broken rather than the network refusing to
+  /// pass media. Fifteen seconds is past every normal ICE exchange.
+  Duration _waited = Duration.zero;
+  bool _slowConnect = false;
+  static const Duration _slowConnectAfter = Duration(seconds: 15);
+
   StreamSubscription<Call>? _callEvents;
   StreamSubscription<Map<String, dynamic>>? _candidateEvents;
 
@@ -161,7 +171,17 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
     _media.onConnectionState = (state) {
       if (!mounted) return;
-      setState(() => _stage = stageFromPeerState(state));
+      final stage = stageFromPeerState(state);
+      setState(() {
+        _stage = stage;
+        if (stage == CallMediaStage.connected) {
+          // Connected, then momentarily disconnected and reconnecting is a
+          // blip, not a call that never connected: restart the wait so the
+          // "still not connected" hint does not fire on the first wobble.
+          _waited = Duration.zero;
+          _slowConnect = false;
+        }
+      });
     };
 
     _calls.watchCall(callId);
@@ -228,8 +248,26 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || _stage != CallMediaStage.connected) return;
-      setState(() => _elapsed += const Duration(seconds: 1));
+      if (!mounted) return;
+      if (_stage == CallMediaStage.connected) {
+        setState(() => _elapsed += const Duration(seconds: 1));
+        return;
+      }
+      if (_stage != CallMediaStage.connecting) return;
+      var crossed = false;
+      setState(() {
+        _waited += const Duration(seconds: 1);
+        if (!_slowConnect && _waited >= _slowConnectAfter) {
+          _slowConnect = true;
+          crossed = true;
+        }
+      });
+      if (crossed) {
+        AppLogger.warning('call_connect_slow', details: {
+          'waited_seconds': _waited.inSeconds,
+          'has_relay': AppConfig.instance.hasTurnRelay,
+        });
+      }
     });
   }
 
@@ -286,6 +324,31 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     super.dispose();
   }
 
+  /// What to say about a call that will not connect, if anything.
+  ///
+  /// Two different sentences, because they are two different problems: no relay
+  /// in this build (a configuration gap the user can fix by reading
+  /// `docs/calls.md`) versus a relay that exists but has not taken over (a
+  /// network problem). Saying the second when the first is true sends the user
+  /// looking in the wrong place.
+  String? get _connectHint {
+    final hasRelay = AppConfig.instance.hasTurnRelay;
+    if (_slowConnect && _stage == CallMediaStage.connecting) {
+      return hasRelay
+          ? 'Still not connected. The two phones cannot reach each other '
+              'directly and the relay has not taken over — the network is '
+              'blocking the call.'
+          : 'Still not connected after ${_slowConnectAfter.inSeconds} seconds. '
+              'This build has no relay (TURN), so the call only works when both '
+              'phones can reach each other — mobile data usually cannot. See '
+              'docs/calls.md.';
+    }
+    if (!hasRelay && _isCaller && !_stage.isTerminalLike) {
+      return 'No TURN relay configured: this call may fail on mobile data.';
+    }
+    return null;
+  }
+
   String get _timerLabel {
     final minutes = _elapsed.inMinutes.toString().padLeft(2, '0');
     final seconds = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
@@ -330,13 +393,11 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
                       : colors.onSurfaceVariant,
                 ),
               ),
-              if (!AppConfig.instance.hasTurnRelay &&
-                  _isCaller &&
-                  !_stage.isTerminalLike)
+              if (_connectHint != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                   child: Text(
-                    'No TURN relay configured: this call may fail on mobile data.',
+                    _connectHint!,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
                   ),

@@ -213,4 +213,60 @@ void main() {
       expect(TurnUrls.parse('turn:'), isEmpty);
     });
   });
+
+  // The runtime twin of the "relay: UDP only" line that `dart run
+  // tool/check_config.dart` prints. A call that never connects looks identical
+  // on screen whether the build has no relay or the network is blocking it, so
+  // the app logs which case it is at call start — and that line gets pasted into
+  // a bug report, which is why the credential must not be in it.
+  group('TurnUrls.hosts', () {
+    test('lists host and port without scheme or query', () {
+      expect(
+        TurnUrls.hosts('turn:relay.example.ca:80, '
+            'turn:relay.example.ca:80?transport=tcp, '
+            'turns:relay.example.ca:443?transport=tcp'),
+        ['relay.example.ca:80', 'relay.example.ca:443'],
+      );
+    });
+
+    test('never exposes a credential embedded in the URL', () {
+      // `turn:user:secret@host:3478` is a legal TURN URL, and this list is
+      // logged. The host is the useful part; the rest is the shared secret.
+      expect(
+        TurnUrls.hosts('turn:alice:s3cr3t@relay.example.ca:3478'),
+        ['relay.example.ca:3478'],
+      );
+    });
+
+    test('is empty when there is no relay', () {
+      expect(TurnUrls.hosts(null), isEmpty);
+      expect(TurnUrls.hosts('stun:stun.l.google.com:19302'), isEmpty);
+    });
+  });
+
+  group('TurnUrls.hasFallback', () {
+    test('a UDP-only relay has no fallback', () {
+      // This is the configuration that works at home and fails on mobile data.
+      expect(TurnUrls.hasFallback('turn:relay.example.ca:80'), isFalse);
+      expect(TurnUrls.hasFallback('turn:relay.example.ca:443'), isFalse);
+    });
+
+    test('TCP or TLS entries count as a fallback', () {
+      expect(
+        TurnUrls.hasFallback(
+          'turn:relay.example.ca:80, turns:relay.example.ca:443?transport=tcp',
+        ),
+        isTrue,
+      );
+      expect(
+        TurnUrls.hasFallback('turn:relay.example.ca:80?transport=tcp'),
+        isTrue,
+      );
+    });
+
+    test('no relay at all is not a fallback', () {
+      expect(TurnUrls.hasFallback(null), isFalse);
+      expect(TurnUrls.hasFallback('stun:stun.l.google.com:19302'), isFalse);
+    });
+  });
 }

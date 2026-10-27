@@ -164,4 +164,81 @@ void main() {
       );
     });
   });
+
+  // The heartbeat is the app's most frequent request: once per 30 seconds,
+  // forever, including while the phone has no network at all. Before this, an
+  // outage wrote two ERROR lines every beat — the same failure repeated — which
+  // is exactly what buries the one useful line in a log someone is reading to
+  // find out why a call will not connect.
+  group('HeartbeatBackoff', () {
+    const interval = Duration(seconds: 30);
+
+    test('waits longer after each failure, then stops at five minutes', () {
+      expect(HeartbeatBackoff.delayFor(0, interval), Duration.zero);
+      expect(HeartbeatBackoff.delayFor(1, interval), const Duration(seconds: 30));
+      expect(HeartbeatBackoff.delayFor(2, interval), const Duration(seconds: 60));
+      expect(
+        HeartbeatBackoff.delayFor(3, interval),
+        const Duration(minutes: 2),
+      );
+      expect(
+        HeartbeatBackoff.delayFor(4, interval),
+        const Duration(minutes: 4),
+      );
+      // Capped: an overnight outage must still recover promptly.
+      expect(
+        HeartbeatBackoff.delayFor(5, interval),
+        HeartbeatBackoff.maxDelay,
+      );
+      expect(
+        HeartbeatBackoff.delayFor(40, interval),
+        HeartbeatBackoff.maxDelay,
+      );
+    });
+
+    test('allows the first attempt, then blocks until the wait is over', () {
+      var now = DateTime(2026, 10, 27, 9);
+      final backoff = HeartbeatBackoff(interval: interval, clock: () => now);
+
+      expect(backoff.shouldAttempt(), isTrue);
+      backoff.recordFailure();
+      expect(backoff.failures, 1);
+      expect(backoff.shouldAttempt(), isFalse);
+      expect(backoff.retryIn, const Duration(seconds: 30));
+
+      now = now.add(const Duration(seconds: 29));
+      expect(backoff.shouldAttempt(), isFalse);
+
+      now = now.add(const Duration(seconds: 1));
+      expect(backoff.shouldAttempt(), isTrue);
+    });
+
+    test('a success clears the failures and the wait', () {
+      var now = DateTime(2026, 10, 27, 9);
+      final backoff = HeartbeatBackoff(interval: interval, clock: () => now);
+      backoff.recordFailure();
+      backoff.recordFailure();
+      backoff.recordFailure();
+      expect(backoff.retryIn, const Duration(minutes: 2));
+
+      backoff.recordSuccess();
+      expect(backoff.failures, 0);
+      expect(backoff.retryIn, Duration.zero);
+      expect(backoff.shouldAttempt(), isTrue);
+    });
+
+    test('a failed attempt inside the wait does not extend it', () {
+      // `retryIn` is computed from the clock, not decremented per call, so
+      // repeatedly asking cannot starve the next real attempt.
+      var now = DateTime(2026, 10, 27, 9);
+      final backoff = HeartbeatBackoff(interval: interval, clock: () => now);
+      backoff.recordFailure();
+      final waited = backoff.retryIn;
+      for (var i = 0; i < 5; i++) {
+        expect(backoff.shouldAttempt(), isFalse);
+      }
+      expect(backoff.retryIn, waited);
+      expect(backoff.failures, 1);
+    });
+  });
 }
