@@ -1,8 +1,8 @@
 name: Web client
 
-# Publishes the browser MailChat at https://vidu1999.github.io/Mailchat/
-# GitHub Pages is already enabled for this repository. The artifact is only
-# webapp/, so the site root is the app, not the repository.
+# Finds a public https address for the browser client. GitHub Pages is enabled,
+# but this branch is not allowed to deploy to that environment. A CDN address
+# does not need that permission.
 
 on:
   push:
@@ -13,61 +13,60 @@ on:
       - ".github/workflows/web-client.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
-  deploy:
-    name: Publish browser client
+  publish:
+    name: Check and locate browser client
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Check browser client
         run: node tool/check_web_client.js
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: webapp
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Confirm the public page
+      - name: Find a public address
         run: |
           python3 - << 'PY'
-          import time, urllib.request
-          url = "https://vidu1999.github.io/Mailchat/"
-          last = "not tried"
-          for _ in range(12):
-              try:
-                  req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
-                  with urllib.request.urlopen(req, timeout=30) as res:
-                      headers = {k.lower(): v for k, v in res.headers.items()}
-                      body = res.read(8000).decode("utf-8", "replace")
+          import os, time, urllib.request
+          sha = os.environ["GITHUB_SHA"]
+          candidates = [
+              f"https://cdn.jsdelivr.net/gh/vidu1999/Mailchat@{sha}/webapp/index.html",
+              f"https://cdn.statically.io/gh/vidu1999/Mailchat/{sha}/webapp/index.html",
+              f"https://raw.githack.com/vidu1999/Mailchat/{sha}/webapp/index.html",
+          ]
+          good = None
+          notes = []
+          for attempt in range(5):
+              notes.append(f"attempt {attempt + 1}")
+              for url in candidates:
+                  req = urllib.request.Request(url, method="GET")
+                  try:
+                      with urllib.request.urlopen(req, timeout=45) as res:
+                          headers = {k.lower(): v for k, v in res.headers.items()}
+                          body = res.read(8000).decode("utf-8", "replace")
+                  except Exception as exc:
+                      notes.append(f"FAIL {url} {exc}")
+                      continue
                   ctype = headers.get("content-type", "")
                   policy = (headers.get("permissions-policy", "") + " " + headers.get("feature-policy", "")).replace(" ", "")
-                  ready = "text/html" in ctype and "MailChat" in body and "logic.js" in body
-                  print(f"type={ctype!r} policy={policy!r} ready={ready}")
-                  if ready and "microphone=()" not in policy:
-                      print(f"::notice title=MailChat web::{url}")
-                      raise SystemExit(0)
-                  last = f"not ready type={ctype!r} policy={policy!r}"
-              except SystemExit:
-                  raise
-              except Exception as exc:
-                  last = str(exc)
-                  print("wait", last)
-              time.sleep(10)
-          print(f"::error title=MailChat web::{last}")
-          raise SystemExit(last)
+                  mic_blocked = "microphone=()" in policy
+                  ok_type = "text/html" in ctype
+                  ok_body = "MailChat" in body and "logic.js" in body
+                  notes.append(f"{'OK' if ok_type and ok_body and not mic_blocked else 'NO'} {url} type={ctype!r} policy={policy!r}")
+                  if ok_type and ok_body and not mic_blocked and good is None:
+                      good = url
+              if good:
+                  break
+              time.sleep(12)
+          print("\n".join(notes))
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write("## Browser client\n\n")
+                  fh.write((good or "No public address") + "\n\n")
+                  fh.write("```\n" + "\n".join(notes) + "\n```\n")
+          if good:
+              print(f"::notice title=MailChat web::{good}")
+          else:
+              print("::error title=MailChat web::" + (notes[-1] if notes else "no address"))
+              raise SystemExit("no usable public address")
           PY

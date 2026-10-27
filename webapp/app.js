@@ -10,6 +10,7 @@
   var CONFIG_KEY = 'mailchat.web.config';
   var SESSION_KEY = 'mailchat.web.session';
   var PENDING_KEY = 'mailchat.web.pending';
+  var TURN_PASS_KEY = 'mailchat.web.turnpass';
 
   var cfg = null;
   var session = null;
@@ -62,13 +63,20 @@
     localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
   }
   function loadSession() {
-    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
+    try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); }
     catch (err) { return null; }
   }
   function saveSession(next) {
     session = next;
-    if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-    else localStorage.removeItem(SESSION_KEY);
+    if (next) sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else sessionStorage.removeItem(SESSION_KEY);
+  }
+  function loadTurnPass() {
+    return sessionStorage.getItem(TURN_PASS_KEY) || '';
+  }
+  function saveTurnPass(value) {
+    if (value) sessionStorage.setItem(TURN_PASS_KEY, value);
+    else sessionStorage.removeItem(TURN_PASS_KEY);
   }
 
   function toast(text) {
@@ -767,7 +775,7 @@
       'stun:stun.l.google.com:19302',
       cfg.turnUrl,
       (cfg.turnUser || '').trim(),
-      cfg.turnPass || ''
+      cfg.turnPass || loadTurnPass() || ''
     );
   }
 
@@ -1357,7 +1365,7 @@
       '<h3 style="margin-top:22px">Relay for calls</h3><p class="tiny">Paste the same TURN lines the phone uses, or a call on mobile data stays on Connecting. The password stays in this browser.</p>' +
       '<form data-act="save-turn"><label for="turn">TURN addresses</label><textarea id="turn">' + L.esc(cfg.turnUrl || '') + '</textarea>' +
       '<label for="turn-user">Username</label><input id="turn-user" value="' + L.esc(cfg.turnUser || '') + '" autocomplete="off">' +
-      '<label for="turn-pass">Password</label><input id="turn-pass" type="password" value="' + L.esc(cfg.turnPass || '') + '" autocomplete="off">' +
+      '<label for="turn-pass">Password</label><input id="turn-pass" type="password" value="' + L.esc(loadTurnPass()) + '" autocomplete="off">' +
       '<button class="btn full" type="submit">Save relay</button></form>' +
       '<h3 style="margin-top:22px">Email links</h3><p class="tiny">If a confirmation or reset email bounces, add this address in Supabase → Authentication → URL Configuration → Redirect URLs.</p>' +
       '<input id="redirect-url" readonly value="' + L.esc(L.pageAddress()) + '">' +
@@ -1700,12 +1708,12 @@
     var key = $('cfg-key').value.trim();
     var problem = configError(url, key);
     if (problem) { state.error = problem; render(); return; }
+    saveTurnPass(($('cfg-turn-pass') && $('cfg-turn-pass').value) || '');
     saveConfig({
       url: url,
       anonKey: key,
       turnUrl: ($('cfg-turn') && $('cfg-turn').value) || '',
       turnUser: ($('cfg-turn-user') && $('cfg-turn-user').value) || '',
-      turnPass: ($('cfg-turn-pass') && $('cfg-turn-pass').value) || '',
     });
     state.error = '';
     render();
@@ -1800,9 +1808,9 @@
   function saveTurn() {
     cfg.turnUrl = $('turn').value;
     cfg.turnUser = $('turn-user').value;
-    cfg.turnPass = $('turn-pass').value;
+    saveTurnPass($('turn-pass').value);
     saveConfig(cfg);
-    toast('Relay saved in this browser.');
+    toast('Relay saved in this browser tab.');
   }
 
   async function sendReport() {
