@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/shared/models/peer_presence.dart';
+import 'package:mailchat/shared/services/last_seen_heartbeat.dart';
 import 'package:mailchat/shared/services/presence_service.dart';
 
 /// Online status is now two things at once: a live Realtime signal for "are they
