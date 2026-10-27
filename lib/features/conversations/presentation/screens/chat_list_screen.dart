@@ -20,6 +20,7 @@ import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
 import 'package:mailchat/shared/widgets/app_text.dart';
+import 'package:mailchat/shared/widgets/offline_banner.dart';
 
 /// Primary screen: list of conversations (direct + group) with unread badges.
 ///
@@ -329,7 +330,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          // An outage is otherwise invisible here: the list keeps its last
+          // contents and nothing says why nothing new arrives.
+          const OfflineBanner(),
+          Expanded(child: _buildBody()),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'New conversation',
         onPressed: () =>

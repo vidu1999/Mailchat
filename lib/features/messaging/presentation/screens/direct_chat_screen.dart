@@ -20,6 +20,7 @@ import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
 import 'package:mailchat/shared/widgets/message_bubble.dart';
+import 'package:mailchat/shared/widgets/offline_banner.dart';
 
 /// 1:1 and group chat screen.
 ///
@@ -470,6 +471,9 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       ),
       body: Column(
         children: [
+          // A send that cannot leave the phone must not look like a message that
+          // vanished: say the connection is gone, above the thread.
+          const OfflineBanner(),
           Expanded(child: _buildMessageList()),
           _buildComposer(),
         ],

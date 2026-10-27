@@ -894,8 +894,9 @@ phone. `error 1` on a UDP send is `EPERM`: the kernel refused the packet. Google
 STUN server is fine — something on the device is blocking this app's traffic.
 
 The app already names the cause in its own message ("this is a name-resolution
-problem, not a bad key"), and it retries with backoff instead of hammering. Check,
-in this order:
+problem, not a bad key"), shows it as a strip at the top of the chat list
+(`OfflineBanner`), and retries with backoff instead of hammering. Check, in this
+order:
 
 | Check | Where |
 | --- | --- |

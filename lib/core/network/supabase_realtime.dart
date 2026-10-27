@@ -8,6 +8,7 @@ import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
+import 'package:mailchat/core/network/connection_status.dart';
 import 'package:mailchat/core/network/connectivity_signal.dart';
 import 'package:mailchat/core/network/transport_failure.dart';
 
@@ -113,6 +114,8 @@ class SupabaseRealtimeClient {
         cancelOnError: false,
       );
       _connectionStateController.add(true);
+      // The socket is open, so requests to the REST API will work too.
+      ConnectionStatus.instance.reportSuccess();
       _startHeartbeat();
       _reconnectAttempt = 0;
       onConnected?.call();
@@ -125,6 +128,9 @@ class SupabaseRealtimeClient {
       _rejoinChannels();
     } catch (e, st) {
       final kind = classifyTransportFailure(e);
+      // Published for the UI: the user sees "offline" instead of an app that
+      // silently stopped receiving anything.
+      ConnectionStatus.instance.reportFailure(e);
       // A device with no network fails identically every time. Log the stack
       // for the first attempt, then only the classified cause: the advice for
       // "cannot look up the hostname" does not change between attempts.

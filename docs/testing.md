@@ -47,6 +47,7 @@ test/unit/
   postgrest_error_test.dart     PostgREST and auth errors become readable text
   transport_failure_test.dart   socket failures become a cause and an action; realtime backoff
   call_trace_test.dart          the breadcrumb that survives a native call crash
+  connection_status_test.dart   offline detection, one notification per outage, the advice text
   connectivity_recovery_test.dart  the network-recovered signal that ends a realtime backoff early
   reaction_summary_test.dart    reaction chip aggregation
   receipt_state_test.dart       sent / delivered / read from receipt rows
@@ -55,6 +56,7 @@ test/unit/
 test/widget/
   message_bubble_test.dart      rendering, deleted placeholder, ticks, long words
   paste_link_screen_test.dart   the paste-a-link recovery path
+  offline_banner_test.dart      hidden while online, cause-specific when not, clears on success
 ```
 
 Everything here is pure Dart/Flutter: no network, no database, no device. That is

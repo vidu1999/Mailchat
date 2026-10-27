@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
+import 'package:mailchat/core/network/connection_status.dart';
 import 'package:mailchat/core/network/connectivity_signal.dart';
 import 'package:mailchat/core/network/transport_failure.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
@@ -600,6 +601,10 @@ class SupabaseClient {
         ? (cause.osError?.message ?? cause.message)
         : cause.toString();
 
+    // The UI needs to say "you are offline" without importing the HTTP client,
+    // so every transport failure is published here as well as logged.
+    ConnectionStatus.instance.reportFailure(cause);
+
     AppLogger.error(cause, StackTrace.current, {
       'where': where,
       'host': host,
@@ -759,6 +764,7 @@ class SupabaseClient {
       // tell the realtime client "the network works again" without the two
       // classes importing each other.
       ConnectivitySignal.instance.recordSuccess();
+      ConnectionStatus.instance.reportSuccess();
       if (body.isEmpty) return null;
       return jsonDecode(body);
     }

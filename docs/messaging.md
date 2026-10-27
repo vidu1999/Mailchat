@@ -90,6 +90,34 @@ the tick is recomputed when the thread is reopened.
 | Reply shows "Earlier message" | The parent is older than the loaded page | Scroll up to load it; the quote is not silently dropped |
 | Live messages stop arriving while the app is open | The realtime socket dropped (network change, sleep) | It reconnects by itself: 5 s, 10, 20, 40, then 60 s, and immediately after any successful request proves the network is back. On reconnect it **re-joins every channel**, so delivery resumes without a restart |
 
+### When the phone is offline
+
+The app now says so instead of looking frozen. Every transport failure — a REST
+call or a realtime reconnect attempt — is published to `ConnectionStatus`
+(`lib/core/network/connection_status.dart`), and `OfflineBanner` shows a strip at
+the top of the chat list and of the open thread:
+
+```text
+☁ This phone cannot look up addresses right now. Messages will not send until it
+  can — check Wi-Fi or mobile data, then turn off Data saver or Private DNS.
+```
+
+Four properties of that banner are deliberate:
+
+* **Only a successful request clears it.** A dropped socket never does, because
+  that is precisely the moment "back online" would be a lie.
+* **One notification per outage, not one per failure.** During an outage every
+  heartbeat and every retry fails; rebuilding the banner for each would be work
+  spent in the wrong place.
+* **The sentence depends on the cause** — DNS, no route, timeout, TLS
+  interception and a refused connection have five different fixes, and the
+  banner names the one that applies.
+* **No retry button.** The app is already retrying on its own; a button would
+  imply a control it does not have.
+
+There is still no offline queue: a message sent while offline fails and says so,
+it is not held and delivered later. That stays in [Known gaps](#known-gaps).
+
 ## Known gaps
 
 * No message search.
