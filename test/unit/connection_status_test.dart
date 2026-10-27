@@ -80,7 +80,10 @@ void main() {
         adviceFor(const SocketException('Network is unreachable')).toLowerCase();
     expect(unreachable, contains('no route'));
 
-    final timeout = adviceFor(TimeoutException('timed out')).toLowerCase();
+    // A real timeout arrives as a SocketException on Android ("Connection timed
+    // out"), so the fixture is one too -- no dart:async import needed.
+    final timeout =
+        adviceFor(const SocketException('Connection timed out')).toLowerCase();
     expect(timeout, contains('portal'));
 
     expect(adviceFor(const SocketException('Connection refused')).toLowerCase(),
