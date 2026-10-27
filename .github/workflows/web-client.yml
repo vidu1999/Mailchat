@@ -38,7 +38,10 @@ jobs:
           for attempt in range(5):
               notes.append(f"attempt {attempt + 1}")
               for url in candidates:
-                  req = urllib.request.Request(url, method="GET")
+                  req = urllib.request.Request(url, method="GET", headers={
+                      "User-Agent": "Mozilla/5.0",
+                      "Accept": "text/html",
+                  })
                   try:
                       with urllib.request.urlopen(req, timeout=45) as res:
                           headers = {k.lower(): v for k, v in res.headers.items()}
@@ -64,9 +67,10 @@ jobs:
                   fh.write("## Browser client\n\n")
                   fh.write((good or "No public address") + "\n\n")
                   fh.write("```\n" + "\n".join(notes) + "\n```\n")
+          report = " | ".join(notes)[:3500]
           if good:
               print(f"::notice title=MailChat web::{good}")
           else:
-              print("::error title=MailChat web::" + (notes[-1] if notes else "no address"))
+              print("::error title=MailChat web::" + report)
               raise SystemExit("no usable public address")
           PY
