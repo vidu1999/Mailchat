@@ -10,6 +10,7 @@ import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/features/calls/domain/call_media.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
 import 'package:mailchat/features/calls/domain/call_service.dart';
+import 'package:mailchat/features/calls/domain/ice_path.dart';
 
 /// A call in progress.
 ///
@@ -70,6 +71,14 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   StreamSubscription<Call>? _callEvents;
   StreamSubscription<Map<String, dynamic>>? _candidateEvents;
 
+  /// Realtime can miss the accept, or deliver ICE before the answer is applied.
+  /// Polling the row and the candidate table is what makes a call connect when
+  /// the socket is late — which is the usual case on a flaky mobile network.
+  Timer? _syncTimer;
+  bool _answerApplied = false;
+  bool _syncFailureLogged = false;
+  final Set<String> _seenRemote = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +96,9 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
   Future<void> _start() async {
     setState(() => _stage = CallMediaStage.preparing);
+    _media.onPathChanged = (_) {
+      if (mounted) setState(() {});
+    };
     try {
       if (!_isCaller) {
         // The callee needs the caller's offer before it can answer at all.
@@ -148,7 +160,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     final callId = _callId;
     if (callId == null) return;
 
-    _media.onIceCandidate = (candidate) {
+    _media.listenForLocalCandidates((candidate) {
       final value = candidate.candidate;
       if (value == null || value.isEmpty) return;
       // Fired and forgotten: a lost candidate is recoverable (ICE retries with
@@ -163,7 +175,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         ),
         'call_ice_send',
       );
-    };
+    });
 
     _media.onRemoteStream = (_) {
       if (mounted) setState(() {});
@@ -172,6 +184,13 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     _media.onConnectionState = (state) {
       if (!mounted) return;
       final stage = stageFromPeerState(state);
+      // ICE can report connected before the peer-connection state does. A
+      // later "connecting" from the slower callback must not put the screen
+      // back on "Connecting..." for a call that is already up.
+      if (_stage == CallMediaStage.connected &&
+          stage == CallMediaStage.connecting) {
+        return;
+      }
       setState(() {
         _stage = stage;
         if (stage == CallMediaStage.connected) {
@@ -180,55 +199,99 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
           // "still not connected" hint does not fire on the first wobble.
           _waited = Duration.zero;
           _slowConnect = false;
+          _syncTimer?.cancel();
         }
       });
     };
 
     _calls.watchCall(callId);
 
-    _callEvents = _calls.callUpdates.listen((call) async {
-      if (!mounted || call.id != callId) return;
-      setState(() => _call = call);
-
-      if (call.state == CallState.ongoing) {
-        // The answer is what turns a ring into a connection on this side.
-        final answer = call.answerSdp;
-        if (_isCaller && (answer ?? '').isNotEmpty) {
-          await _media.applyAnswer(answer!);
-        }
-      } else if (call.state.isTerminal) {
-        if (mounted && _stage != CallMediaStage.ended) {
-          setState(() => _error = call.state.label);
-        }
-        await _finish(localEnd: false);
-      }
+    _callEvents = _calls.callUpdates.listen((call) {
+      unawaited(_handleCallUpdate(call));
     });
 
-    // Candidates may have arrived while media was still starting, so seed from
-    // the table and then follow the stream.
-    _logOnly(_seedCandidates(callId), 'call_ice_seed');
-
     _candidateEvents = _calls.candidateUpdates.listen((row) {
-      if (row['sender_id'] == _selfId) return;
-      unawaited(_media.addRemoteCandidate(
-        candidate: '${row['candidate']}',
-        sdpMid: row['sdp_mid'] as String?,
-        sdpMlineIndex: row['sdp_mline_index'] as int?,
-      ));
+      unawaited(_takeCandidate(row));
+    });
+
+    // Immediate, then every two seconds. The first poll is what recovers an
+    // accept that happened before this subscription existed.
+    unawaited(_syncSignalling());
+    _syncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_syncSignalling());
     });
   }
 
-  /// Candidates that arrived before this side started listening.
-  Future<void> _seedCandidates(String callId) async {
-    final rows =
-        await _calls.iceCandidates(callId: callId, excludeUserId: _selfId);
-    for (final row in rows) {
-      await _media.addRemoteCandidate(
-        candidate: '${row['candidate']}',
-        sdpMid: row['sdp_mid'] as String?,
-        sdpMlineIndex: row['sdp_mline_index'] as int?,
-      );
+  Future<void> _handleCallUpdate(Call call) async {
+    if (!mounted || call.id != _callId) return;
+    setState(() => _call = call);
+
+    if (call.state == CallState.ongoing) {
+      final answer = call.answerSdp ?? '';
+      if (_isCaller && answer.isNotEmpty && !_answerApplied) {
+        _answerApplied = true;
+        try {
+          await _media.applyAnswer(answer);
+          if (mounted) setState(() {});
+        } catch (e, st) {
+          _answerApplied = false;
+          AppLogger.error(e, st, {'where': 'call_apply_answer'});
+        }
+      }
+    } else if (call.state.isTerminal) {
+      if (mounted && _stage != CallMediaStage.ended) {
+        setState(() => _error = call.state.label);
+      }
+      await _finish(localEnd: false);
     }
+  }
+
+  Future<void> _syncSignalling() async {
+    final callId = _callId;
+    if (callId == null || _finishing || !mounted) return;
+    if (_stage == CallMediaStage.connected ||
+        _stage == CallMediaStage.ended ||
+        _stage == CallMediaStage.failed) {
+      _syncTimer?.cancel();
+      return;
+    }
+    try {
+      final call = await _calls.fetch(callId);
+      if (call != null) await _handleCallUpdate(call);
+      if (_finishing || !mounted) return;
+      final rows = await _calls.iceCandidates(
+        callId: callId,
+        excludeUserId: _selfId,
+      );
+      for (final row in rows) {
+        await _takeCandidate(row);
+      }
+      _syncFailureLogged = false;
+    } catch (e, st) {
+      if (_syncFailureLogged) return;
+      _syncFailureLogged = true;
+      AppLogger.warning('call_sync_failed', details: {'error': e.toString()});
+      AppLogger.error(e, st, {'where': 'call_sync'});
+    }
+  }
+
+  Future<void> _takeCandidate(Map<String, dynamic> row) async {
+    if (row['sender_id'] == _selfId) return;
+    final value = '${row['candidate']}';
+    if (value.isEmpty || value == 'null' || !_seenRemote.add(value)) return;
+    await _media.addRemoteCandidate(
+      candidate: value,
+      sdpMid: row['sdp_mid'] as String?,
+      sdpMlineIndex: _asInt(row['sdp_mline_index']),
+    );
+  }
+
+  /// PostgREST integers sometimes arrive as [num]. A failed cast used to drop
+  /// the candidate inside the stream listener.
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return null;
   }
 
   /// Runs a best-effort write and logs a failure instead of throwing.
@@ -266,6 +329,10 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         AppLogger.warning('call_connect_slow', details: {
           'waited_seconds': _waited.inSeconds,
           'has_relay': AppConfig.instance.hasTurnRelay,
+          'has_tcp_fallback': AppConfig.instance.hasTurnFallback,
+          'answer_applied': !_isCaller || _answerApplied,
+          'is_caller': _isCaller,
+          ..._media.path.logDetails,
         });
       }
     });
@@ -277,6 +344,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     if (_finishing) return;
     _finishing = true;
     _ticker?.cancel();
+    _syncTimer?.cancel();
 
     final callId = _callId;
     if (localEnd && callId != null && (_call?.state.isTerminal != true)) {
@@ -316,6 +384,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       );
     }
     _ticker?.cancel();
+    _syncTimer?.cancel();
     _callEvents?.cancel();
     _candidateEvents?.cancel();
     _calls.unwatchCall();
@@ -326,27 +395,26 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
   /// What to say about a call that will not connect, if anything.
   ///
-  /// Two different sentences, because they are two different problems: no relay
-  /// in this build (a configuration gap the user can fix by reading
-  /// `docs/calls.md`) versus a relay that exists but has not taken over (a
-  /// network problem). Saying the second when the first is true sends the user
-  /// looking in the wrong place.
+  /// The sentence names the gap (no relay, no answer, relay refused this
+  /// phone, the other phone never reached it, or both did and audio is still
+  /// blocked). A single "the network is blocking the call" sent people into
+  /// phone settings when the missing piece was configuration.
   String? get _connectHint {
-    final hasRelay = AppConfig.instance.hasTurnRelay;
-    if (_slowConnect && _stage == CallMediaStage.connecting) {
-      return hasRelay
-          ? 'Still not connected. The two phones cannot reach each other '
-              'directly and the relay has not taken over — the network is '
-              'blocking the call.'
-          : 'Still not connected after ${_slowConnectAfter.inSeconds} seconds. '
-              'This build has no relay (TURN), so the call only works when both '
-              'phones can reach each other — mobile data usually cannot. See '
-              'docs/calls.md.';
-    }
-    if (!hasRelay && _isCaller && !_stage.isTerminalLike) {
-      return 'No TURN relay configured: this call may fail on mobile data.';
-    }
-    return null;
+    if (_stage == CallMediaStage.ended) return null;
+    // A failed ICE check can arrive before the 15-second hint. Treat that as
+    // slow too, so the screen still names the gap instead of only saying
+    // "Could not connect".
+    final slow = _stage == CallMediaStage.failed ||
+        (_slowConnect && _stage == CallMediaStage.connecting);
+    return callConnectAdvice(
+      hasRelay: AppConfig.instance.hasTurnRelay,
+      hasTcpFallback: AppConfig.instance.hasTurnFallback,
+      slow: slow,
+      waitedSeconds: _slowConnectAfter.inSeconds,
+      isCaller: _isCaller,
+      answerApplied: _answerApplied,
+      path: _media.path,
+    );
   }
 
   String get _timerLabel {

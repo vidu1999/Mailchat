@@ -166,6 +166,17 @@ Future<void> main(List<String> args) async {
           'placeholder — the relay will reject it. Copy the credential from '
           'the provider dashboard.');
     }
+    // A UDP-only list parses, so the app would say a relay is configured and
+    // then sit on "Connecting..." on every mobile network. Refuse the build
+    // instead of shipping that.
+    if (!TurnUrls.hasFallback(turnUrl)) {
+      problems.add('TURN_URL has no TCP or TLS address, so mobile data will '
+          'block the call.\n'
+          'On the provider page, copy the address that starts with turns: and '
+          'ends with transport=tcp, and add it to the same TURN_URL line. '
+          'Example:\n'
+          '  turns:global.relay.metered.ca:443?transport=tcp');
+    }
   }
 
   final host = Uri.tryParse(
@@ -209,18 +220,12 @@ Future<void> main(List<String> args) async {
       stdout.writeln('  relay: none configured (a call then works on the same '
           'network only; see docs/calls.md)');
     } else {
-      // A hosted relay is only as good as its fallbacks: with UDP-only entries
-      // a network that blocks UDP fails the call outright, so say which case
-      // this is instead of "relay: configured".
-      final tcp = relays.any(
-        (u) => u.startsWith('turns:') || u.contains('transport=tcp'),
-      );
+      // UDP-only lists never get here: they are a configuration error above,
+      // because a network that blocks UDP would otherwise fail the call with
+      // nothing in this line to explain it.
       final count =
           relays.length == 1 ? '1 address' : '${relays.length} addresses';
-      final fallback = tcp
-          ? ''
-          : ' (UDP only — a network that blocks UDP will still fail)';
-      stdout.writeln('  relay: $count$fallback');
+      stdout.writeln('  relay: $count');
     }
     final redirect = values['AUTH_REDIRECT_URL'] ?? 'mailchat://auth/callback';
     stdout.writeln('  auth redirect: $redirect');

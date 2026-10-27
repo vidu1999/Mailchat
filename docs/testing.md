@@ -47,6 +47,7 @@ test/unit/
   postgrest_error_test.dart     PostgREST and auth errors become readable text
   transport_failure_test.dart   socket failures become a cause and an action; realtime backoff
   call_trace_test.dart          the breadcrumb that survives a native call crash
+  ice_path_test.dart            candidate kinds, the queue that keeps early ICE, the connect-hint sentences
   connection_status_test.dart   offline detection, one notification per outage, the advice text
   connectivity_recovery_test.dart  the network-recovered signal that ends a realtime backoff early
   reaction_summary_test.dart    reaction chip aggregation
@@ -147,5 +148,5 @@ different accounts with a direct conversation open in the chat list.
 - [ ] Hang up on either side: both screens close and the row ends `ended`
 - [ ] Decline: the caller sees "Declined" and the row ends `declined`
 - [ ] Ring, then leave B's prompt untouched and swipe it away: the row ends `missed`
-- [ ] Over mobile data with **no** TURN configured: expect "Could not connect".
-      That is the documented behaviour, not a bug — add a relay to `TURN_URL`
+- [ ] Over mobile data with **no** TURN configured: the screen says this build has no relay. That is the documented behaviour, not a bug — add a relay to `TURN_URL` (see `docs/calls.md`).
+- [ ] With a relay configured, two phones on different networks reach "Connected". If not, the sentence under Connecting names the gap (password, missing `turns:` address, the other phone, or Data saver).

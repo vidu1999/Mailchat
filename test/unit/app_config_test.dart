@@ -214,11 +214,12 @@ void main() {
     });
   });
 
-  // The runtime twin of the "relay: UDP only" line that `dart run
-  // tool/check_config.dart` prints. A call that never connects looks identical
-  // on screen whether the build has no relay or the network is blocking it, so
-  // the app logs which case it is at call start — and that line gets pasted into
-  // a bug report, which is why the credential must not be in it.
+  // What `call_ice_config` logs instead of the credential. A call that never
+  // connects used to look identical on screen whether the build had no relay
+  // or the network was blocking it, so the app logs which case it is at call
+  // start — and that line gets pasted into a bug report, which is why the
+  // credential must not be in it. A UDP-only list is refused by
+  // `tool/check_config.dart` before it can be built.
   group('TurnUrls.hosts', () {
     test('lists host and port without scheme or query', () {
       expect(

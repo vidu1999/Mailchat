@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
 import 'package:mailchat/features/calls/domain/call_trace.dart';
+import 'package:mailchat/features/calls/domain/ice_path.dart';
 
 /// One call's media session: camera/microphone, a peer connection, and the
 /// renderers the call screen paints.
@@ -37,14 +40,42 @@ class CallMedia {
   bool _renderersReady = false;
   bool _disposed = false;
 
-  /// ICE candidate produced locally, to be written to `call_ice_candidates`.
-  void Function(RTCIceCandidate candidate)? onIceCandidate;
+  /// Delivers local ICE candidates, including any gathered before the screen
+  /// had a call id to write them against.
+  ///
+  /// Those used to be dropped, and a dropped relay candidate is a call that
+  /// never connects. A method rather than a setter: the listener is not a
+  /// value the screen needs to read back.
+  void listenForLocalCandidates(
+    void Function(RTCIceCandidate candidate)? listener,
+  ) {
+    final waiting = _localQueue.pending;
+    _localQueue.listener = listener;
+    if (waiting > 0) {
+      AppLogger.info('call_ice_flushed_local', details: {'count': waiting});
+    }
+  }
 
   /// The remote side's media arrived; the screen can show the video view.
   void Function(MediaStream stream)? onRemoteStream;
 
   /// Connection state changed (connected, disconnected, failed).
   void Function(RTCPeerConnectionState state)? onConnectionState;
+
+  /// Local or remote path counts changed. The call screen rebuilds its hint.
+  void Function(IcePathSnapshot snapshot)? onPathChanged;
+
+  IcePathSnapshot _path = const IcePathSnapshot();
+
+  /// What this call has gathered and received. Credential-free.
+  IcePathSnapshot get path => _path;
+
+  final IceCandidateQueue<RTCIceCandidate> _localQueue =
+      IceCandidateQueue<RTCIceCandidate>();
+  final RemoteCandidateGate<_QueuedCandidate> _remoteGate =
+      RemoteCandidateGate<_QueuedCandidate>();
+  Completer<void>? _gatheringDone;
+  String? _appliedRemoteSdp;
 
   /// Logs the step about to start, and writes it to the crash breadcrumb. See
   /// [initialise] for why: a native kill leaves neither a Dart error nor a
@@ -126,18 +157,56 @@ class CallMedia {
     }
 
     _step('peer_connection_begin');
+    // Direct paths between two phones on mobile data almost never succeed, and
+    // the default policy sits on them until the call is given up — which is
+    // exactly "the relay has not taken over". When a relay is configured, use
+    // only that path so it is tried immediately.
+    final useRelay = config.hasTurnRelay;
     _peer = await createPeerConnection({
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
-      // A relay-only policy would keep the caller's IP off the wire but
-      // requires TURN; only use it when a relay is actually configured.
-      if (config.hasTurnRelay) 'iceTransportPolicy': 'all',
+      if (useRelay) 'iceTransportPolicy': 'relay',
     });
 
     _peer!.onIceCandidate = (candidate) {
       final value = candidate.candidate;
-      if (value == null || value.isEmpty) return;
-      onIceCandidate?.call(candidate);
+      if (value == null || value.isEmpty) {
+        _finishGathering();
+        return;
+      }
+      final kind = classifyIceCandidate(value);
+      _path = _path.addLocal(value);
+      AppLogger.info('call_ice_local', details: {
+        'kind': kind.logName,
+        ..._path.logDetails,
+      });
+      onPathChanged?.call(_path);
+      _localQueue.add(candidate);
+    };
+
+    _peer!.onIceGatheringState = (state) {
+      AppLogger.info('call_ice_gathering', details: {'state': state.name});
+      if (state == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+        _finishGathering();
+      }
+    };
+
+    // Some Android builds fire this and never fire onConnectionState, so a
+    // call that is actually up stays on "Connecting..." forever.
+    _peer!.onIceConnectionState = (state) {
+      AppLogger.info('call_ice_state', details: {'state': state.name});
+      final up = state ==
+              RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
+      if (up) {
+        onConnectionState?.call(
+          RTCPeerConnectionState.RTCPeerConnectionStateConnected,
+        );
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        onConnectionState?.call(
+          RTCPeerConnectionState.RTCPeerConnectionStateFailed,
+        );
+      }
     };
 
     _peer!.onTrack = (event) {
@@ -164,15 +233,22 @@ class CallMedia {
       'video': video,
       'iceServers': iceServers.length,
       'turn': config.hasTurnRelay,
+      'policy': useRelay ? 'relay' : 'all',
     });
   }
 
   /// Creates the caller's offer. The caller then stores it in `calls.offer_sdp`.
+  ///
+  /// Waits briefly for gathering to finish so the SDP itself contains the relay
+  /// address. Trickle ICE is still used, but a missed candidate row must not be
+  /// the difference between a connected call and "Connecting...".
   Future<String> createOffer() async {
     final peer = _requirePeer();
+    _armGathering();
     final offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
-    return offer.sdp ?? '';
+    await _waitForGathering();
+    return _localSdp(offer);
   }
 
   /// Applies the caller's offer and returns the callee's answer.
@@ -182,40 +258,53 @@ class CallMedia {
   Future<String> createAnswer(String offerSdp) async {
     final peer = _requirePeer();
     await peer.setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+    _noteRemoteSdp(offerSdp);
+    await _flushRemote();
+    _armGathering();
     final answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
-    return answer.sdp ?? '';
+    await _waitForGathering();
+    return _localSdp(answer);
   }
 
   /// Applies the callee's answer on the caller's side.
+  ///
+  /// Idempotent: the call row is both watched and polled, and a second
+  /// `setRemoteDescription` throws and used to be an unhandled stream error.
   Future<void> applyAnswer(String answerSdp) async {
+    if (answerSdp.isEmpty || answerSdp == _appliedRemoteSdp) return;
     final peer = _requirePeer();
-    if (answerSdp.isEmpty) return;
     await peer.setRemoteDescription(RTCSessionDescription(answerSdp, 'answer'));
+    _appliedRemoteSdp = answerSdp;
+    _noteRemoteSdp(answerSdp);
+    await _flushRemote();
   }
 
   /// Adds a candidate produced by the other side.
   ///
-  /// A failure here is logged and ignored: candidates that arrive after the
-  /// connection settled are normal, and one bad row must not tear down a call
-  /// that is already carrying audio.
+  /// Held until the remote description exists. Adding one earlier throws, and
+  /// forgetting it — the previous behaviour — drops the relay address.
+  ///
+  /// A failure after that is logged and ignored: candidates that arrive after
+  /// the connection settled are normal, and one bad row must not tear down a
+  /// call that is already carrying audio.
   Future<void> addRemoteCandidate({
     required String candidate,
     String? sdpMid,
     int? sdpMlineIndex,
   }) async {
-    final peer = _peer;
-    if (peer == null || candidate.isEmpty) return;
-    try {
-      await peer.addCandidate(RTCIceCandidate(
-        candidate,
-        sdpMid ?? '0',
-        sdpMlineIndex ?? 0,
-      ));
-    } catch (e, st) {
-      AppLogger.warning('call_ice_add_failed', details: {'error': e.toString()});
-      AppLogger.error(e, st, {'where': 'call_ice_add'});
+    if (_disposed || _peer == null || candidate.isEmpty) return;
+    final item = _QueuedCandidate(candidate, sdpMid, sdpMlineIndex);
+    final ready = _remoteGate.submit(item);
+    if (ready == null) {
+      if (_remoteGate.pending == 1) {
+        AppLogger.info('call_ice_queued', details: {
+          'reason': 'remote description not set yet',
+        });
+      }
+      return;
     }
+    await _addRemoteNow(ready);
   }
 
   /// Mutes or unmutes the camera without renegotiating.
@@ -237,6 +326,86 @@ class CallMedia {
       await Helper.switchCamera(track);
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'call_switch_camera'});
+    }
+  }
+
+  void _armGathering() {
+    final existing = _gatheringDone;
+    if (existing != null && !existing.isCompleted) return;
+    _gatheringDone = Completer<void>();
+  }
+
+  void _finishGathering() {
+    if (_path.gatheringComplete) return;
+    _path = _path.markGatheringComplete();
+    final done = _gatheringDone;
+    if (done != null && !done.isCompleted) done.complete();
+    AppLogger.info('call_ice_gathered', details: _path.logDetails);
+    onPathChanged?.call(_path);
+  }
+
+  /// Gives the relay a few seconds, then sends whatever was gathered. A TURN
+  /// server that never answers must not keep the other phone ringing forever.
+  Future<void> _waitForGathering() async {
+    final done = _gatheringDone;
+    if (done == null || done.isCompleted) return;
+    _step('gather_wait');
+    try {
+      await done.future.timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      AppLogger.warning('call_ice_gather_timeout', details: {
+        ..._path.logDetails,
+        'limit_seconds': 8,
+      });
+    }
+    _step('gather_done');
+  }
+
+  Future<String> _localSdp(RTCSessionDescription created) async {
+    try {
+      final current = await _requirePeer().getLocalDescription();
+      final sdp = current?.sdp;
+      if (sdp != null && sdp.isNotEmpty) return sdp;
+    } catch (e, st) {
+      AppLogger.warning('call_local_sdp_failed', details: {'error': e.toString()});
+      AppLogger.error(e, st, {'where': 'call_local_sdp'});
+    }
+    return created.sdp ?? '';
+  }
+
+  void _noteRemoteSdp(String sdp) {
+    final next = _path.noteRemoteSdp(sdp);
+    if (next.remoteAdded == _path.remoteAdded &&
+        next.remoteRelay == _path.remoteRelay) {
+      return;
+    }
+    _path = next;
+    onPathChanged?.call(_path);
+  }
+
+  Future<void> _flushRemote() async {
+    final queued = _remoteGate.open();
+    if (queued.isEmpty) return;
+    AppLogger.info('call_ice_flush', details: {'count': queued.length});
+    for (final item in queued) {
+      await _addRemoteNow(item);
+    }
+  }
+
+  Future<void> _addRemoteNow(_QueuedCandidate item) async {
+    final peer = _peer;
+    if (peer == null || _disposed) return;
+    try {
+      await peer.addCandidate(RTCIceCandidate(
+        item.candidate,
+        item.sdpMid ?? '0',
+        item.sdpMlineIndex ?? 0,
+      ));
+      _path = _path.noteRemoteCandidate(item.candidate);
+      onPathChanged?.call(_path);
+    } catch (e, st) {
+      AppLogger.warning('call_ice_add_failed', details: {'error': e.toString()});
+      AppLogger.error(e, st, {'where': 'call_ice_add'});
     }
   }
 
@@ -264,6 +433,10 @@ class CallMedia {
     await _trace.clear();
     if (_disposed) return;
     _disposed = true;
+    _localQueue.clear();
+    _remoteGate.reset();
+    final gathering = _gatheringDone;
+    if (gathering != null && !gathering.isCompleted) gathering.complete();
 
     for (final track in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
       try {
@@ -322,3 +495,11 @@ CallMediaStage stageFromPeerState(RTCPeerConnectionState? state) =>
         CallMediaStage.ended,
       null => CallMediaStage.idle,
     };
+
+class _QueuedCandidate {
+  const _QueuedCandidate(this.candidate, this.sdpMid, this.sdpMlineIndex);
+
+  final String candidate;
+  final String? sdpMid;
+  final int? sdpMlineIndex;
+}

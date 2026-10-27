@@ -1115,9 +1115,11 @@ before confirmation there is no session, and RLS would reject the insert.
 - **Calls need a TURN relay on mobile data.** Media is real (`flutter_webrtc`),
   but with only STUN configured a call connects on the same Wi-Fi and can fail
   beyond it. Paste the provider's whole address list (one line,
-  comma-separated) into `TURN_URL` and add `TURN_USERNAME` / `TURN_CREDENTIAL`;
-  `dart run tool/check_config.dart` confirms it with `relay: 4 addresses`. See
-  "Setting up a hosted TURN relay" in `docs/calls.md`.
+  comma-separated, including the `turns:…:443?transport=tcp` entry) into
+  `TURN_URL` and add `TURN_USERNAME` / `TURN_CREDENTIAL`.
+  `dart run tool/check_config.dart` confirms it with `relay: 4 addresses` and
+  refuses a list that has no TCP/TLS address. See "Setting up a hosted TURN
+  relay" in `docs/calls.md`. Both phones must be rebuilt after the edit.
 - **No push notifications.** No FCM credentials are configured; the preference
   switches save but nothing is delivered — see `docs/notifications.md`.
 - **Realtime is unverified.** Implemented, never executed.

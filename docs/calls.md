@@ -125,7 +125,10 @@ blocked UDP port cannot take the working TCP/TLS addresses down with it.
 
 Without a relay a call connects on the same Wi-Fi and on many home routers, and
 fails on mobile data; the caller's screen says exactly that rather than blaming
-the network in general.
+the network in general. When a relay is configured, media is forced through it
+(`iceTransportPolicy: relay` in `lib/features/calls/domain/call_media.dart`),
+including on the same Wi-Fi. A wrong password then fails every call, and the
+screen says the relay refused the phone.
 
 The credential is a per-server secret, not a Supabase key, but it still belongs
 in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
@@ -137,9 +140,11 @@ Any hosted provider works, because the app only needs a list of addresses and on
 credential pair. With [Metered](https://dashboard.metered.ca/v2/turn/dashboard)
 as the example:
 
-1. **TURN Server → Credentials → Create Credential.** The label and region are
-   optional; the region decides which relay host serves you.
-2. On the new credential, **Show ICE Servers** (or *Get credential*). It shows
+1. Log in at [dashboard.metered.ca](https://dashboard.metered.ca/) and open
+   **TURN Server & SFU → Credentials**. If it asks for a plan, pick **Free**
+   (no card). Then **Create Credential**. The label and region are optional;
+   the region decides which relay host serves you.
+2. On the new credential, **Get credential → Show ICE Servers Array**. It shows
    four or five entries and one username/password. A brand-new credential can
    take up to two minutes to propagate — a call placed immediately may gather no
    relay candidate even though the values are right.
@@ -156,14 +161,18 @@ TURN_CREDENTIAL=the-credential-password
    on one line: the env file is line-based.
 
 4. `dart run tool/check_config.dart` — a correct paste reports `relay: 4
-   addresses`. It fails when `TURN_URL` holds no usable address, and when the
-   username or credential is missing, because a hosted relay rejects anonymous
-   allocations and the call would then quietly fall back to STUN.
-5. Stop the app and start it again. Configuration is read at startup and the env
-   file is bundled into the build, so a hot restart will not pick up an edit.
-6. Call between two phones on different networks — one on mobile data. The
-   "no relay configured" warning is gone from the call screen, and the
-   `call_media_ready` log line reports `turn: true`.
+   addresses`. It fails when `TURN_URL` holds no usable address, when the
+   username or credential is missing (a hosted relay rejects anonymous
+   allocations and the call would then quietly fall back to STUN), and when
+   the list has no TCP or TLS address. A UDP-only relay is refused at build
+   time: on mobile data it fails exactly like no relay, with the screen
+   saying a relay is configured.
+5. Rebuild and install that APK on **both** phones. Configuration is bundled
+   into the build, so a hot restart will not pick up an edit, and a phone still
+   running the previous APK will not exchange the relay address.
+6. Call between the two phones on different networks — one on mobile data. The
+   "no relay configured" warning is gone, and `call_media_ready` reports
+   `turn: true` and `policy: relay`.
 
 Rotating the credential later is a dashboard action plus an env edit: nothing in
 the database, the migrations or the RLS policies knows about TURN.
@@ -281,7 +290,7 @@ Settings → Connections → More connection settings → Private DNS → Automa
 **Then the relay question.** One line now answers it at the start of every call:
 
 ```text
-INFO call_ice_config {stun: stun.l.google.com:19302, relay_count: 0, relay_hosts: [], relay_fallback: false}
+INFO call_ice_config {stun: stun.l.google.com:19302, relay_count: 0, relay_hosts: [], relay_fallback: false, policy: all}
 WARN call_no_relay {detail: no TURN relay configured: media can only flow when the two phones reach each other directly…}
 ```
 
@@ -293,16 +302,37 @@ working on a network that blocks UDP, which is why a hosted provider's
 `turns:…:443?transport=tcp` entry matters more than its `turn:…:80` one. How to
 set one up is below, in [Setting up a hosted TURN relay](#setting-up-a-hosted-turn-relay).
 
-After **15 seconds** still connecting, the call screen says which of the two
-cases it is instead of showing "Connecting..." forever:
+After **15 seconds** still connecting, the call screen names the gap instead of
+showing "Connecting..." forever. The sentences live in `callConnectAdvice`
+(`lib/features/calls/domain/ice_path.dart`) and are pinned by
+`test/unit/ice_path_test.dart`:
 
-* no relay configured → *"This build has no relay (TURN), so the call only works
-  when both phones can reach each other — mobile data usually cannot."*
-* relay configured → *"The two phones cannot reach each other directly and the
-  relay has not taken over — the network is blocking the call."*
+* no relay configured;
+* the other phone has not accepted (or this phone cannot reach the server);
+* this phone's relay has no TCP address;
+* the relay refused this phone (wrong username/password, or a credential that
+  is less than two minutes old);
+* this phone reached the relay and nothing arrived from the other phone;
+* this phone reached the relay and the other phone did not;
+* both reached the relay and audio is still blocked (Data saver or a VPN).
 
-Both are also logged once, as `call_connect_slow {waited_seconds, has_relay}`, so
-a bug report carries the answer rather than the symptom.
+The old single sentence — "the relay has not taken over, the network is
+blocking the call" — is gone. It sent people into phone settings when the
+missing piece was a dropped answer or a relay that never allocated an address.
+
+The same facts are logged once, as `call_connect_slow` with `waited_seconds`,
+`has_relay`, `has_tcp_fallback`, `answer_applied` and the candidate counts
+(`relay`, `remote_relay`, no IP addresses), so a bug report carries the answer
+rather than the symptom.
+
+A configured relay is used exclusively (`iceTransportPolicy: relay` in
+`call_media.dart`). Direct paths are what stall a mobile call, so they are not
+tried once a relay exists. Candidates gathered before the call id exists are
+buffered, candidates that arrive before the answer are held until
+`setRemoteDescription`, and the offer/answer wait up to 8 seconds so the SDP
+itself contains the relay address. The call row and `call_ice_candidates` are
+also polled every 2 seconds: a missed realtime event used to drop the answer
+and the call never connected.
 
 ## What still needs doing
 

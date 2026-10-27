@@ -156,6 +156,9 @@ class AppConfig {
         'relay_count': TurnUrls.parse(turnUrl).length,
         'relay_hosts': TurnUrls.hosts(turnUrl),
         'relay_fallback': TurnUrls.hasFallback(turnUrl),
+        // `relay` means media is forced through TURN. `all` means there is no
+        // relay, so the call can only connect directly.
+        'policy': hasTurnRelay ? 'relay' : 'all',
       };
 
   /// True when a TURN relay is configured. Without one, a call can fail to
@@ -166,6 +169,12 @@ class AppConfig {
   /// the call with nothing but STUN — the exact silence that warning exists to
   /// prevent.
   bool get hasTurnRelay => TurnUrls.parse(turnUrl).isNotEmpty;
+
+  /// True when a configured relay can carry media over TCP or TLS.
+  ///
+  /// A UDP-only relay fails on the networks that need a relay most. The call
+  /// screen says so, and `tool/check_config.dart` refuses to build one.
+  bool get hasTurnFallback => TurnUrls.hasFallback(turnUrl);
 
   /// Whether the current environment is production.
   bool get isProduction => environment == 'production';
