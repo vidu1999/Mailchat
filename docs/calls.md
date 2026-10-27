@@ -228,6 +228,23 @@ each step and crash type to a cause. Two behaviours are worth knowing:
 * **A refused microphone or camera is a Dart exception**, caught by the call
   screen and shown as "could not start the call", never a silent ring.
 
+### After a crash: the breadcrumb file
+
+A native or out-of-memory kill produces no Dart error and no `logcat -b crash`
+entry. So `call_media.dart` writes the step it is about to run to
+`mailchat_call_trace.json` in the app cache **before** running it, and deletes
+the file from `dispose()` when the call ends normally. The next launch reads it
+once and logs:
+
+```text
+WARN previous_call_ended_without_cleanup {trace: step "peer_connection_begin" (voice call) at …}
+```
+
+A leftover trace therefore means exactly one thing: the previous process never
+reached `dispose()`. `test/unit/call_trace_test.dart` pins the two properties
+that make it meaningful — valid JSON survives, and a clean end leaves no file —
+so a leftover file can keep being trusted as evidence.
+
 ## What still needs doing
 
 | Item | Why it is not done here |

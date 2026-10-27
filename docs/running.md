@@ -558,6 +558,52 @@ A Dart exception would have been caught by the call screen and shown as
 adb logcat -b crash -d
 ```
 
+Note what that buffer contains: **Java/Kotlin exceptions only**. If it lists
+other apps (or old timestamps) and nothing for `com.mailchat.mailchat`, the
+process was killed some other way — a native signal (camera, WebRTC, Vulkan) or
+the system's low-memory killer — and you need the main buffer instead:
+
+```powershell
+adb logcat -c                                  # clear
+# reproduce the call, wait for the app to come back
+adb logcat -d > call-crash.txt
+```
+
+Then search it, in this order:
+
+```powershell
+findstr /I /C:"mailchat" /C:"Fatal signal" /C:"debuggerd" /C:"lowmemorykiller" /C:"Killing" /C:"SecurityException" call-crash.txt
+```
+
+| What appears | Cause |
+| --- | --- |
+| `Fatal signal 11 (SIGSEGV)` / `SIGABRT`, frames in `libflutter.so`, `libwebrtc*.so`, `libvulkan` | native crash in the renderer or WebRTC |
+| `lowmemorykiller` / `ActivityManager: Killing … mailchat … (adj …)` / `am_kill` | the OS killed the app for memory — a debug build with WebRTC is heavy |
+| `SecurityException` with a permission name | a runtime permission that was never requested |
+
+`adb shell dumpsys dropbox --print data_app_native_crash` also keeps native crash
+reports, and works when the log has rolled over.
+
+**The breadcrumb the app leaves.** Because a native or OOM kill leaves nothing in
+Dart, `call_media.dart` writes the step it is *about to* run into a small file,
+and deletes it when the call ends properly. After a crash, the next launch logs:
+
+```text
+WARN previous_call_ended_without_cleanup {trace: step "getUserMedia_begin" (voice call) at 2026-10-27T…, hint: the app died during a call; the last step above was running}
+```
+
+That single line is the answer to "where did it die" — send it with the log.
+
+**Rule out memory first, it is free.** A debug build carries the JIT engine on
+top of WebRTC:
+
+```powershell
+flutter run --profile
+```
+
+If the call survives in profile mode and dies in debug, it is memory, not a bug
+in the call code.
+
 Two outcomes, two different causes:
 
 | Crash buffer shows | Cause | Fix |

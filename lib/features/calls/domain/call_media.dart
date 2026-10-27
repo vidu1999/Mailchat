@@ -3,6 +3,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
+import 'package:mailchat/features/calls/domain/call_trace.dart';
 
 /// One call's media session: camera/microphone, a peer connection, and the
 /// renderers the call screen paints.
@@ -45,11 +46,19 @@ class CallMedia {
   /// Connection state changed (connected, disconnected, failed).
   void Function(RTCPeerConnectionState state)? onConnectionState;
 
-  /// Logs the step about to start. See [initialise] for why.
-  void _step(String name) => AppLogger.info('call_media_step', details: {
-        'step': name,
-        'video': _video,
-      });
+  /// Logs the step about to start, and writes it to the crash breadcrumb. See
+  /// [initialise] for why: a native kill leaves neither a Dart error nor a
+  /// `logcat -b crash` entry, so the file is the only record that survives the
+  /// process.
+  void _step(String name) {
+    AppLogger.info('call_media_step', details: {
+      'step': name,
+      'video': _video,
+    });
+    _trace.record(name, video: _video);
+  }
+
+  final CallTraceStore _trace = CallTraceStore();
 
   bool get isDisposed => _disposed;
   bool get hasLocalVideo => _video && _localStream != null;
@@ -238,6 +247,9 @@ class CallMedia {
   /// renderers. Safe to call twice; the call screens do, because a call can end
   /// and be disposed from two paths at once.
   Future<void> dispose() async {
+    // Reaching dispose means the call ended in an orderly way, so the
+    // breadcrumb must not survive to look like a crash on the next launch.
+    await _trace.clear();
     if (_disposed) return;
     _disposed = true;
 

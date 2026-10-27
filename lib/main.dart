@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mailchat/app.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/features/calls/domain/call_trace.dart';
 
 /// Entry point of the MailChat application.
 ///
@@ -20,6 +21,10 @@ Future<void> main() async {
 
   await AppConfig.load();
   AppLogger.init();
+
+  // A trace left behind means the previous process died during a call — the one
+  // piece of evidence a native kill leaves. Logged once, then removed.
+  await CallTraceStore().reportPreviousIfAny();
 
   try {
     AppConfig.instance.validate();
