@@ -336,23 +336,14 @@ and the call never connected.
 
 ## Testing from a computer and a phone
 
-The Flutter app cannot run in a browser (`dart:io`). A separate page does the
-network half of a call, so a computer and a phone can be the two ends without
-installing anything.
+The Flutter app cannot run in a browser (`dart:io`). The browser half of the
+same system is `webapp/index.html`, described in [web.md](web.md). Sign in
+there with the same Supabase project as the phone. A direct call on that page
+writes the same `calls` row the phone rings for.
 
-The page is published by `.github/workflows/call-test-page.yml` from
-`tool/call_test/index.html`. Open that https address on both devices. One taps
-**Start**, sends the new link to the other, and the other taps **Join**. The
-page says whether the audio went through the relay or only directly. A relay
-password typed on the computer is put in that link for the phone; it is not
-written to disk. Do not use a sandbox preview host: that name is not in
-Cloudflare DNS, so the browser reports that the host was not found.
-
-`python3 tool/call_test_server.py` serves the same page on this computer. The
-phone still cannot use it over a plain `http://` LAN address, because the
-microphone requires `https://` or localhost. Hearing each other on this page
-proves the network, not the Flutter app — the app still has to be the new
-build on both phones.
+`tool/call_test/index.html` is only a network probe. It does not use MailChat
+accounts. Do not use a sandbox preview host for either page: that name is not
+in Cloudflare DNS, so the browser reports that the host was not found.
 
 ## What still needs doing
 

@@ -533,13 +533,14 @@ Requires Visual Studio with the **Desktop development with C++** workload. This
 is the quickest way to see whether the UI renders, but it is not the target
 platform. Credentials come from `assets/config/env` exactly as on Android.
 
-### Web will NOT work
+### The Flutter app will not run in Chrome
 
-The client is built on `dart:io` (`HttpClient`, `WebSocket`, `File`) for the
-Supabase REST, Realtime and session layers. `dart:io` does not exist on the
-web, so `flutter run -d chrome` fails to compile. Do not spend time on it
-unless the networking layer is rewritten on `package:http` and
-`package:web_socket_channel`.
+The phone client is built on `dart:io` (`HttpClient`, `WebSocket`, `File`) for
+the Supabase REST, Realtime and session layers. `dart:io` does not exist on the
+web, so `flutter run -d chrome` fails to compile. Do not spend time on it.
+
+The browser client is a separate page, `webapp/index.html`, for the same
+Supabase project. See [web.md](web.md). It is not a Flutter web build.
 
 ## 4. Troubleshooting installs
 

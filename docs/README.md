@@ -34,6 +34,7 @@ versus what actually exists.
 | [privacy.md](privacy.md) | Blocking, reporting, discoverability, what is saved and what is not | 🧪 built |
 | [notifications.md](notifications.md) | In-app notification preferences; why push is not delivered yet | 🟡 preferences real, delivery not |
 | [calls.md](calls.md) | Voice and video calls: signalling, WebRTC media, TURN, what is unverified | 🟡 built, unverified on a device |
+| [web.md](web.md) | The browser client: same accounts, chats and calls as the phone | 🧪 built, not a Flutter web build |
 
 ### Design
 

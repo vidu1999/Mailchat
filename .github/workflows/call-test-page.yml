@@ -1,39 +1,15 @@
 name: Call test page
 
-# Publishes the browser call test at a real https address. The sandbox preview
-# host is not in Cloudflare DNS, so a computer and a phone cannot open it.
-# This site is the address they can open instead.
+# The network probe in tool/call_test is not the MailChat site. Publishing it
+# would replace https://vidu1999.github.io/Mailchat/ , which is the browser
+# client. That site is published by web-client.yml.
 
 on:
-  push:
-    branches: ["arena/**"]
-    paths:
-      - "tool/call_test/**"
-      - ".github/workflows/call-test-page.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: call-test-page
-  cancel-in-progress: true
-
 jobs:
-  deploy:
-    name: Publish call test page
+  note:
+    name: Not published
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: tool/call_test
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - run: echo "The call test page is not the public site. Use the browser client."

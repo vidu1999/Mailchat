@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="MailChat in the browser. Same account, chats and calls as the phone app.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>MailChat</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M7 11.5 16 17l9-5.5V22a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11.5z' fill='none' stroke='white' stroke-width='1.8'/%3E%3Cpath d='M7 11.5 16 17l9-5.5' fill='none' stroke='white' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app" aria-live="polite"></div>
+
+  <section id="incoming" class="incoming" hidden>
+    <div>
+      <strong id="incoming-title">Incoming call</strong>
+      <p id="incoming-detail">Someone is calling.</p>
+    </div>
+    <div class="incoming-actions">
+      <button type="button" class="btn danger" data-act="call-decline">Decline</button>
+      <button type="button" class="btn good" data-act="call-accept">Accept</button>
+    </div>
+  </section>
+
+  <section id="call-layer" class="call-layer" hidden>
+    <video id="remote-video" class="remote-video" autoplay playsinline hidden></video>
+    <video id="local-video" class="local-video" autoplay playsinline muted hidden></video>
+    <audio id="remote-audio" autoplay></audio>
+    <div class="call-shade">
+      <p id="call-kind" class="eyebrow">Voice call</p>
+      <h2 id="call-name">MailChat</h2>
+      <p id="call-status">Connecting...</p>
+      <p id="call-hint" class="call-hint"></p>
+      <div class="call-actions">
+        <button type="button" class="btn ghost" id="call-mute" data-act="call-mute">Mute</button>
+        <button type="button" class="btn ghost" id="call-cam" data-act="call-cam" hidden>Camera</button>
+        <button type="button" class="btn danger" data-act="call-hangup">End</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="toasts" class="toasts"></div>
+  <script src="logic.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
