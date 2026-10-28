@@ -83,7 +83,12 @@ assert(html.includes('id="call-layer"'), 'call layer present');
 assert(!html.includes('service_role'), 'no service role in the page');
 
 const app = fs.readFileSync(appPath, 'utf8');
+assert(L.friendlyError({ code: '42501', message: 'new row violates row-level security policy for table "calls"' }, '', 403).indexOf('0010_call_write.sql') > 0, 'call rls hint');
+assert(L.rpcMissing('Could not find the function public.place_call in the schema cache'), 'missing rpc');
+assert(!L.rpcMissing('new row violates row-level security policy for table "calls"'), 'rls is not a missing rpc');
 assert(app.includes("iceTransportPolicy: 'all'"), 'policy all');
+assert(app.includes('/rest/v1/rpc/place_call'), 'place_call');
+assert(app.includes('/rest/v1/rpc/set_call_status'), 'set_call_status');
 assert(!app.includes("iceTransportPolicy: ice.forceRelay"), 'no relay-only policy');
 assert(app.includes('on_conflict=message_id,recipient_id'), 'receipt upsert');
 vm.runInContext(app, context, { filename: appPath });

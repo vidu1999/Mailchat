@@ -158,6 +158,19 @@
     return [];
   }
 
+  async function saveCallStatus(id, status, answer) {
+    var body = { p_call_id: id, p_status: status };
+    if (answer) body.p_answer_sdp = answer;
+    try {
+      await api('/rest/v1/rpc/set_call_status', { method: 'POST', body: body });
+    } catch (err) {
+      if (!L.rpcMissing(err && err.message)) throw err;
+      var patch = { status: status };
+      if (answer) patch.answer_sdp = answer;
+      await api('/rest/v1/calls?id=eq.' + id, { method: 'PATCH', body: patch });
+    }
+  }
+
   async function ensureFresh() {
     if (!session || !session.expiresAt) return;
     if (Date.now() < session.expiresAt - 60000) return;
@@ -827,10 +840,7 @@
   function clearStaleRing(id) {
     if (!id || dismissedCalls[id]) return;
     dismissedCalls[id] = true;
-    api('/rest/v1/calls?id=eq.' + id, {
-      method: 'PATCH',
-      body: { status: 'missed' },
-    }).catch(function () { /* already cleared, or the other side ended it */ });
+    saveCallStatus(id, 'missed').catch(function () { /* already cleared, or the other side ended it */ });
   }
 
   async function pollIncoming() {
@@ -1107,17 +1117,32 @@
       await pc.setLocalDescription(offer);
       await waitGather(pc);
       var local = pc.localDescription && pc.localDescription.sdp;
-      var inserted = await api('/rest/v1/calls', {
-        method: 'POST',
-        body: {
-          conversation_id: conversationId,
-          caller_id: me(),
-          callee_id: peerId,
-          kind: video ? 'video' : 'voice',
-          status: 'ringing',
-          offer_sdp: L.sdpForPhone(local),
-        },
-      });
+      var offerSdp = L.sdpForPhone(local);
+      var inserted;
+      try {
+        inserted = await api('/rest/v1/rpc/place_call', {
+          method: 'POST',
+          body: {
+            p_conversation_id: conversationId,
+            p_callee_id: peerId,
+            p_kind: video ? 'video' : 'voice',
+            p_offer_sdp: offerSdp,
+          },
+        });
+      } catch (err) {
+        if (!L.rpcMissing(err && err.message)) throw err;
+        inserted = await api('/rest/v1/calls', {
+          method: 'POST',
+          body: {
+            conversation_id: conversationId,
+            caller_id: me(),
+            callee_id: peerId,
+            kind: video ? 'video' : 'voice',
+            status: 'ringing',
+            offer_sdp: offerSdp,
+          },
+        });
+      }
       var row = rowsOf(inserted)[0];
       if (!row) throw new Error('The call was not created.');
       call.id = row.id;
@@ -1165,10 +1190,7 @@
       await pc.setLocalDescription(answer);
       await waitGather(pc);
       var local = pc.localDescription && pc.localDescription.sdp;
-      await api('/rest/v1/calls?id=eq.' + fresh.id, {
-        method: 'PATCH',
-        body: { status: 'accepted', answer_sdp: L.sdpForPhone(local) },
-      });
+      await saveCallStatus(fresh.id, 'accepted', L.sdpForPhone(local));
       seenIce = {};
       await flushLocalIce();
       await flushRemoteIce();
@@ -1188,7 +1210,7 @@
     dismissedCalls[incoming.id] = true;
     state.incoming = null;
     try {
-      await api('/rest/v1/calls?id=eq.' + incoming.id, { method: 'PATCH', body: { status: 'declined' } });
+      await saveCallStatus(incoming.id, 'declined');
     } catch (err) { toast(err.message); }
   }
 
@@ -1204,10 +1226,10 @@
     else if (role === 'callee') status = 'declined';
     else status = 'missed';
     try {
-      await api('/rest/v1/calls?id=eq.' + id, { method: 'PATCH', body: { status: status } });
+      await saveCallStatus(id, status);
     } catch (err) {
       if (status !== 'failed') {
-        try { await api('/rest/v1/calls?id=eq.' + id, { method: 'PATCH', body: { status: 'failed' } }); }
+        try { await saveCallStatus(id, 'failed'); }
         catch (again) { /* the row stays as the server left it */ }
       }
     }

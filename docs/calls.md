@@ -14,7 +14,9 @@ rather than a silent call.
 `call_media.dart`, `call_service.dart`,
 `lib/features/calls/presentation/screens/incoming_call_screen.dart` and
 `active_call_screen.dart`
-**Database:** `supabase/migrations/0007_call_signalling.sql`
+**Database:** `supabase/migrations/0007_call_signalling.sql` and
+`0010_call_write.sql` (`place_call`, `set_call_status`). A member saves the
+call through those functions, so a bad or missing policy cannot refuse the row.
 **Tests:** `test/unit/call_signalling_test.dart` (15 tests)
 
 ## What exists

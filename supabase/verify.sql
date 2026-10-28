@@ -97,6 +97,25 @@ select '12. presence and last seen (0008)',
        ) then 'ok' else 'MISSING - 0008 did not apply: no online status or last seen' end
 
 union all
+select '15. call save functions (0010)',
+       case when exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'place_call'
+       ) and exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'set_call_status'
+       ) and exists (
+         select 1 from pg_policies
+         where schemaname = 'public'
+           and tablename = 'calls'
+           and policyname = 'calls_update_participant'
+       ) then 'ok'
+       else 'MISSING - 0010 did not apply: the server will refuse to save a call'
+       end
+
+union all
 select '11. call signalling tables (0007)',
        case when (
          select count(*) from pg_tables

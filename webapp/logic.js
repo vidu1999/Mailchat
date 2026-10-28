@@ -152,6 +152,13 @@
     return '✓';
   }
 
+  function rpcMissing(message) {
+    var text = String(message || '');
+    return text.indexOf('PGRST202') !== -1 ||
+      text.indexOf('Could not find the function') !== -1 ||
+      text.indexOf('schema cache') !== -1;
+  }
+
   function friendlyError(data, fallback, status) {
     var msg = '';
     if (data && typeof data === 'object') {
@@ -177,6 +184,9 @@
       return 'Supabase blocked the return address. Add this page’s address under Authentication → URL Configuration → Redirect URLs, then try again.';
     }
     if (status === 401) return 'Sign in again.';
+    if (low.indexOf('calls') !== -1 && (low.indexOf('row-level') !== -1 || low.indexOf('42501') !== -1)) {
+      return 'The server refused to save this call. In Supabase, open SQL Editor, paste supabase/migrations/0010_call_write.sql, run it, then call again.';
+    }
     if (status === 403 || low.indexOf('42501') !== -1 || low.indexOf('permission denied') !== -1 || low.indexOf('row-level') !== -1) {
       return 'The server refused that. You may not be allowed to do it.';
     }
@@ -271,6 +281,7 @@
     receiptStatus: receiptStatus,
     tick: tick,
     friendlyError: friendlyError,
+    rpcMissing: rpcMissing,
     formatWhen: formatWhen,
     dayLabel: dayLabel,
     sanitiseFileName: sanitiseFileName,

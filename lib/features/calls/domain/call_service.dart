@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/postgrest_error_messages.dart';
+import 'package:mailchat/core/network/rpc_payload.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/network/supabase_realtime.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
@@ -46,32 +48,60 @@ class CallService {
     required bool isVideo,
     String? offerSdp,
   }) async {
-    if (callerId == calleeId) {
+    // The signed-in user is the caller. A stale id passed from an older screen
+    // is exactly what makes the calls policy refuse the row.
+    final me = _supabase.userId ?? callerId;
+    if (_supabase.accessToken == null || me.isEmpty) {
+      throw AuthorizationException('Sign in again, then call.');
+    }
+    if (me == calleeId) {
       throw ValidationException('You cannot call yourself');
     }
 
-    final inserted = await _supabase.insert(
-      'calls',
-      data: {
-        'conversation_id': conversationId,
-        'caller_id': callerId,
-        'callee_id': calleeId,
-        'kind': isVideo ? 'video' : 'voice',
-        'status': 'ringing',
-        if (offerSdp != null) 'offer_sdp': offerSdp,
-      },
-      select: '*',
-    );
-    if (inserted.isEmpty) {
+    Call? call;
+    try {
+      final raw = await _supabase.rpc(
+        'place_call',
+        params: {
+          'p_conversation_id': conversationId,
+          'p_callee_id': calleeId,
+          'p_kind': isVideo ? 'video' : 'voice',
+          'p_offer_sdp': offerSdp,
+        },
+      );
+      final rows = RpcPayload.rows(raw);
+      if (rows.isNotEmpty) call = Call.fromJson(rows.first);
+    } on AppException catch (e) {
+      if (!_missingCallFunction(e)) rethrow;
+    }
+    if (call == null) {
+      final inserted = await _supabase.insert(
+        'calls',
+        data: {
+          'conversation_id': conversationId,
+          'caller_id': me,
+          'callee_id': calleeId,
+          'kind': isVideo ? 'video' : 'voice',
+          'status': 'ringing',
+          if (offerSdp != null) 'offer_sdp': offerSdp,
+        },
+        select: '*',
+      );
+      if (inserted.isEmpty) {
+        throw AppException('The call was not created');
+      }
+      call = Call.fromJson(inserted.first);
+    }
+    final placed = call;
+    if (placed == null) {
       throw AppException('The call was not created');
     }
-    final call = Call.fromJson(inserted.first);
     AppLogger.info('call_placed', details: {
-      'callId': call.id,
-      'kind': call.kind,
+      'callId': placed.id,
+      'kind': placed.kind,
       'media': mediaConnected,
     });
-    return call;
+    return placed;
   }
 
   /// Reads one call. Used to resync after a reconnect, since a dropped socket
@@ -309,6 +339,23 @@ class CallService {
   }
 
   Future<Call> _update(String callId, Map<String, dynamic> data) async {
+    final status = data['status'] as String?;
+    if (status != null) {
+      try {
+        final raw = await _supabase.rpc(
+          'set_call_status',
+          params: {
+            'p_call_id': callId,
+            'p_status': status,
+            'p_answer_sdp': data['answer_sdp'],
+          },
+        );
+        final rows = RpcPayload.rows(raw);
+        if (rows.isNotEmpty) return Call.fromJson(rows.first);
+      } on AppException catch (e) {
+        if (!_missingCallFunction(e)) rethrow;
+      }
+    }
     final rows = await _supabase.update(
       'calls',
       filter: {'eq': 'id,$callId'},
@@ -320,6 +367,15 @@ class CallService {
       throw AuthorizationException('That call could not be updated');
     }
     return Call.fromJson(rows.first);
+  }
+
+  /// True only when the server has not loaded place_call / set_call_status.
+  ///
+  /// A permission refusal must not be retried as a direct write: that is the
+  /// path that produced "new row violates row-level security policy".
+  bool _missingCallFunction(AppException error) {
+    return PostgrestErrorMessages.missingFunction(error.original?.toString()) ||
+        PostgrestErrorMessages.missingFunction(error.message);
   }
 
   void dispose() {

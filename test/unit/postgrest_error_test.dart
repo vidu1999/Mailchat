@@ -51,6 +51,31 @@ void main() {
       expect(message, contains('security.md'));
     });
 
+    test('a refused call names the call fix, not the security doc', () {
+      final message = PostgrestErrorMessages.forBody(
+        '{"code":"42501","message":"new row violates row-level security policy for table \"calls\""}',
+      );
+
+      expect(message, contains('refused to save this call'));
+      expect(message, contains('0010_call_write.sql'));
+      expect(message, isNot(contains('security.md')));
+    });
+
+    test('a missing function is distinguishable from a refusal', () {
+      expect(
+        PostgrestErrorMessages.missingFunction(
+          '{"code":"PGRST202","message":"Could not find the function public.place_call"}',
+        ),
+        isTrue,
+      );
+      expect(
+        PostgrestErrorMessages.missingFunction(
+          '{"code":"42501","message":"new row violates row-level security policy for table \"calls\""}',
+        ),
+        isFalse,
+      );
+    });
+
     test('duplicate and foreign-key violations keep Postgres wording', () {
       expect(
         PostgrestErrorMessages.forBody(

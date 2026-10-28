@@ -59,6 +59,12 @@ class PostgrestErrorMessages {
             '— or, if they were applied already, re-run the one that creates '
             'the missing object. See docs/running.md §2.';
       case '42501':
+        if (message.contains('"calls"') || message.contains('table calls')) {
+          return 'The server refused to save this call. It is a permission '
+              'rule on the calls table, not a broken screen. In Supabase, open '
+              'SQL Editor, paste supabase/migrations/0010_call_write.sql, run '
+              'it, then call again.';
+        }
         return 'The database refused this action: $message. This is a '
             'row-level security decision, not a bug in the screen — check the '
             'policy for your user in docs/security.md.';
@@ -85,6 +91,19 @@ class PostgrestErrorMessages {
     // Postgres's own sentence is kept: it names the table or column, which is
     // exactly what is needed to fix the schema.
     return known == null ? '$message$suffix$detail' : '$message$detail';
+  }
+
+  /// True when PostgREST has not loaded the function yet.
+  ///
+  /// A call then falls back to writing the table directly. Any other error is
+  /// a real refusal and must not be retried as a direct write.
+  static bool missingFunction(String? body) {
+    if (body == null || body.isEmpty) return false;
+    final code = codeIn(body);
+    if (code == 'PGRST202' || code == '42883') return true;
+    final lower = body.toLowerCase();
+    return lower.contains('could not find the function') ||
+        lower.contains('schema cache');
   }
 
   /// The SQLSTATE in [body], or null. Useful for logging without the body.
