@@ -287,6 +287,16 @@ bool incomingCallIsFresh(DateTime createdAt, DateTime now) {
   return age <= incomingCallWindow;
 }
 
+/// Active prompts and calls must not be retired by the background inbox poll.
+///
+/// The chat list remains mounted underneath an incoming prompt and its active
+/// call screen. The id match is the guard against clearing that exact row while
+/// media setup or answer negotiation is still in progress.
+bool incomingCallMayBeCleared({
+  required String callId,
+  required String? activeCallId,
+}) => callId != activeCallId;
+
 /// True when a leftover ringing row should be marked missed.
 ///
 /// Incoming leftovers are cleared as soon as they are too old to show.

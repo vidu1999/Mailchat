@@ -5,6 +5,21 @@ import 'package:mailchat/features/calls/domain/call_model.dart';
 void main() {
   final now = DateTime.utc(2026, 10, 27, 12);
 
+  test('an active incoming call is never cleared by the background poll', () {
+    expect(
+      incomingCallMayBeCleared(callId: 'active-call', activeCallId: 'active-call'),
+      isFalse,
+    );
+    expect(
+      incomingCallMayBeCleared(callId: 'old-call', activeCallId: 'active-call'),
+      isTrue,
+    );
+    expect(
+      incomingCallMayBeCleared(callId: 'old-call', activeCallId: null),
+      isTrue,
+    );
+  });
+
   test('a ring from the last few seconds is shown', () {
     expect(
       incomingCallIsFresh(now.subtract(const Duration(seconds: 10)), now),

@@ -126,6 +126,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
       // (accepted, ended) arrive on the same stream and must be ignored here.
       if (call.state != CallState.ringing) return;
       if (call.calleeId != userId) return;
+      // Realtime can replay the ringing row while its prompt/active call is
+      // already on top. Do not expire the call underneath the accept flow.
+      if (!incomingCallMayBeCleared(
+        callId: call.id,
+        activeCallId: _ringingCallId,
+      )) return;
       if (!incomingCallIsFresh(call.createdAt, DateTime.now().toUtc())) {
         _callService.markMissed(call.id).catchError((Object e) {
           AppLogger.warning(
@@ -144,12 +150,22 @@ class _ChatListScreenState extends State<ChatListScreen> {
   /// call when the realtime insert was missed, and what retires a leftover
   /// ringing row so it cannot appear by itself.
   Future<void> _pollIncoming() async {
-    if (_pollingIncoming) return;
+    // The chat list stays mounted under both the incoming prompt and the active
+    // call. Polling there used to mark the ringing row missed after 45 seconds,
+    // while the callee was still preparing media; set_call_status then replied
+    // "call is not ringing" when the answer was submitted.
+    if (_pollingIncoming || _ringingCallId != null) return;
     final userId = SupabaseClient.instance.userId;
     if (userId == null || !mounted) return;
     _pollingIncoming = true;
     try {
-      final call = await _callService.takeFreshIncoming(userId);
+      final call = await _callService.takeFreshIncoming(
+        userId,
+        shouldClearStale: (callId) => incomingCallMayBeCleared(
+          callId: callId,
+          activeCallId: _ringingCallId,
+        ),
+      );
       if (!mounted || call == null) return;
       _promptIncoming(call, userId);
     } catch (e) {

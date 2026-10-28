@@ -144,7 +144,10 @@ class CallService {
   /// Also stops leftover ringing rows from popping up as a new call. A row
   /// left `ringing` — a closed tab, a hang-up write that failed — used to
   /// ring again on every login. Fresh rings are left alone.
-  Future<Call?> takeFreshIncoming(String userId) async {
+  Future<Call?> takeFreshIncoming(
+    String userId, {
+    bool Function(String callId)? shouldClearStale,
+  }) async {
     final rows = await _supabase.select(
       'calls',
       filter: {
@@ -159,11 +162,14 @@ class CallService {
     for (final row in rows) {
       final call = Call.fromJson(row);
       final incomingForMe = call.calleeId == userId;
-      if (incomingCallShouldClear(
-        createdAt: call.createdAt,
-        now: now,
-        isCallee: incomingForMe,
-      )) {
+      final shouldExpire =
+          incomingCallShouldClear(
+            createdAt: call.createdAt,
+            now: now,
+            isCallee: incomingForMe,
+          ) &&
+          (shouldClearStale == null || shouldClearStale(call.id));
+      if (shouldExpire) {
         try {
           await markMissed(call.id);
         } catch (e) {
