@@ -256,9 +256,20 @@ String? callConnectAdvice({
         'this phone cannot reach the server.';
   }
   if (path.relay == 0) {
+    // Gathering never ran. The usual cause is the offer itself being rejected
+    // before ICE starts. Blaming the password here is what the screen used to
+    // do on top of "SessionDescription is NULL".
+    if (!path.gatheringComplete) {
+      return 'The other side\'s call description was rejected before the relay '
+          'was asked. Install the new app on both phones and call again.';
+    }
     if (!hasTcpFallback) {
       return 'The relay on this phone has no TCP address, so this network is '
           'blocking it. Add the turns:443 line and rebuild the app.';
+    }
+    if (path.host > 0 || path.serverReflexive > 0) {
+      return 'The relay did not answer. A call on the same Wi-Fi can still '
+          'connect. Leave both phones on that Wi-Fi and call again.';
     }
     return 'The relay refused this phone. The username or password in the '
         'app config is wrong, or it was just created — wait two minutes.';
@@ -276,16 +287,85 @@ String? callConnectAdvice({
       'Turn off Data saver and any VPN on both phones, then call again.';
 }
 
-/// Drops `a=extmap-allow-mixed`.
+/// Line ending WebRTC's Android parser accepts. A description that uses only
+/// `\n`, or a blank line between every row, is rejected as
+/// "SessionDescription is NULL" even though the Dart object is not null.
+final String _sdpBreak = String.fromCharCodes(const <int>[13, 10]);
+
+/// Turns whatever arrived over the network into an SDP Android can parse.
 ///
-/// A browser offer includes that line. Some mobile WebRTC stacks reject the
-/// whole description, so the call rings and then never connects. Removing
-/// the line does not change the media.
+/// Chrome and recent mobile stacks add `a=extmap-allow-mixed`. Older
+/// receivers reject the entire description when that line is present, and
+/// the only error is "SessionDescription is NULL". The same error is what a
+/// missing carriage return, a blank line, or a JSON blob stored in place of
+/// the SDP produces. This always rewrites the text; it does not change the
+/// media.
 String sdpForInterop(String sdp) {
-  if (!sdp.contains('extmap-allow-mixed')) return sdp;
-  final lines = sdp.split(RegExp(r'\r\n|\n|\r'));
-  final kept = lines.where((line) => line != 'a=extmap-allow-mixed');
-  final joined = kept.join('\r\n');
-  if (sdp.endsWith('\n') || sdp.endsWith('\r')) return '$joined\r\n';
-  return joined;
+  var text = _unwrapSdp(sdp);
+  if (text.isEmpty) return '';
+  final start = text.indexOf('v=0');
+  if (start < 0) return '';
+  if (start > 0) text = text.substring(start);
+
+  final kept = <String>[];
+  for (final rawLine in text.split(RegExp(r'\r\n|\n|\r'))) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    if (line.startsWith('a=extmap-allow-mixed')) continue;
+    if (line == 'a=end-of-candidates') continue;
+    kept.add(line);
+  }
+  if (kept.isEmpty || !kept.first.startsWith('v=0')) return '';
+  return '${kept.join(_sdpBreak)}$_sdpBreak';
+}
+
+/// A second attempt after the first [setRemoteDescription] was rejected.
+///
+/// Drops the optional lines that have made an otherwise normal offer fail
+/// the Android parser. Media can still flow without them.
+String sdpStrippedForRetry(String sdp) {
+  final kept = <String>[];
+  for (final rawLine in sdp.split(RegExp(r'\r\n|\n|\r'))) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+    if (line.startsWith('b=')) continue;
+    if (line.startsWith('a=ice-options:')) continue;
+    if (line.startsWith('a=rtcp-rsize')) continue;
+    if (line.startsWith('a=extmap:') && !line.contains('sdes:mid')) continue;
+    kept.add(line);
+  }
+  return sdpForInterop(kept.join('\n'));
+}
+
+/// The sentence to show instead of a native WebRTC dump.
+String friendlyCallFailure(Object error) {
+  final raw = error.toString();
+  if (raw.contains('SessionDescription is NULL') ||
+      raw.contains('setRemoteDescription') ||
+      raw.contains('setLocalDescription')) {
+    return 'This phone could not read the other side\'s call. '
+        'Install the new app on both phones, then call again.';
+  }
+  return raw;
+}
+
+String _unwrapSdp(String sdp) {
+  var text = sdp.replaceAll('\u0000', '').trim();
+  if (text.isEmpty) return '';
+  if ((text.startsWith('"') && text.endsWith('"')) ||
+      (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.substring(1, text.length - 1);
+  }
+  // A double-encoded description is one line whose breaks are the two
+  // characters "\" and "n", not a real newline.
+  final literalBreak = String.fromCharCodes(const <int>[92, 110]);
+  final literalCr = String.fromCharCodes(const <int>[92, 114]);
+  final hasRealBreak = text.contains('\n') || text.contains('\r');
+  if (!hasRealBreak && text.contains(literalBreak)) {
+    text = text
+        .replaceAll('$literalCr$literalBreak', '\n')
+        .replaceAll(literalBreak, '\n')
+        .replaceAll(literalCr, '');
+  }
+  return text;
 }

@@ -311,8 +311,10 @@ showing "Connecting..." forever. The sentences live in `callConnectAdvice`
 * no relay configured;
 * the other phone has not accepted (or this phone cannot reach the server);
 * this phone's relay has no TCP address;
-* the relay refused this phone (wrong username/password, or a credential that
-  is less than two minutes old);
+* the relay refused this phone, and only after gathering finished with no
+  relay address and no direct address (wrong username/password, or a
+  credential that is less than two minutes old). A rejected call
+  description is a different sentence — it is not a wrong password;
 * this phone reached the relay and nothing arrived from the other phone;
 * this phone reached the relay and the other phone did not;
 * both reached the relay and audio is still blocked (Data saver or a VPN).

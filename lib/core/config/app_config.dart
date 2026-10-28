@@ -129,11 +129,16 @@ class AppConfig {
       final username = turnUsername?.trim();
       // A relay without credentials is legitimate (coturn can allow anonymous
       // access), so the credential block is only added when a username exists.
+      final secret = turnCredential?.trim();
       final credentials = <String, dynamic>{
-        if (username != null && username.isNotEmpty) ...{
-          'username': username,
-          'credential': turnCredential?.trim(),
-        },
+        if (username != null && username.isNotEmpty) 'username': username,
+        // A null credential is not a password. Sending it makes the native
+        // stack treat the relay as logged-in and then refuse every allocate.
+        if (username != null &&
+            username.isNotEmpty &&
+            secret != null &&
+            secret.isNotEmpty)
+          'credential': secret,
       };
       // One ICE server per address rather than one server with a list of URLs:
       // both are valid, but a per-address entry is what every native WebRTC

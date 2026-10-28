@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
+import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
 import 'package:mailchat/features/calls/domain/call_trace.dart';
@@ -258,9 +259,7 @@ class CallMedia {
   /// lets the callee write.
   Future<String> createAnswer(String offerSdp) async {
     final peer = _requirePeer();
-    await peer.setRemoteDescription(
-      RTCSessionDescription(sdpForInterop(offerSdp), 'offer'),
-    );
+    await _setRemoteDescription(offerSdp, 'offer');
     _noteRemoteSdp(offerSdp);
     await _flushRemote();
     _armGathering();
@@ -276,10 +275,7 @@ class CallMedia {
   /// `setRemoteDescription` throws and used to be an unhandled stream error.
   Future<void> applyAnswer(String answerSdp) async {
     if (answerSdp.isEmpty || answerSdp == _appliedRemoteSdp) return;
-    final peer = _requirePeer();
-    await peer.setRemoteDescription(
-      RTCSessionDescription(sdpForInterop(answerSdp), 'answer'),
-    );
+    await _setRemoteDescription(answerSdp, 'answer');
     _appliedRemoteSdp = answerSdp;
     _noteRemoteSdp(answerSdp);
     await _flushRemote();
@@ -364,6 +360,38 @@ class CallMedia {
       });
     }
     _step('gather_done');
+  }
+
+  /// Applies an offer or answer, rewriting it first so Android does not reject
+  /// a real description as "SessionDescription is NULL".
+  Future<void> _setRemoteDescription(String sdp, String type) async {
+    final cleaned = sdpForInterop(sdp);
+    if (!cleaned.startsWith('v=0')) {
+      throw AppException(
+        'The other phone did not send a usable call description. '
+        'Install the new app on both phones and call again.',
+      );
+    }
+    final peer = _requirePeer();
+    Object? last;
+    for (final candidate in <String>[cleaned, sdpStrippedForRetry(cleaned)]) {
+      if (!candidate.startsWith('v=0')) continue;
+      try {
+        await peer.setRemoteDescription(
+          RTCSessionDescription(candidate, type),
+        );
+        return;
+      } catch (e, st) {
+        last = e;
+        AppLogger.warning('call_set_remote_rejected', details: {
+          'type': type,
+          'length': candidate.length,
+          'error': e.toString(),
+        });
+        AppLogger.error(e, st, {'where': 'call_set_remote'});
+      }
+    }
+    throw AppException(friendlyCallFailure(last ?? 'setRemoteDescription'));
   }
 
   Future<String> _localSdp(RTCSessionDescription created) async {

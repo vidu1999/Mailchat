@@ -169,8 +169,18 @@ void main() {
       }
 
       expect(advice(answer: false), contains('Waiting for the other phone'));
-      expect(advice(tcp: false), contains('no TCP address'));
-      expect(advice(), contains('refused this phone'));
+      expect(
+        advice(
+          tcp: false,
+          path: const IcePathSnapshot(gatheringComplete: true),
+        ),
+        contains('no TCP address'),
+      );
+      expect(
+        advice(path: const IcePathSnapshot(gatheringComplete: true)),
+        contains('refused this phone'),
+      );
+      expect(advice(), contains('call description was rejected'));
       expect(
         advice(path: reached),
         contains('Nothing has arrived from the other phone'),
@@ -193,6 +203,27 @@ void main() {
     final cleaned = sdpForInterop(raw);
     expect(cleaned, isNot(contains('extmap-allow-mixed')));
     expect(cleaned, contains('a=group:BUNDLE 0'));
+    expect(cleaned, contains('\r\n'));
     expect(sdpForInterop('v=0\r\n'), 'v=0\r\n');
+  });
+
+  test('sdpForInterop repairs the shapes Android reports as a null description', () {
+    final lfOnly = sdpForInterop('v=0\na=group:BUNDLE 0\n');
+    expect(lfOnly, 'v=0\r\na=group:BUNDLE 0\r\n');
+
+    final blank = sdpForInterop('v=0\r\n\r\na=group:BUNDLE 0\r\n');
+    expect(blank, isNot(contains('\r\n\r\n')));
+    expect(blank, contains('a=group:BUNDLE 0'));
+
+    final literal = sdpForInterop(r'v=0\r\na=extmap-allow-mixed\r\na=mid:0');
+    expect(literal, isNot(contains('extmap-allow-mixed')));
+    expect(literal, contains('a=mid:0'));
+    expect(literal, startsWith('v=0\r\n'));
+
+    expect(sdpForInterop('not an offer'), isEmpty);
+    expect(
+      friendlyCallFailure('SessionDescription is NULL'),
+      contains('could not read'),
+    );
   });
 }

@@ -217,9 +217,22 @@
   }
 
   function sdpForPhone(sdp) {
-    return String(sdp || '').split(/\r\n|\n|\r/).filter(function (line) {
-      return line !== 'a=extmap-allow-mixed';
-    }).join('\r\n');
+    var text = String(sdp || '').replace(/\u0000/g, '').trim();
+    if (text && text.indexOf('\n') < 0 && text.indexOf('\r') < 0 && text.indexOf('\\n') >= 0) {
+      text = text.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\r/g, '');
+    }
+    var start = text.indexOf('v=0');
+    if (start < 0) return '';
+    if (start > 0) text = text.slice(start);
+    var lines = text.split(/\r\n|\n|\r/).filter(function (line) {
+      var trimmed = line.replace(/\s+$/g, '');
+      if (!trimmed) return false;
+      if (trimmed.indexOf('a=extmap-allow-mixed') === 0) return false;
+      if (trimmed === 'a=end-of-candidates') return false;
+      return true;
+    });
+    if (!lines.length || lines[0].indexOf('v=0') !== 0) return '';
+    return lines.join('\r\n') + '\r\n';
   }
 
   function pageAddress() {

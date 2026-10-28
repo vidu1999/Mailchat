@@ -115,10 +115,15 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         _call = pending;
 
         await _media.initialise(video: _isVideo);
-        final offer = pending.offerSdp ?? '';
-        if (offer.isEmpty) {
-          // Rows created before media existed (or by a client that failed
-          // before writing the offer) cannot be answered.
+        var offer = pending.offerSdp ?? '';
+        if (sdpForInterop(offer).isEmpty) {
+          // The ring can arrive before the offer write is visible. One more
+          // read, then stop — an empty description is what Android reports
+          // as "SessionDescription is NULL".
+          final again = await _calls.fetch(_callId!);
+          offer = again?.offerSdp ?? offer;
+        }
+        if (sdpForInterop(offer).isEmpty) {
           throw AppException(
             'The caller did not send an offer, so this call cannot connect.',
           );
@@ -128,6 +133,11 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       } else {
         await _media.initialise(video: _isVideo);
         final offer = await _media.createOffer();
+        if (sdpForInterop(offer).isEmpty) {
+          throw AppException(
+            'This phone could not build a call description. Call again.',
+          );
+        }
         _call = await _calls.placeCall(
           conversationId: _conversationId,
           callerId: _selfId,
@@ -150,7 +160,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       if (!mounted) return;
       setState(() {
         _stage = CallMediaStage.failed;
-        _error = e is AppException ? e.message : e.toString();
+        _error = e is AppException ? e.message : friendlyCallFailure(e);
       });
       await _media.dispose();
     }
@@ -236,6 +246,12 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         } catch (e, st) {
           _answerApplied = false;
           AppLogger.error(e, st, {'where': 'call_apply_answer'});
+          if (mounted) {
+            setState(() {
+              _stage = CallMediaStage.failed;
+              _error = e is AppException ? e.message : friendlyCallFailure(e);
+            });
+          }
         }
       }
     } else if (call.state.isTerminal) {
@@ -461,7 +477,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
                       : colors.onSurfaceVariant,
                 ),
               ),
-              if (_connectHint != null)
+              if (_error == null && _connectHint != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                   child: Text(
