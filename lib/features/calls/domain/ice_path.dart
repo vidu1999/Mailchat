@@ -256,12 +256,14 @@ String? callConnectAdvice({
         'this phone cannot reach the server.';
   }
   if (path.relay == 0) {
-    // Gathering never ran. The usual cause is the offer itself being rejected
-    // before ICE starts. Blaming the password here is what the screen used to
-    // do on top of "SessionDescription is NULL".
+    // This is local ICE state, not evidence about whether the other phone
+    // accepted its remote description. Do not infer a peer-side SDP rejection
+    // from a missing local gathering-complete callback.
     if (!path.gatheringComplete) {
-      return 'The other side\'s call description was rejected before the relay '
-          'was asked. Install the new app on both phones and call again.';
+      return 'This phone has not finished gathering call network addresses, '
+          'so the relay has not been tested yet. Check that this phone has '
+          'internet access and keep the call open. This message alone does '
+          'not prove the other phone rejected the call description.';
     }
     if (!hasTcpFallback) {
       return 'The relay on this phone has no TCP address, so this network is '

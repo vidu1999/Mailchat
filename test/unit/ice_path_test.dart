@@ -180,7 +180,8 @@ void main() {
         advice(path: const IcePathSnapshot(gatheringComplete: true)),
         contains('No relay address was gathered'),
       );
-      expect(advice(), contains('call description was rejected'));
+      expect(advice(), contains('not finished gathering'));
+      expect(advice(), isNot(contains('rejected')));
       expect(
         advice(path: reached),
         contains('Nothing has arrived from the other phone'),
