@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'package:mailchat/core/config/anon_key.dart';
 import 'package:mailchat/core/config/env_file.dart';
+import 'package:mailchat/core/config/public_relay.dart';
 import 'package:mailchat/core/config/turn_urls.dart';
 
 /// Application configuration, resolved from two sources.
@@ -124,6 +125,7 @@ class AppConfig {
     final servers = <Map<String, dynamic>>[
       {'urls': stunUrl},
     ];
+    final seen = <String>{stunUrl};
     final relays = TurnUrls.parse(turnUrl);
     if (relays.isNotEmpty) {
       final username = turnUsername?.trim();
@@ -144,9 +146,21 @@ class AppConfig {
       // both are valid, but a per-address entry is what every native WebRTC
       // stack handles identically, and it keeps a rejected address (a blocked
       // UDP port) from taking the working TCP/TLS ones down with it.
+      // The project's own relay goes first. The public relay is added after
+      // it, so a wrong private password cannot be the only path between two
+      // different networks.
       for (final url in relays) {
+        if (!seen.add(url)) continue;
         servers.add({'urls': url, ...credentials});
       }
+    }
+    for (final url in PublicRelay.urls) {
+      if (!seen.add(url)) continue;
+      servers.add({
+        'urls': url,
+        'username': PublicRelay.username,
+        'credential': PublicRelay.credential,
+      });
     }
     return servers;
   }
@@ -158,28 +172,29 @@ class AppConfig {
   /// user can paste it without leaking the TURN secret.
   Map<String, Object?> get iceSummary => {
         'stun': stunUrl,
-        'relay_count': TurnUrls.parse(turnUrl).length,
-        'relay_hosts': TurnUrls.hosts(turnUrl),
-        'relay_fallback': TurnUrls.hasFallback(turnUrl),
-        // `relay` means media is forced through TURN. `all` means there is no
-        // relay, so the call can only connect directly.
-        'policy': hasTurnRelay ? 'relay' : 'all',
+        'relay_count': TurnUrls.parse(turnUrl).length + PublicRelay.urls.length,
+        'own_relay': TurnUrls.parse(turnUrl).length,
+        'public_relay': PublicRelay.urls.first,
+        'relay_fallback': hasTurnFallback,
+        // Media is not forced through the relay. Same Wi-Fi can connect
+        // directly; a different network uses whichever relay answers.
+        'policy': 'all',
       };
 
-  /// True when a TURN relay is configured. Without one, a call can fail to
-  /// connect on mobile data instead of merely sounding bad.
+  /// True when a TURN relay will be offered to the peer connection.
   ///
-  /// Parsed rather than merely non-empty: `TURN_URL=stun:...` or a stray word
-  /// would otherwise switch the "no relay configured" warning off while leaving
-  /// the call with nothing but STUN — the exact silence that warning exists to
-  /// prevent.
-  bool get hasTurnRelay => TurnUrls.parse(turnUrl).isNotEmpty;
+  /// The public relay is always offered, so two phones on different networks
+  /// are not limited to same-Wi-Fi. A pasted `TURN_URL` is extra, not required.
+  bool get hasTurnRelay =>
+      PublicRelay.urls.isNotEmpty || TurnUrls.parse(turnUrl).isNotEmpty;
 
-  /// True when a configured relay can carry media over TCP or TLS.
+  /// True when a relay can carry media over TCP or TLS.
   ///
-  /// A UDP-only relay fails on the networks that need a relay most. The call
-  /// screen says so, and `tool/check_config.dart` refuses to build one.
-  bool get hasTurnFallback => TurnUrls.hasFallback(turnUrl);
+  /// A UDP-only relay fails on the networks that need a relay most. The public
+  /// relay includes a TCP address, and `tool/check_config.dart` still refuses
+  /// a pasted list that is UDP-only.
+  bool get hasTurnFallback =>
+      PublicRelay.hasTcp || TurnUrls.hasFallback(turnUrl);
 
   /// Whether the current environment is production.
   bool get isProduction => environment == 'production';

@@ -64,10 +64,22 @@
     return out;
   }
 
+  // Published Open Relay pair. Same list as lib/core/config/public_relay.dart.
+  // Two people on different networks need this when neither side pasted a relay.
+  var PUBLIC_RELAY = [
+    'turn:openrelay.metered.ca:80',
+    'turn:openrelay.metered.ca:443',
+    'turn:openrelay.metered.ca:443?transport=tcp'
+  ];
+
   function buildIceServers(stunUrl, turnRaw, username, credential) {
     var servers = [{ urls: stunUrl || 'stun:stun.l.google.com:19302' }];
+    var seen = {};
+    seen[servers[0].urls] = true;
     var relays = parseTurnUrls(turnRaw);
     relays.forEach(function (url) {
+      if (seen[url]) return;
+      seen[url] = true;
       var entry = { urls: url };
       if (username) {
         entry.username = username;
@@ -75,9 +87,17 @@
       }
       servers.push(entry);
     });
-    // forceRelay means a relay is configured. It is not a transport policy:
-    // relay-only has no path to a computer that did not paste the same relay.
-    return { iceServers: servers, forceRelay: relays.length > 0, relays: relays };
+    PUBLIC_RELAY.forEach(function (url) {
+      if (seen[url]) return;
+      seen[url] = true;
+      servers.push({
+        urls: url,
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      });
+    });
+    // forceRelay means a relay is in the list. It is not a transport policy.
+    return { iceServers: servers, forceRelay: servers.length > 1, relays: relays, publicRelay: true };
   }
 
   function parseAuthLink(href) {

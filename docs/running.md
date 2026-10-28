@@ -1113,14 +1113,13 @@ before confirmation there is no session, and RLS would reject the insert.
   encrypted. Production requires `flutter_secure_storage`.
 - **Attachments are unverified.** The picker, upload and signed-URL viewer all
   exist; no upload has been exercised against a live bucket.
-- **Calls need a TURN relay on mobile data.** Media is real (`flutter_webrtc`),
-  but with only STUN configured a call connects on the same Wi-Fi and can fail
-  beyond it. Paste the provider's whole address list (one line,
-  comma-separated, including the `turns:…:443?transport=tcp` entry) into
-  `TURN_URL` and add `TURN_USERNAME` / `TURN_CREDENTIAL`.
-  `dart run tool/check_config.dart` confirms it with `relay: 4 addresses` and
-  refuses a list that has no TCP/TLS address. See "Setting up a hosted TURN
-  relay" in `docs/calls.md`. Both phones must be rebuilt after the edit.
+- **Calls include a public global relay.** Media is real (`flutter_webrtc`).
+  Same Wi-Fi can connect directly. A different network, including mobile data,
+  uses the built-in Open Relay list. A private relay is optional: paste the
+  provider's whole address list (one line, comma-separated, including the
+  `turns:…:443?transport=tcp` entry) into `TURN_URL` and add `TURN_USERNAME` /
+  `TURN_CREDENTIAL`. `dart run tool/check_config.dart` confirms a paste and
+  refuses a list that has no TCP/TLS address. See `docs/calls.md`.
   Before blaming the app, the same network can be tested from a computer and a
   phone with `tool/call_test_server.py` — see `docs/calls.md`.
 - **No push notifications.** No FCM credentials are configured; the preference

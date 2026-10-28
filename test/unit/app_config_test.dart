@@ -74,12 +74,17 @@ void main() {
     });
   });
   group('AppConfig.buildIceServers', () {
-    test('STUN alone by default', () {
+    test('STUN plus the public relay by default', () {
       final servers = AppConfig.buildIceServers(
         stunUrl: 'stun:stun.l.google.com:19302',
       );
-      expect(servers, hasLength(1));
-      expect(servers.single['urls'], 'stun:stun.l.google.com:19302');
+      expect(servers.first['urls'], 'stun:stun.l.google.com:19302');
+      expect(servers.length, greaterThan(1));
+      expect(
+        servers.any((server) =>
+            server['urls'] == 'turn:openrelay.metered.ca:443?transport=tcp'),
+        isTrue,
+      );
     });
 
     test('TURN is appended with its credentials', () {
@@ -89,10 +94,10 @@ void main() {
         turnUsername: 'mailchat',
         turnCredential: 'secret',
       );
-      expect(servers, hasLength(2));
-      expect(servers.last['urls'], 'turn:turn.example.com:3478');
-      expect(servers.last['username'], 'mailchat');
-      expect(servers.last['credential'], 'secret');
+      expect(servers.length, greaterThan(2));
+      expect(servers[1]['urls'], 'turn:turn.example.com:3478');
+      expect(servers[1]['username'], 'mailchat');
+      expect(servers[1]['credential'], 'secret');
     });
 
     test('an anonymous relay is allowed (no username, no credential block)', () {
@@ -100,18 +105,18 @@ void main() {
         stunUrl: 'stun:x',
         turnUrl: 'turn:relay:3478',
       );
-      expect(servers.last.containsKey('username'), isFalse);
-      expect(servers.last.containsKey('credential'), isFalse);
+      final own = servers.firstWhere((server) => server['urls'] == 'turn:relay:3478');
+      expect(own.containsKey('username'), isFalse);
+      expect(own.containsKey('credential'), isFalse);
     });
 
     test('a blank or padded TURN URL is treated as absent', () {
       expect(
-        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: '   '),
-        hasLength(1),
+        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: '   ').length,
+        greaterThan(1),
       );
       expect(
-        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: ' turn:r:3478 ')
-            .last['urls'],
+        AppConfig.buildIceServers(stunUrl: 'stun:x', turnUrl: ' turn:r:3478 ')[1]['urls'],
         'turn:r:3478',
       );
     });
@@ -128,11 +133,11 @@ void main() {
         turnUsername: ' user ',
         turnCredential: ' secret ',
       );
-      // STUN plus four relays: every address reaches the peer connection.
-      expect(servers, hasLength(5));
+      // STUN, four private relays, then the public relay.
+      expect(servers.length, 5 + 3);
       expect(servers.first['urls'], 'stun:stun.l.google.com:19302');
       expect(
-        servers.skip(1).map((s) => s['urls']).toList(),
+        servers.skip(1).take(4).map((s) => s['urls']).toList(),
         [
           'turn:relay.example.ca:80',
           'turn:relay.example.ca:80?transport=tcp',
@@ -140,7 +145,7 @@ void main() {
           'turns:relay.example.ca:443?transport=tcp',
         ],
       );
-      for (final server in servers.skip(1)) {
+      for (final server in servers.skip(1).take(4)) {
         // A relay entry without credentials is silently unusable, so each one
         // carries the trimmed pair rather than only the first.
         expect(server['username'], 'user');

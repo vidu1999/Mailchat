@@ -271,8 +271,9 @@ String? callConnectAdvice({
       return 'The relay did not answer. A call on the same Wi-Fi can still '
           'connect. Leave both phones on that Wi-Fi and call again.';
     }
-    return 'The relay refused this phone. The username or password in the '
-        'app config is wrong, or it was just created — wait two minutes.';
+    return 'No relay address was gathered, so two different networks cannot '
+        'meet. Turn off any VPN and Data saver, then call again. A pasted '
+        'TURN password, if you added one, may also be wrong.';
   }
   if (path.remoteAdded == 0) {
     return 'This phone reached the relay. Nothing has arrived from the other '

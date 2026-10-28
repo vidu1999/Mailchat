@@ -178,7 +178,7 @@ void main() {
       );
       expect(
         advice(path: const IcePathSnapshot(gatheringComplete: true)),
-        contains('refused this phone'),
+        contains('No relay address was gathered'),
       );
       expect(advice(), contains('call description was rejected'));
       expect(

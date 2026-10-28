@@ -953,11 +953,7 @@
   }
 
   function callHint() {
-    var ice = iceConfig();
-    if (!ice.forceRelay) {
-      return 'Same Wi-Fi can connect. On mobile data, paste the same TURN lines into Settings on this page.';
-    }
-    return 'Still connecting. Turn off any VPN and Data saver, on this browser and on the phone.';
+    return 'Different networks use the built-in relay. Turn off any VPN and Data saver on both sides. Same Wi-Fi can also connect directly.';
   }
 
   function queueLocalIce(candidate) {

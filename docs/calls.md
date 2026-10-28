@@ -1,14 +1,14 @@
 # Voice and video calls
 
-**Status:** 🟡 **built, but unverified on a device, and dependent on a TURN
-relay for mobile data.** Calling is real: `flutter_webrtc` opens a peer
-connection, the microphone and camera are captured, SDP and ICE travel through
-the database (0007), and the two screens drive the whole negotiation.
+**Status:** 🟡 **built, but unverified on a device.** Calling is real:
+`flutter_webrtc` opens a peer connection, the microphone and camera are
+captured, SDP and ICE travel through the database (0007), and the two screens
+drive the whole negotiation.
 
-What is *not* proven: that a call connects between two real phones. That needs
-two devices, and it needs a TURN server for anything outside the same network.
-The app says so on screen when no relay is configured, and every failure ends as
-"Could not connect" rather than a silent call.
+A public global relay is built in, so a call is not limited to the same Wi-Fi.
+What is *not* proven: that a call connects between two real phones, including
+one on mobile data and one on Wi-Fi. Every failure ends as "Could not connect"
+rather than a silent call.
 
 **Code:** `lib/features/calls/domain/call_model.dart`,
 `call_media.dart`, `call_service.dart`,
@@ -123,13 +123,13 @@ and duplicate addresses are removed, in order. Each relay address becomes its ow
 entry in the ICE server list, all carrying the same username/credential, so one
 blocked UDP port cannot take the working TCP/TLS addresses down with it.
 
-Without a relay a call connects on the same Wi-Fi and on many home routers, and
-fails on mobile data; the caller's screen says exactly that rather than blaming
-the network in general. A configured relay is still offered
-(`iceServers` in `lib/features/calls/domain/call_media.dart`), but the policy
-stays `all`. Forcing `relay` left a computer with no pasted relay and a phone
-with no other path, so the call rang and never connected. A wrong password
-fails the relay path; same Wi-Fi can still connect.
+A call on the same Wi-Fi can connect directly. A call where each person is on
+their own internet — mobile data, another house, another country — cannot.
+The app always offers a public global relay (`lib/core/config/public_relay.dart`,
+the Open Relay Project) so that path does not depend on a pasted password.
+A `TURN_URL` in the env file is added as well, in front of the public one, so
+a project can run its own relay. The policy stays `all`: a wrong private
+password does not block the public relay or a same-Wi-Fi path.
 
 The credential is a per-server secret, not a Supabase key, but it still belongs
 in the gitignored env file (`assets/config/env`) or in `--dart-define`, never in
@@ -171,9 +171,9 @@ TURN_CREDENTIAL=the-credential-password
 5. Rebuild and install that APK on **both** phones. Configuration is bundled
    into the build, so a hot restart will not pick up an edit, and a phone still
    running the previous APK will not exchange the relay address.
-6. Call between the two phones on different networks — one on mobile data. The
-   "no relay configured" warning is gone, and `call_media_ready` reports
-   `turn: true` and `policy: relay`.
+6. Call between the two phones on different networks — one on mobile data.
+   `call_media_ready` reports `turn: true` and `policy: all`. The public relay
+   is already in the build; this private list is extra.
 
 Rotating the credential later is a dashboard action plus an env edit: nothing in
 the database, the migrations or the RLS policies knows about TURN.
@@ -288,20 +288,9 @@ Settings → Connections → Data usage → Data saver → off (or allow MailCha
 Settings → Connections → More connection settings → Private DNS → Automatic
 ```
 
-**Then the relay question.** One line now answers it at the start of every call:
-
-```text
-INFO call_ice_config {stun: stun.l.google.com:19302, relay_count: 0, relay_hosts: [], relay_fallback: false, policy: all}
-WARN call_no_relay {detail: no TURN relay configured: media can only flow when the two phones reach each other directly…}
-```
-
-`relay_count: 0` is the whole story of a call that works on the office Wi-Fi and
-dies on mobile data: without a relay, media has to travel directly between the
-two phones, and most mobile networks cannot do that. `relay_fallback: false`
-with a non-zero count is the second half of the story — a UDP-only relay stops
-working on a network that blocks UDP, which is why a hosted provider's
-`turns:…:443?transport=tcp` entry matters more than its `turn:…:80` one. How to
-set one up is below, in [Setting up a hosted TURN relay](#setting-up-a-hosted-turn-relay).
+**Then the relay question.** One line now answers it at the start of every call.
+`public_relay` is the built-in global relay. `own_relay` is how many addresses
+came from `TURN_URL` (zero is fine). `policy` is always `all`.
 
 After **15 seconds** still connecting, the call screen names the gap instead of
 showing "Connecting..." forever. The sentences live in `callConnectAdvice`
@@ -311,10 +300,10 @@ showing "Connecting..." forever. The sentences live in `callConnectAdvice`
 * no relay configured;
 * the other phone has not accepted (or this phone cannot reach the server);
 * this phone's relay has no TCP address;
-* the relay refused this phone, and only after gathering finished with no
-  relay address and no direct address (wrong username/password, or a
-  credential that is less than two minutes old). A rejected call
-  description is a different sentence — it is not a wrong password;
+* no relay address was gathered, and only after gathering finished with no
+  relay address and no direct address. A pasted TURN password may be wrong.
+  A rejected call description is a different sentence — it is not a wrong
+  password;
 * this phone reached the relay and nothing arrived from the other phone;
 * this phone reached the relay and the other phone did not;
 * both reached the relay and audio is still blocked (Data saver or a VPN).
@@ -352,7 +341,7 @@ in Cloudflare DNS, so the browser reports that the host was not found.
 
 | Item | Why it is not done here |
 | --- | --- |
-| **A TURN server** | Configuration, not code: paste the provider's list into `TURN_URL` (§ *Setting up a hosted TURN relay*). Without one, calls work on a local network and may fail on mobile data |
+| **A TURN server** | A public global relay is built in, so two different networks can connect without a paste. A project's own relay is optional: paste it into `TURN_URL` (§ *Setting up a hosted TURN relay*). The public relay is shared and has a monthly quota |
 | **Two devices** | The only way to prove media; CI can compile WebRTC but cannot hear it |
 | **Push for a call** | A call only rings while the app is open. Waking a backgrounded phone needs FCM — see [notifications.md](notifications.md) |
 | **Ringtone, vibration, wake lock** | Without them a ringing phone may be silent and asleep |
@@ -369,5 +358,6 @@ in Cloudflare DNS, so the browser reports that the host was not found.
 | `supabase/verify.sql` row 11: both tables exist with RLS | Anything about NAT traversal, which is exactly what TURN exists to fix |
 
 The first device test to run is the one in the [testing](testing.md) checklist:
-both phones on the same Wi-Fi, one call, accept, hear each other. If that works
-and mobile data does not, the answer is a TURN server, not more code.
+one phone on Wi-Fi, the other on mobile data, one call, accept, hear each other.
+A public relay is already in the build. If that still fails, the public relay
+may be over quota; a private `TURN_URL` is the next step, not more call code.

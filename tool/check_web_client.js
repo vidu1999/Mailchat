@@ -41,8 +41,11 @@ assert(turns[1].indexOf('turn:') === 0, 'turn kept');
 
 const ice = L.buildIceServers('stun:stun.l.google.com:19302', turns.join(','), 'user', 'secret');
 assert(ice.forceRelay === true, 'relay policy');
-assert(ice.iceServers.length === 3, 'stun plus two relays');
+assert(ice.iceServers.length === 6, 'stun plus two relays plus public ' + ice.iceServers.length);
 assert(ice.iceServers[1].username === 'user', 'turn username');
+const bare = L.buildIceServers('stun:stun.l.google.com:19302', '', '', '');
+assert(bare.iceServers.length === 4, 'public relay without pasted TURN');
+assert(bare.iceServers[3].urls.indexOf('transport=tcp') > 0, 'public tcp relay');
 
 const link = L.parseAuthLink(
   'https://example.com/Mailchat/webapp/index.html#access_token=abc&refresh_token=def&type=signup'
