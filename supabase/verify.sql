@@ -174,13 +174,14 @@ select '07. policies on public tables',
 from pg_policies where schemaname = 'public'
 
 union all
-select '18. notification inbox (0013)',
+select '18. message and missed-call notifications (0014)',
        case when to_regclass('public.user_notifications') is not null
          and exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'user_notifications')
          and exists (select 1 from pg_trigger where tgrelid = 'public.messages'::regclass and tgname = 'messages_create_notifications' and not tgisinternal)
-         and exists (select 1 from pg_trigger where tgrelid = 'public.conversation_members'::regclass and tgname = 'conversation_members_create_notifications' and not tgisinternal)
          and exists (select 1 from pg_trigger where tgrelid = 'public.calls'::regclass and tgname = 'calls_create_missed_call_notifications' and not tgisinternal)
+         and not exists (select 1 from pg_trigger where tgrelid = 'public.conversation_members'::regclass and tgname = 'conversation_members_create_notifications' and not tgisinternal)
+         and not exists (select 1 from public.user_notifications where notification_type = 'system')
          and exists (select 1 from information_schema.columns where table_schema='public' and table_name='notification_preferences' and column_name='calls_enabled')
-         and exists (select 1 from information_schema.columns where table_schema='public' and table_name='notification_preferences' and column_name='system_enabled')
-         then 'ok' else 'MISSING - 0013 notification table, Realtime publication, or event triggers did not apply' end
+         and not exists (select 1 from information_schema.columns where table_schema='public' and table_name='notification_preferences' and column_name='system_enabled')
+         then 'ok' else 'MISSING - 0014 message/call-only notification setup did not apply' end
 order by 1;

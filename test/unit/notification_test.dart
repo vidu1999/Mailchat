@@ -7,7 +7,6 @@ void main() {
       final preferences = NotificationPreferences.fromJson(const {});
       expect(preferences.messages, isTrue);
       expect(preferences.calls, isTrue);
-      expect(preferences.system, isTrue);
       expect(preferences.reactions, isFalse);
     });
 
@@ -17,7 +16,6 @@ void main() {
         mentions: false,
         reactions: true,
         calls: false,
-        system: false,
         muted: true,
       );
       final restored = NotificationPreferences.fromJson(preferences.toJson());
@@ -25,7 +23,6 @@ void main() {
       expect(restored.mentions, isFalse);
       expect(restored.reactions, isTrue);
       expect(restored.calls, isFalse);
-      expect(restored.system, isFalse);
       expect(restored.muted, isTrue);
     });
   });

@@ -22,7 +22,7 @@ class NotificationService {
     if (userId == null) return null;
     final rows = await _supabase.select(
       'notification_preferences',
-      select: 'messages_enabled, mentions_enabled, reactions_enabled, calls_enabled, system_enabled, muted',
+      select: 'messages_enabled, mentions_enabled, reactions_enabled, calls_enabled, muted',
       filter: {'eq': 'user_id,$userId', 'is': 'conversation_id,null'},
       limit: 1,
     );
@@ -52,7 +52,6 @@ class NotificationService {
     AppLogger.info('notification_preferences_saved', details: {
       'messages': preferences.messages,
       'calls': preferences.calls,
-      'system': preferences.system,
     });
   }
 
@@ -176,7 +175,6 @@ class NotificationPreferences {
     this.mentions = true,
     this.reactions = false,
     this.calls = true,
-    this.system = true,
     this.muted = false,
   });
 
@@ -184,7 +182,6 @@ class NotificationPreferences {
   final bool mentions;
   final bool reactions;
   final bool calls;
-  final bool system;
   final bool muted;
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) =>
@@ -193,7 +190,6 @@ class NotificationPreferences {
         mentions: json['mentions_enabled'] as bool? ?? true,
         reactions: json['reactions_enabled'] as bool? ?? false,
         calls: json['calls_enabled'] as bool? ?? true,
-        system: json['system_enabled'] as bool? ?? true,
         muted: json['muted'] as bool? ?? false,
       );
 
@@ -202,7 +198,6 @@ class NotificationPreferences {
         'mentions_enabled': mentions,
         'reactions_enabled': reactions,
         'calls_enabled': calls,
-        'system_enabled': system,
         'muted': muted,
       };
 
@@ -211,7 +206,6 @@ class NotificationPreferences {
     bool? mentions,
     bool? reactions,
     bool? calls,
-    bool? system,
     bool? muted,
   }) =>
       NotificationPreferences(
@@ -219,7 +213,6 @@ class NotificationPreferences {
         mentions: mentions ?? this.mentions,
         reactions: reactions ?? this.reactions,
         calls: calls ?? this.calls,
-        system: system ?? this.system,
         muted: muted ?? this.muted,
       );
 }

@@ -1626,7 +1626,7 @@
       try { stamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)); } catch (err) { stamp = row.created_at || ''; }
       return '<button type="button" class="person notification-row' + (row.read_at ? '' : ' notification-unread') +
         '" data-act="open-notification" data-id="' + L.esc(row.id) + '"><span class="avatar">' +
-        (row.notification_type === 'missed_call' ? '☎' : row.notification_type === 'system' ? 'ⓘ' : '●') +
+        (row.notification_type === 'missed_call' ? '☎' : '●') +
         '</span><span class="call-copy"><strong>' + L.esc(row.title || 'MailChat') + '</strong><span class="sub">' +
         L.esc(row.body || '') + ' · ' + L.esc(stamp) + '</span></span>' + (row.read_at ? '' : '<b>●</b>') + '</button>';
     }).join('') : '<div class="empty"><h2>You’re all caught up</h2><p>New messages, missed calls and conversation updates will appear here.</p></div>';

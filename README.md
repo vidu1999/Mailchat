@@ -60,7 +60,7 @@ have not been exercised against a live database from the build environment.
 | Updates / status | 🧪 Text/photo stories with 24-hour expiry and profile-based visibility in Flutter and browser; apply migration 0012 via `supabase/apply_all.sql` before use — see `docs/status.md` |
 | Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
 | Search by username, display name, exact email | Implemented (`search_users`, 0005) |
-| Notifications | Database-backed inbox, foreground realtime alerts, message/missed-call/system events, read state, and tap-through navigation (migration 0013 required) |
+| Notifications | Database-backed inbox, foreground realtime alerts, message/missed-call events, read state, and tap-through navigation (migrations 0013–0014 required; OS push not yet wired) |
 | Voice / video calls | `flutter_webrtc` signaling/media flow plus account-based recent/missed call history on mobile and browser, with profile-name call-back. Calls are still unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
 | Browser client | `webapp/index.html` — same Supabase accounts, chats, Updates and calls as the phone. Not a Flutter web build. See `docs/web.md` |
 | OS/background push (FCM) | **Not implemented** — needs Firebase credentials, token registration, and a trusted server-side sender |

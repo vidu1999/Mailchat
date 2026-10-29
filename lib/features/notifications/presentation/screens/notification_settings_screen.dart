@@ -123,23 +123,14 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                 ? (v) => _save(_preferences.copyWith(calls: v))
                 : null,
           ),
-          SwitchListTile(
-            title: const Text('System updates'),
-            subtitle: const Text('Alert me about conversation and account events.'),
-            value: _preferences.system,
-            onChanged: enabled
-                ? (v) => _save(_preferences.copyWith(system: v))
-                : null,
-          ),
           const Divider(),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'Message, missed-call, and system-event switches are saved to '
-              'your account. The durable inbox and foreground realtime alerts '
-              'work without Firebase. Sound, vibration, and background or OS '
-              'push are not yet wired; OS push requires a trusted Firebase Cloud '
-              'Messaging sender and project credentials.',
+              'Message and missed-call switches are saved to your account. '
+              'The durable inbox and foreground realtime alerts work without '
+              'Firebase. Background or OS push is not yet wired; it requires a '
+              'trusted Firebase Cloud Messaging sender and project credentials.',
               style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             ),
           ),

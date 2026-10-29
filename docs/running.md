@@ -146,7 +146,7 @@ The project needs nine migrations, applied **in order**:
 
 ### Option C — the whole schema in one paste (recommended when in doubt)
 
-`supabase/apply_all.sql` is all thirteen migration files concatenated, plus the health check
+`supabase/apply_all.sql` is all fourteen migration files concatenated, plus the health check
 at the end. Paste it once; there is nothing to edit and no order to get right.
 
 ```

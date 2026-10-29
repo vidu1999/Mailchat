@@ -44,7 +44,7 @@ Legend:
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
 | Image / file sharing | 🧪 | Picked files stay staged until Send. `AttachmentService` uploads a set and creates one message with multiple `message_attachments`; image selections render as an inline album in one bubble with private signed URLs. 10 MB per file, up to 10 files per message. Browser has the same staged-send and album behavior. Uses first-party `file_selector` on Flutter (see §4) |
-| Notification inbox / foreground delivery | 🧪 | Migration 0013 writes RLS-protected events for new messages, missed calls and system messages; mobile/browser subscribe in realtime, show an inbox/badge, and tap through to chat or call history. Preferences and mute rules are applied in database triggers. Live Supabase application/runtime remains unverified. This is not OS/background push. |
+| Message/missed-call notification inbox | 🧪 | Migrations 0013–0014 create RLS-protected message and missed-call events; system/group-update notifications are disabled. Mobile/browser subscribe in realtime and tap through to chat or call history. This is not OS/background push; the FCM sender and device-token flow are not implemented. |
 | OS/background push (FCM) | ❌ | No Firebase SDK, device-token registration, or trusted FCM sender; requires Firebase project credentials and a server-side delivery function. |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
@@ -128,7 +128,7 @@ live project can be checked in one paste.
 1. ~~Receipts~~ — done: `markReceivedAndRead`, `ReceiptState`, live tick updates.
 2. ~~Presence + typing~~ — done: `PresenceService` for the live channel, plus the durable heartbeat (`user_presence`, 0008) that gives last seen and the chat-list dots.
 3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
-4. ~~Notification settings~~ — global message, missed-call, and system-event switches persist to `notification_preferences`; the durable inbox and realtime foreground alerts are documented in [notifications.md](notifications.md).
+4. ~~Notification settings~~ — global message and missed-call switches persist to `notification_preferences`; system-event alerts were removed. See [notifications.md](notifications.md) for the remaining FCM/background-push gap.
 5. ~~Media~~ — done: `file_picker` → `AttachmentService` → storage → attachment row.
 6. **FCM** — needs a Firebase project, which is a decision and an account, not just code.
 7. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item that cannot be finished without two real devices.

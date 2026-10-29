@@ -131,7 +131,6 @@ class _NotificationInboxScreenState extends State<NotificationInboxScreen> {
                         final item = _items[index];
                         final icon = switch (item.type) {
                           'missed_call' => Icons.call_missed,
-                          'system' => Icons.info_outline,
                           _ => Icons.chat_bubble_outline,
                         };
                         return ListTile(
