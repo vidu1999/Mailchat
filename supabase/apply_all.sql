@@ -867,7 +867,12 @@ create policy notification_preferences_all_own on public.notification_preference
 -- declared `security_invoker` (Postgres 15+) so the caller's RLS applies.
 -- ============================================================================
 
-create or replace view public.conversation_list
+-- The complete apply_all.sql bundle is intentionally re-runnable. A database
+-- may already have the later 0011 view (with favourite/pinned columns); replace
+-- that shape with the 0004 base before reapplying migrations in order, then
+-- 0011 appends its columns again. No other views depend on this view.
+drop view if exists public.conversation_list;
+create view public.conversation_list
 with (security_invoker = true)
 as
 select

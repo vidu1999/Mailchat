@@ -146,7 +146,7 @@ The project needs nine migrations, applied **in order**:
 
 ### Option C — the whole schema in one paste (recommended when in doubt)
 
-`supabase/apply_all.sql` is all ten files concatenated, plus the health check
+`supabase/apply_all.sql` is all thirteen migration files concatenated, plus the health check
 at the end. Paste it once; there is nothing to edit and no order to get right.
 
 ```
@@ -202,11 +202,11 @@ dart run tool/check_migrations.dart --write-apply-all
 The migrations remain the source of truth; `apply_all.sql` is generated and its
 header says so.
 
-**If you applied the migrations before 2026-10-26, re-run `0004`.** The
-`conversation_list` view gained an `updated_at` column that the chat list orders
-by; without it the screen fails with `column conversation_list.updated_at does
-not exist`. The file uses `create or replace view`, and Postgres allows appending
-columns, so re-running it is safe and does not touch data.
+The complete bundle may be re-run even when the database already has the later
+`conversation_list` shape from migration 0011. Migration 0004 drops and rebuilds
+that view to its base shape first; migration 0011 then restores the favourite and
+pinned columns. The view has no dependent views, and dropping it does not delete
+conversation/message data.
 
 ### Verify it worked
 
