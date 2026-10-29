@@ -41,6 +41,22 @@ select '16. chat list preferences (0011)',
        else 'MISSING - 0011 did not apply: favourites and pins are unavailable' end
 
 union all
+select '17. expiring user updates (0012)',
+       case when (
+         select count(*) from pg_tables
+         where schemaname = 'public'
+           and tablename in ('user_statuses', 'user_status_views')
+           and rowsecurity
+       ) = 2 and exists (
+         select 1 from storage.buckets b where b.id = 'status-media' and b.public = false
+       ) and exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'can_view_user_status'
+       ) then 'ok'
+       else 'MISSING - 0012 did not apply: Updates are unavailable' end
+
+union all
 select '03. tables in public',
        count(*)::text || ' ok'
 from pg_tables where schemaname = 'public'
@@ -55,14 +71,14 @@ where n.nspname = 'public'
 
 union all
 select '05. storage buckets',
-       case when count(*) = 2 then 'ok'
-            else count(*)::text || ' - expected avatars and attachments' end
-from storage.buckets where id in ('avatars', 'attachments')
+       case when count(*) = 3 then 'ok'
+            else count(*)::text || ' - expected avatars, attachments and status-media' end
+from storage.buckets where id in ('avatars', 'attachments', 'status-media')
 
 union all
 select '06. tables published for realtime',
-       case when count(*) = 4 then 'ok'
-            else count(*)::text || ' - expected 4' end
+       case when count(*) = 7 then 'ok'
+            else count(*)::text || ' - expected 7 (including call signalling and user_statuses)' end
 from pg_publication_tables
 where pubname = 'supabase_realtime' and schemaname = 'public'
 
@@ -156,4 +172,15 @@ union all
 select '07. policies on public tables',
        count(*)::text || ' ok'
 from pg_policies where schemaname = 'public'
+
+union all
+select '08. notification inbox',
+       case when to_regclass('public.user_notifications') is not null
+         and exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'user_notifications')
+         and exists (select 1 from pg_trigger where tgrelid = 'public.messages'::regclass and tgname = 'messages_create_notifications' and not tgisinternal)
+         and exists (select 1 from pg_trigger where tgrelid = 'public.conversation_members'::regclass and tgname = 'conversation_members_create_notifications' and not tgisinternal)
+         and exists (select 1 from pg_trigger where tgrelid = 'public.calls'::regclass and tgname = 'calls_create_missed_call_notifications' and not tgisinternal)
+         and exists (select 1 from information_schema.columns where table_schema='public' and table_name='notification_preferences' and column_name='calls_enabled')
+         and exists (select 1 from information_schema.columns where table_schema='public' and table_name='notification_preferences' and column_name='system_enabled')
+         then 'ok' else 'MISSING - 0013 notification table, Realtime publication, or event triggers did not apply' end
 order by 1;

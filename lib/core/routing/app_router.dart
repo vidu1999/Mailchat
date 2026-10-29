@@ -17,6 +17,7 @@ import 'package:mailchat/features/messaging/presentation/screens/direct_chat_scr
 import 'package:mailchat/features/attachments/presentation/screens/attachment_preview_screen.dart';
 import 'package:mailchat/features/attachments/presentation/screens/media_viewer_screen.dart';
 import 'package:mailchat/features/notifications/presentation/screens/notification_settings_screen.dart';
+import 'package:mailchat/features/notifications/presentation/screens/notification_inbox_screen.dart';
 import 'package:mailchat/features/privacy/presentation/screens/blocked_users_screen.dart';
 import 'package:mailchat/features/privacy/presentation/screens/privacy_settings_screen.dart';
 import 'package:mailchat/features/privacy/presentation/screens/report_user_screen.dart';
@@ -26,6 +27,7 @@ import 'package:mailchat/features/calls/presentation/screens/incoming_call_scree
 import 'package:mailchat/features/calls/presentation/screens/active_call_screen.dart';
 import 'package:mailchat/features/calls/presentation/screens/call_history_screen.dart';
 import 'package:mailchat/features/settings/presentation/screens/application_settings_screen.dart';
+import 'package:mailchat/features/status/presentation/screens/status_screen.dart';
 
 /// Named routes used across MailChat.
 class AppRoutes {
@@ -48,6 +50,7 @@ class AppRoutes {
   static const String mediaViewer = '/media-viewer';
   static const String attachmentPreview = '/attachment-preview';
   static const String notificationSettings = '/notification-settings';
+  static const String notificationInbox = '/notifications';
   static const String privacySettings = '/privacy-settings';
   static const String blockedUsers = '/blocked-users';
   static const String reportUser = '/report-user';
@@ -57,6 +60,7 @@ class AppRoutes {
   static const String incomingCall = '/incoming-call';
   static const String activeCall = '/active-call';
   static const String callHistory = '/call-history';
+  static const String status = '/status';
 }
 
 /// Observes route changes for analytics / deep-link handling.
@@ -122,6 +126,8 @@ class AppRouter {
         );
       case AppRoutes.notificationSettings:
         return _materialRoute(const NotificationSettingsScreen(), settings);
+      case AppRoutes.notificationInbox:
+        return _materialRoute(const NotificationInboxScreen(), settings);
       case AppRoutes.privacySettings:
         return _materialRoute(const PrivacySettingsScreen(), settings);
       case AppRoutes.blockedUsers:
@@ -140,6 +146,8 @@ class AppRouter {
         return _materialRoute(ActiveCallScreen(arguments: _args(settings)), settings);
       case AppRoutes.callHistory:
         return _materialRoute(const CallHistoryScreen(), settings);
+      case AppRoutes.status:
+        return _materialRoute(const StatusScreen(), settings);
       default:
         return MaterialPageRoute(
           builder: (_) => const Scaffold(

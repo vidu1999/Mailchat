@@ -44,14 +44,15 @@ Legend:
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
 | Image / file sharing | 🧪 | Picked files stay staged until Send. `AttachmentService` uploads a set and creates one message with multiple `message_attachments`; image selections render as an inline album in one bubble with private signed URLs. 10 MB per file, up to 10 files per message. Browser has the same staged-send and album behavior. Uses first-party `file_selector` on Flutter (see §4) |
-| Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
+| Notification inbox / foreground delivery | 🧪 | Migration 0013 writes RLS-protected events for new messages, missed calls and system messages; mobile/browser subscribe in realtime, show an inbox/badge, and tap through to chat or call history. Preferences and mute rules are applied in database triggers. Live Supabase application/runtime remains unverified. This is not OS/background push. |
+| OS/background push (FCM) | ❌ | No Firebase SDK, device-token registration, or trusted FCM sender; requires Firebase project credentials and a server-side delivery function. |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
 | Voice messages | ❌ | No recorder, no player, no upload path |
 | Voice / video calls | 🟡 | Signalling (0007) **and media** (`flutter_webrtc` via `call_media.dart`): a real peer connection, offer/answer/ICE through the database, incoming/active call screens, a participant-based call log on mobile and browser, profile name/avatar call-back, and mute/camera toggles. Not verified on a device. A public global relay is built in (`public_relay.dart`) so two phones on different networks can connect without a pasted TURN password; a project's own `TURN_URL` is added in front of it. Saving the call goes through `place_call` / `set_call_status` (0010) so a bad policy on `calls` cannot refuse a member. See [calls.md](calls.md). Transport policy is `all` even when TURN is configured, so a computer without a pasted relay can still connect on the same network; early candidates are buffered and the call row is polled so a missed realtime event cannot drop the answer. A ringing row older than 45 seconds is not shown. Each call logs `call_ice_config` (relay count, credentials redacted). After 15 seconds the screen names the gap (no TCP, rejected login, other phone silent) instead of a generic network sentence |
-| Browser client, same system as the phone | 🧪 | `webapp/index.html` with `webapp/app.js`. Not Flutter web (`dart:io` still blocks `flutter run -d chrome`). Same GoTrue project, same `messages` / `calls` / `call_ice_candidates` tables, so a browser and a phone can chat and call each other. Connected is gated on the peer connection. Not exercised against a live project from this environment. See [web.md](web.md) |
-| Stories / status | ❌ | Absent: no table, no screen. Wireframe screens 20 and 27 |
+| Browser client, same system as the phone | 🧪 | `webapp/index.html` with `webapp/app.js`. Not Flutter web (`dart:io` still blocks `flutter run -d chrome`). Same GoTrue project, same `messages` / `calls` / `call_ice_candidates` / `user_statuses` tables, so browser and phone share chats, calls and Updates. Connected is gated on the peer connection. Not exercised against a live project from this environment. See [web.md](web.md) |
+| Stories / status | 🧪 | Flutter and browser Updates feed with text/photo sharing, 24-hour expiry, view counts, private photo storage and profile-based visibility to direct MailChat conversations. Migration 0012 is not applied/verified on the user's Supabase project; media and RLS behavior still need live testing. See [status.md](status.md) |
 | Multi-device | 🟡 | `user_devices` table; no session list, no "log out all devices", no token registration |
 | End-to-end encryption | ❌ | Not implemented and not claimed (§4) |
 
@@ -69,7 +70,7 @@ Legend:
 | — | Message info (long-press menu) | 🟡 the menu item exists and closes the sheet; it has no content behind it (receipts are shown as ticks in the bubble instead) |
 | 17 | Attachment preview | 🟡 the picker flow supersedes it; the old placeholder screen is still routed |
 | 18–19 | Voice call, video call | 🟡 built and reachable: incoming prompt, active call with mute/camera/flip, real WebRTC media. Unverified on two devices; mobile data needs a TURN relay pasted into `TURN_URL` |
-| 20 | My status / stories | ❌ |
+| 20 | My status / stories | 🧪 Flutter and browser text/photo Updates; migration 0012 still needs applying and live verification |
 | 21 | Notification settings | ✅ message switches persist per user; sound/vibration stay device-local by design |
 | 22–23 | Blocked users, report user | ✅ built |
 | 24 | Group creation | ✅ built |
@@ -87,7 +88,7 @@ Legend:
 | PostgreSQL schema with ERD | ✅ | `supabase/migrations/0001`–`0006`; ERD and request paths in `docs/architecture.md` |
 | Row Level Security everywhere | ✅ | 31 policies in `0003`, plus explicit `security definer` helpers; `verify.sql` reports any table with RLS off |
 | Realtime over WebSockets | ✅ | `core/network/supabase_realtime.dart`; tables added to the publication in `0004` |
-| Storage with policies | 🟡 | Buckets and policies exist; no client writes to them |
+| Storage with policies | 🧪 | Attachments and status photos upload from the clients to private buckets. Status media is audience-checked and expires from app access after 24 hours; migration 0012 still needs applying and live verification. |
 | Edge Functions | ❌ | None. Everything that needs elevation is a `security definer` SQL function |
 | Unit / widget tests | ✅ | 14 test files, 163+ test declarations; `flutter analyze` is clean |
 | Integration tests | ❌ | No `integration_test/` suite |
@@ -127,8 +128,8 @@ live project can be checked in one paste.
 1. ~~Receipts~~ — done: `markReceivedAndRead`, `ReceiptState`, live tick updates.
 2. ~~Presence + typing~~ — done: `PresenceService` for the live channel, plus the durable heartbeat (`user_presence`, 0008) that gives last seen and the chat-list dots.
 3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
-4. ~~Notification settings~~ — done: persisted to `notification_preferences`.
+4. ~~Notification settings~~ — global message, missed-call, and system-event switches persist to `notification_preferences`; the durable inbox and realtime foreground alerts are documented in [notifications.md](notifications.md).
 5. ~~Media~~ — done: `file_picker` → `AttachmentService` → storage → attachment row.
 6. **FCM** — needs a Firebase project, which is a decision and an account, not just code.
 7. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item that cannot be finished without two real devices.
-8. **Stories, multi-device, monitoring, environments** — genuinely v2 work.
+8. **Stories** — text/photo Updates are implemented in Flutter and browser; migration 0012 needs applying and live RLS/media verification. Multi-device, monitoring and environments remain v2 work.

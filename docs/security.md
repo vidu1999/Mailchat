@@ -42,7 +42,7 @@ Key invariants enforced in the database rather than the client:
 - `user_blocks` — a user sees and manages only their own blocks.
 - `user_reports` — a user can file and read their own reports; triage is
   service-role only.
-- `user_devices`, `notification_preferences` — owner only.
+- `user_devices`, `notification_preferences`, `user_notifications` — owner only. Notification clients may change only `read_at`; event content and recipient are server-generated.
 
 Triggers enforce invariants the client cannot be trusted with:
 
@@ -72,8 +72,10 @@ These are real and should block a production launch:
 3. **Presence is coarse.** A heartbeat older than 75 seconds is "offline", so a
    user whose phone slept looks away even if they are reading. That is honest,
    but it is not the same as an accurate session state.
-4. **Push notifications.** No FCM credentials or server-side sender exist; no
-   push is delivered. See [notifications.md](notifications.md).
+4. **OS/background push.** The database-backed inbox and foreground realtime
+   alerts do not deliver anything while the app is closed or disconnected. No
+   FCM credentials, token registration, or server-side sender exist yet. See
+   [notifications.md](notifications.md).
 5. **Rate limiting.** Auth endpoints are rate-limited by Supabase, but message,
    attachment and call-creation rate limiting is not implemented — nothing stops
    a member from flooding a conversation or ringing in a loop.

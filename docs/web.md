@@ -11,6 +11,7 @@ The phone app cannot run in a browser. It is written on `dart:io` (`HttpClient`,
 | Account | GoTrue email and password | The same GoTrue project |
 | Chats | `messages`, `conversation_list` | The same tables |
 | Groups, reactions, receipts, files | The phone screens | The same tables and the `attachments` bucket |
+| Updates / status | Text/photo updates expire after 24 hours | Same `user_statuses`, `user_status_views` and private `status-media` bucket; migration 0012 must be applied |
 | Calls | `calls` + `call_ice_candidates` + `flutter_webrtc` | The same rows, with the browser’s `RTCPeerConnection` |
 
 A call placed here inserts the same `calls` row the phone already listens for, with `offer_sdp` set before the row exists. The phone’s answer is written to `answer_sdp`. ICE candidates go to `call_ice_candidates`. The page does not say Connected unless the peer connection reports connected.

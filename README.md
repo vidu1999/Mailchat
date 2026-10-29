@@ -57,12 +57,13 @@ have not been exercised against a live database from the build environment.
 | Reactions, receipts, edit/delete, replies | Implemented; never exercised |
 | Attachments (photos and files) | Photos/files preview in the composer; Send uploads them as one message, with multi-image albums on phone and browser |
 | Online status, last seen, typing | Implemented: live presence channel + a 30 s heartbeat (0008) |
+| Updates / status | 🧪 Text/photo stories with 24-hour expiry and profile-based visibility in Flutter and browser; apply migration 0012 via `supabase/apply_all.sql` before use — see `docs/status.md` |
 | Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
 | Search by username, display name, exact email | Implemented (`search_users`, 0005) |
-| Notification preferences | Implemented and persisted; **nothing is pushed** |
+| Notifications | Database-backed inbox, foreground realtime alerts, message/missed-call/system events, read state, and tap-through navigation (migration 0013 required) |
 | Voice / video calls | `flutter_webrtc` signaling/media flow plus account-based recent/missed call history on mobile and browser, with profile-name call-back. Calls are still unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
-| Browser client | `webapp/index.html` — same Supabase accounts, chats and calls as the phone. Not a Flutter web build. See `docs/web.md` |
-| Push notifications (FCM) | **Not implemented** — needs a Firebase project |
+| Browser client | `webapp/index.html` — same Supabase accounts, chats, Updates and calls as the phone. Not a Flutter web build. See `docs/web.md` |
+| OS/background push (FCM) | **Not implemented** — needs Firebase credentials, token registration, and a trusted server-side sender |
 | End-to-end encryption | **Not implemented** — and not claimed |
 | Database schema, RLS, triggers, seed | Written; applied by hand in one paste (`supabase/apply_all.sql`) |
 | `flutter analyze` | **Clean** in CI |
@@ -182,8 +183,9 @@ index, or go straight to:
 | `docs/groups.md`, `docs/search.md` | Groups; finding people by handle or exact email |
 | `docs/presence.md` | Online status, last seen, typing, and the privacy switch |
 | `docs/privacy.md` | Blocking, reporting, discoverability |
-| `docs/notifications.md` | Preferences (real) and push (not delivered) |
-| `docs/calls.md` | Voice and video: signalling built, media not |
+| `docs/notifications.md` | Durable inbox, realtime foreground alerts, tap-through, and OS-push limitations |
+| `docs/calls.md` | Voice and video calls and account-based call history |
+| `docs/status.md` | Updates/stories: sharing, audience, expiry and Supabase setup |
 | `docs/architecture.md`, `docs/security.md` | Components, schema, trust boundary |
 | `docs/feature-matrix.md` | Every spec item, with the path that backs the verdict |
 

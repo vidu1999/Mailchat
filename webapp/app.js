@@ -1,6 +1,6 @@
 /* MailChat in the browser.
    Same Supabase project as the Flutter phone app: same accounts, chats,
-   groups, attachments and call rows. A call from this page rings the phone,
+   groups, attachments, Updates and call rows. A call from this page rings the phone,
    and a call from the phone rings this page. */
 (function () {
   'use strict';
@@ -34,9 +34,17 @@
     authMode: 'login',
     chats: [],
     callHistory: [],
+    notifications: [],
+    notificationUnread: 0,
     callHistoryLoading: false,
     callPicking: false,
     callVideo: false,
+    statuses: [],
+    statusLoading: false,
+    statusPublishing: false,
+    statusFile: null,
+    statusFileUrl: '',
+    viewingStatusId: null,
     pendingFiles: [],
     sendingFiles: false,
     chatFilter: 'All',
@@ -348,6 +356,16 @@
       var record = recordOf(event, payload);
       if (record) considerIncoming(record);
     });
+    join('realtime:mailchat:web:notifications:' + me(), {
+      postgres_changes: [{
+        event: 'INSERT', schema: 'public', table: 'user_notifications', filter: 'user_id=eq.' + me(),
+      }],
+    }, function () {
+      loadNotifications().then(function () {
+        if (state.pane === 'notifications') render();
+        else toast('New MailChat notification');
+      }).catch(function () {});
+    });
   }
 
   function recordOf(event, payload) {
@@ -464,6 +482,89 @@
     render();
   }
 
+  async function loadStatuses() {
+    state.statusLoading = true;
+    render();
+    try {
+      var now = encodeURIComponent(new Date().toISOString());
+      var data = await api('/rest/v1/user_statuses?select=*&expires_at=gt.' + now + '&order=created_at.desc&limit=100');
+      var rows = rowsOf(data);
+      var ids = Array.from(new Set(rows.map(function (row) { return row.user_id; })));
+      var profileMap = {};
+      if (ids.length) {
+        var profileFilter = encodeURIComponent('(' + ids.join(',') + ')');
+        rowsOf(await api('/rest/v1/profiles?select=id,username,display_name,avatar_path&id=in.' + profileFilter)).forEach(function (profile) {
+          profileMap[profile.id] = profile;
+        });
+      }
+      var statusIds = rows.map(function (row) { return row.id; });
+      var views = statusIds.length ? rowsOf(await api('/rest/v1/user_status_views?select=status_id,viewer_id&status_id=in.' + encodeURIComponent('(' + statusIds.join(',') + ')'))) : [];
+      state.statuses = rows.map(function (row) {
+        var rowViews = views.filter(function (view) { return view.status_id === row.id; });
+        return Object.assign({}, row, {
+          profile: profileMap[row.user_id] || {},
+          viewedByMe: rowViews.some(function (view) { return view.viewer_id === me(); }),
+          viewerCount: rowViews.length,
+        });
+      });
+    } catch (err) {
+      state.statuses = [];
+      toast('Could not load updates: ' + err.message);
+    }
+    state.statusLoading = false;
+    render();
+  }
+
+  function statusRowsFor(userId) {
+    return state.statuses.filter(function (row) { return row.user_id === userId; });
+  }
+
+  function statusName(row) {
+    var profile = row.profile || {};
+    return profile.display_name || profile.username || 'MailChat member';
+  }
+
+  function statusAvatar(profile) {
+    var path = profile && profile.avatar_path;
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return '<img src="' + L.esc(path) + '" alt="">';
+    return '<img data-path="' + L.esc(path) + '" data-bucket="avatars" alt="">';
+  }
+
+  function statusAge(value) {
+    var minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60000));
+    return minutes < 1 ? 'just now' : minutes < 60 ? minutes + ' min ago' : Math.floor(minutes / 60) + ' hr ago';
+  }
+
+  function statusPane() {
+    var own = statusRowsFor(me());
+    var people = [];
+    state.statuses.forEach(function (row) { if (row.user_id !== me() && !people.some(function (p) { return p.id === row.user_id; })) people.push({ id: row.user_id, row: row }); });
+    var recent = state.statusLoading ? '<div class="empty"><h2>Loading updates…</h2></div>' :
+      (!people.length ? '<div class="empty"><h2>No updates yet</h2><p>Updates from people you have a direct MailChat conversation with appear here.</p></div>' :
+        people.map(function (person) {
+          var items = statusRowsFor(person.id);
+          var unseen = items.some(function (item) { return !item.viewedByMe; });
+          var row = items[0];
+          var profile = row.profile || {};
+          var avatar = statusAvatar(profile);
+          return '<button type="button" class="person status-person" data-act="status-view" data-id="' + L.esc(row.id) + '"><span class="avatar status-avatar ' + (unseen ? 'unseen' : '') + '">' + avatar + L.esc(String(statusName(row)).slice(0, 1).toUpperCase()) + '</span><span class="call-copy"><strong>' + L.esc(statusName(row)) + '</strong><span class="sub">' + items.length + ' update' + (items.length === 1 ? '' : 's') + ' · ' + L.esc(statusAge(row.created_at)) + '</span></span><span class="status-dots">' + items.length + '</span></button>';
+        }).join(''));
+    var staged = state.statusFile ? '<div class="status-photo-stage"><img src="' + L.esc(state.statusFileUrl) + '" alt="Photo preview"><button type="button" class="btn ghost" data-act="status-remove-photo">Remove photo</button></div>' : '';
+    var ownTile = own.length ? '<button type="button" class="person status-person" data-act="status-view" data-id="' + L.esc(own[0].id) + '"><span class="avatar status-avatar">' + L.esc(String((state.profile && (state.profile.display_name || state.profile.username)) || 'M').slice(0, 1).toUpperCase()) + '</span><span class="call-copy"><strong>My status</strong><span class="sub">' + own.length + ' active update' + (own.length === 1 ? '' : 's') + ' · tap to view</span></span><span class="icon-btn status-add-mark">＋</span></button>' : '<div class="person status-person"><span class="avatar status-avatar">' + L.esc(String((state.profile && (state.profile.display_name || state.profile.username)) || 'M').slice(0, 1).toUpperCase()) + '</span><span class="call-copy"><strong>My status</strong><span class="sub">Share a photo or text update</span></span><label class="icon-btn status-file-label" title="Add photo">＋<input type="file" accept="image/*" data-act="status-file"></label></div>';
+    return panelHead('Updates') + '<div class="panel status-panel"><h2>Status</h2>' + ownTile + '<div class="status-compose"><h3>Share an update</h3><textarea id="status-text" maxlength="700" placeholder="What’s new? Add text or choose a photo…"></textarea><div class="row status-compose-actions"><label class="btn ghost status-file-label">Photo<input type="file" accept="image/*" data-act="status-file"></label><input id="status-color" type="color" value="#6366f1" aria-label="Text background"><button class="btn" type="button" data-act="status-publish">Share update</button></div>' + staged + '<p class="tiny">Visible to your direct MailChat conversations · expires after 24 hours.</p></div><h2 class="status-recent-title">Recent updates</h2>' + recent + '</div>';
+  }
+
+  function statusViewerPane() {
+    var row = state.statuses.filter(function (item) { return item.id === state.viewingStatusId; })[0];
+    if (!row) return panelHead('Update') + '<div class="empty"><h2>This update is no longer available</h2></div>';
+    var color = (Number(row.background_color || 4284704497) >>> 0).toString(16).slice(-6);
+    var content = row.status_type === 'image'
+      ? '<img class="status-view-image" data-path="' + L.esc(row.media_path) + '" data-bucket="status-media" data-expires-in="300" alt="Shared update">'
+      : '<div class="status-view-text" style="background:#' + color + '">' + L.esc(row.text || '') + '</div>';
+    return panelHead('Update') + '<div class="status-viewer"><div class="status-view-head"><span class="avatar status-avatar">' + L.esc(String(statusName(row)).slice(0, 1).toUpperCase()) + '</span><span><strong>' + L.esc(statusName(row)) + '</strong><small>' + L.esc(statusAge(row.created_at)) + '</small></span><button class="icon-btn" data-act="status-close">×</button></div>' + content + (row.text && row.status_type === 'image' ? '<p class="status-caption">' + L.esc(row.text) + '</p>' : '') + (row.user_id === me() ? '<p class="tiny">' + row.viewerCount + ' views</p>' : '') + '<div class="row"><button class="btn ghost" data-act="status-prev">Previous</button><button class="btn" data-act="status-next">Next</button></div></div>';
+  }
+
   function rememberParticipant(chat) {
     var other = chat.other_participant;
     if (other && other.id) names[other.id] = other;
@@ -510,10 +611,11 @@
     catch (err) { /* heartbeat is best-effort */ }
   }
 
-  async function openChat(id) {
+  async function openChat(id, deepLink) {
     if (state.sendingFiles) { toast('Wait for the files to finish sending.'); return; }
     if (state.thread && state.thread.id !== id) discardPendingFiles();
     var chat = state.chats.filter(function (item) { return item.id === id || item.conversation_id === id; })[0];
+    deepLink = deepLink || {};
     state.pane = 'thread';
     state.reply = null;
     state.editing = null;
@@ -521,9 +623,9 @@
     state.info = false;
     state.thread = {
       id: id,
-      title: chat ? chatTitle(chat) : 'Chat',
-      type: chat && chat.conversation ? chat.conversation.type : 'direct',
-      peerId: chat ? chatPeer(chat) : null,
+      title: chat ? chatTitle(chat) : (deepLink.conversationName || deepLink.title || 'Chat'),
+      type: chat && chat.conversation ? chat.conversation.type : (deepLink.conversationType || 'direct'),
+      peerId: chat ? chatPeer(chat) : (deepLink.conversationType === 'direct' ? deepLink.actorId : null),
       messages: [],
       typing: false,
     };
@@ -730,11 +832,12 @@
   }
 
 
-  async function signedUrl(path, bucket) {
+  async function signedUrl(path, bucket, expiresIn) {
     bucket = bucket || 'attachments';
+    expiresIn = Number(expiresIn) || 3600;
     var data = await api(
       '/storage/v1/object/sign/' + encodeURIComponent(bucket) + '/' + path.split('/').map(encodeURIComponent).join('/'),
-      { method: 'POST', body: { expiresIn: 3600 } }
+      { method: 'POST', body: { expiresIn: expiresIn } }
     );
     var signed = data && (data.signedURL || data.signedUrl);
     if (!signed) throw new Error('Could not open that file.');
@@ -1422,6 +1525,8 @@
     var profile = state.profile || {};
     return '<div class="top"><div class="mark">M</div><div style="flex:1"><h1>MailChat</h1>' +
       '<div class="sub" id="net">' + (socketOpen ? 'Live' : 'Connecting') + '</div></div>' +
+      '<button type="button" class="icon-btn" data-act="go" data-pane="notifications" title="Notifications">♧' +
+      (state.notificationUnread ? '<span class="notification-count">' + L.esc(String(state.notificationUnread)) + '</span>' : '') + '</button>' +
       '<button type="button" class="icon-btn" data-act="go" data-pane="search" title="New chat">＋</button>' +
       '<button type="button" class="icon-btn" data-act="go" data-pane="settings" title="Settings">⚙</button></div>' +
       '<div class="search-wrap"><div class="sub">' + L.esc(profile.display_name || profile.username || session.user.email || '') + '</div>' +
@@ -1438,6 +1543,9 @@
       '<option' + (state.chatKind === 'Groups' ? ' selected' : '') + '>Groups</option></select></div></div>' +
       '<div class="list" id="chat-list">' + chatsHtml() + '</div>' +
       '<nav class="side-nav"><button type="button" data-act="go" data-pane="list">▣ <span>Chats</span></button>' +
+      '<button type="button" data-act="go" data-pane="notifications">♧ <span>Notifications' +
+      (state.notificationUnread ? ' (' + L.esc(String(state.notificationUnread)) + ')' : '') + '</span></button>' +
+      '<button type="button" data-act="go" data-pane="status">◉ <span>Updates</span></button>' +
       '<button type="button" data-act="go" data-pane="calls">☎ <span>Calls</span></button></nav>';
   }
 
@@ -1489,7 +1597,10 @@
   }
 
   function mainHtml() {
+    if (state.pane === 'notifications') return notificationsPane();
     if (state.pane === 'calls') return callHistoryPane();
+    if (state.pane === 'status') return statusPane();
+    if (state.pane === 'status-viewer') return statusViewerPane();
     if (state.pane === 'search') return searchPane();
     if (state.pane === 'group') return groupPane();
     if (state.pane === 'settings') return settingsPane();
@@ -1499,6 +1610,28 @@
     return '<div class="empty"><h2>Choose a chat</h2><p>Messages and calls here are the same ones on the phone.</p></div>';
   }
 
+
+  async function loadNotifications() {
+    if (!me()) return;
+    var rows = await api('/rest/v1/user_notifications?select=*&user_id=eq.' +
+      encodeURIComponent(me()) + '&order=created_at.desc&limit=100');
+    state.notifications = rows || [];
+    state.notificationUnread = state.notifications.filter(function (row) { return !row.read_at; }).length;
+  }
+
+  function notificationsPane() {
+    var rows = state.notifications || [];
+    var content = rows.length ? rows.map(function (row) {
+      var stamp = '';
+      try { stamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)); } catch (err) { stamp = row.created_at || ''; }
+      return '<button type="button" class="person notification-row' + (row.read_at ? '' : ' notification-unread') +
+        '" data-act="open-notification" data-id="' + L.esc(row.id) + '"><span class="avatar">' +
+        (row.notification_type === 'missed_call' ? '☎' : row.notification_type === 'system' ? 'ⓘ' : '●') +
+        '</span><span class="call-copy"><strong>' + L.esc(row.title || 'MailChat') + '</strong><span class="sub">' +
+        L.esc(row.body || '') + ' · ' + L.esc(stamp) + '</span></span>' + (row.read_at ? '' : '<b>●</b>') + '</button>';
+    }).join('') : '<div class="empty"><h2>You’re all caught up</h2><p>New messages, missed calls and conversation updates will appear here.</p></div>';
+    return panelHead('Notifications') + '<div class="panel"><div class="row"><button type="button" class="btn ghost" data-act="notifications-read-all">Mark all read</button></div>' + content + '</div>';
+  }
 
   function callHistoryPane() {
     var rows = state.callHistory || [];
@@ -1761,7 +1894,7 @@
       if (node.dataset.loaded) continue;
       node.dataset.loaded = '1';
       try {
-        var url = await signedUrl(node.dataset.path, node.dataset.bucket || 'attachments');
+        var url = await signedUrl(node.dataset.path, node.dataset.bucket || 'attachments', node.dataset.expiresIn);
         if (node.tagName === 'IMG') node.src = url;
         else node.href = url;
       } catch (err) { node.dataset.loaded = ''; }
@@ -1800,6 +1933,8 @@
       state.pane = el.dataset.pane;
       state.error = '';
       if (state.pane === 'calls') { await loadCallHistory(); return; }
+      if (state.pane === 'notifications') { await loadNotifications(); render(); return; }
+      if (state.pane === 'status') { await loadStatuses(); return; }
       if (state.pane === 'blocked') {
         try { await loadBlocked(); } catch (err) { toast(err.message); }
       }
@@ -1807,6 +1942,37 @@
         try { await loadProfile(); } catch (err) { toast(err.message); }
       }
       render();
+      return;
+    }
+    if (act === 'open-notification') {
+      var notice = state.notifications.find(function (row) { return row.id === el.dataset.id; });
+      if (!notice) return;
+      try {
+        if (!notice.read_at) await api('/rest/v1/user_notifications?id=eq.' + encodeURIComponent(notice.id), {
+          method: 'PATCH', body: { read_at: new Date().toISOString() },
+        });
+        if (notice.notification_type === 'missed_call') {
+          state.pane = 'calls';
+          await loadCallHistory();
+        } else {
+          var targetConversation = notice.payload && notice.payload.conversationId;
+          if (!targetConversation) { toast('This notification has no conversation link.'); return; }
+          state.pane = 'thread';
+          var deepLink = Object.assign({}, notice.payload || {}, { title: notice.title });
+          await openChat(targetConversation, deepLink);
+        }
+        await loadNotifications();
+        render();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+    if (act === 'notifications-read-all') {
+      try {
+        await api('/rest/v1/user_notifications?user_id=eq.' + encodeURIComponent(me()) + '&read_at=is.null', {
+          method: 'PATCH', body: { read_at: new Date().toISOString() },
+        });
+        await loadNotifications(); render();
+      } catch (err) { toast(err.message); }
       return;
     }
     if (act === 'chat-filter') {
@@ -1835,6 +2001,31 @@
       ev.preventDefault();
       ev.stopPropagation();
       removePendingFile(Number(el.dataset.index));
+      return;
+    }
+    if (act === 'status-publish') { await publishStatus(); return; }
+    if (act === 'status-remove-photo') { state.statusFile = null; if (state.statusFileUrl) URL.revokeObjectURL(state.statusFileUrl); state.statusFileUrl = ''; render(); return; }
+    if (act === 'status-view') {
+      state.viewingStatusId = el.dataset.id;
+      state.pane = 'status-viewer';
+      var viewed = state.statuses.filter(function (row) { return row.id === state.viewingStatusId; })[0];
+      if (viewed && viewed.user_id !== me() && !viewed.viewedByMe) {
+        api('/rest/v1/user_status_views', { method: 'POST', body: { status_id: viewed.id, viewer_id: me() } }).then(function () { viewed.viewedByMe = true; }).catch(function () {});
+      }
+      render();
+      return;
+    }
+    if (act === 'status-close') { state.pane = 'status'; state.viewingStatusId = null; render(); return; }
+    if (act === 'status-next' || act === 'status-prev') {
+      var group = statusRowsFor((state.statuses.filter(function (row) { return row.id === state.viewingStatusId; })[0] || {}).user_id);
+      var at = group.findIndex(function (row) { return row.id === state.viewingStatusId; });
+      var nextIndex = at + (act === 'status-next' ? 1 : -1);
+      if (nextIndex < 0) nextIndex = group.length - 1;
+      if (nextIndex >= group.length) nextIndex = 0;
+      state.viewingStatusId = group[nextIndex] && group[nextIndex].id;
+      render();
+      var current = state.statuses.filter(function (row) { return row.id === state.viewingStatusId; })[0];
+      if (current && current.user_id !== me() && !current.viewedByMe) api('/rest/v1/user_status_views', { method: 'POST', body: { status_id: current.id, viewer_id: me() } }).then(function () { current.viewedByMe = true; }).catch(function () {});
       return;
     }
     if (act === 'open') { openChat(el.dataset.id); return; }
@@ -2074,6 +2265,51 @@
     await enterApp();
   }
 
+  async function publishStatus() {
+    if (state.statusPublishing) return;
+    state.statusPublishing = true;
+    var publishButton = document.querySelector('[data-act="status-publish"]');
+    if (publishButton) { publishButton.disabled = true; publishButton.textContent = 'Sharing…'; }
+    var userText = ($('status-text') && $('status-text').value || '').trim();
+    try {
+      if (state.statusFile) {
+        if (state.statusFile.size > 10 * 1024 * 1024) throw new Error('Choose a photo under 10 MB.');
+        if (!/^image\/(jpeg|png|webp|gif|heic)$/i.test(state.statusFile.type)) throw new Error('Choose a JPG, PNG, WEBP, GIF or HEIC photo.');
+        var id = crypto.randomUUID();
+        var extension = (state.statusFile.name.split('.').pop() || 'jpg').toLowerCase();
+        var path = me() + '/' + id + '/photo.' + extension;
+        var bytes = new Uint8Array(await state.statusFile.arrayBuffer());
+        await api('/storage/v1/object/status-media/' + path.split('/').map(encodeURIComponent).join('/'), {
+          method: 'POST', body: bytes,
+          headers: { 'Content-Type': state.statusFile.type, 'x-upsert': 'false' },
+        });
+        var colorValue = $('status-color') ? parseInt($('status-color').value.slice(1), 16) : 0x6366f1;
+        await api('/rest/v1/user_statuses', { method: 'POST', body: {
+          id: id, user_id: me(), status_type: 'image', text: userText || null,
+          media_path: path, background_color: 0xff000000 + colorValue,
+        } });
+      } else {
+        if (!userText) throw new Error('Write something or choose a photo first.');
+        if (userText.length > 700) throw new Error('Status is limited to 700 characters.');
+        var color = $('status-color') ? parseInt($('status-color').value.slice(1), 16) : 0x6366f1;
+        await api('/rest/v1/user_statuses', { method: 'POST', body: {
+          user_id: me(), status_type: 'text', text: userText,
+          background_color: 0xff000000 + color,
+        } });
+      }
+      state.statusFile = null;
+      if (state.statusFileUrl) URL.revokeObjectURL(state.statusFileUrl);
+      state.statusFileUrl = '';
+      toast('Update shared. It expires in 24 hours.');
+      state.statusPublishing = false;
+      await loadStatuses();
+    } catch (err) {
+      state.statusPublishing = false;
+      if (publishButton) { publishButton.disabled = false; publishButton.textContent = 'Share update'; }
+      toast('Could not share update: ' + err.message);
+    }
+  }
+
   async function doSearch() {
     var q = $('q') && $('q').value;
     try {
@@ -2109,6 +2345,14 @@
 
   async function onChange(ev) {
     var el = ev.target;
+    if (el.dataset.act === 'status-file' && el.files && el.files[0]) {
+      if (state.statusFileUrl) URL.revokeObjectURL(state.statusFileUrl);
+      state.statusFile = el.files[0];
+      state.statusFileUrl = URL.createObjectURL(state.statusFile);
+      state.pane = 'status';
+      render();
+      return;
+    }
     if (el.dataset.act === 'file' && el.files && el.files.length) {
       stageFiles(el.files);
       el.value = '';
@@ -2126,6 +2370,10 @@
       state.shareLastSeen = el.checked;
       try { await touchPresence(el.checked); }
       catch (err) { toast(err.message); el.checked = !el.checked; }
+    }
+    if (el.id === 'chat-kind') {
+      state.chatKind = el.value;
+      paintChats();
     }
   }
 
@@ -2148,13 +2396,6 @@
     typingTimer = setTimeout(function () { sendTyping(false); }, 2000);
   }
 
-  function onChange(ev) {
-    if (ev.target.id === 'chat-kind') {
-      state.chatKind = ev.target.value;
-      paintChats();
-    }
-  }
-
   async function enterApp() {
     state.recovery = false;
     state.error = '';
@@ -2163,6 +2404,7 @@
     subscribeInbox();
     try { await loadProfile(); } catch (err) { toast(err.message); }
     await loadChats(true);
+    try { await loadNotifications(); } catch (err) { toast(err.message); }
     touchPresence();
     clearInterval(presenceTimer);
     presenceTimer = setInterval(function () {
@@ -2233,7 +2475,6 @@
     document.body.addEventListener('change', onChange);
     document.body.addEventListener('keydown', onKeydown);
     document.body.addEventListener('input', onInput);
-    document.body.addEventListener('change', onChange);
     startHeartbeat();
     if (link) {
       if (!cfg) {

@@ -15,6 +15,7 @@ import 'package:mailchat/features/calls/presentation/screens/incoming_call_scree
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/last_seen_heartbeat.dart';
 import 'package:mailchat/shared/services/message_service.dart';
+import 'package:mailchat/shared/services/notification_service.dart';
 import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
@@ -41,7 +42,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final MessageService _messageService = MessageService();
   final PresenceService _presenceService = PresenceService();
   final CallService _callService = CallService();
+  final NotificationService _notificationService = NotificationService();
   late final LastSeenHeartbeat _heartbeat;
+  StreamSubscription<MailNotification>? _notificationEvents;
+  int _notificationUnreadCount = 0;
 
   /// Set while an incoming-call prompt is on screen, so a burst of realtime
   /// events for the same call cannot stack two prompts.
@@ -83,6 +87,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
     // goes stale, "last seen".
     _heartbeat = LastSeenHeartbeat()..start();
     _load();
+    _notificationService.subscribe();
+    _notificationEvents = _notificationService.newNotifications.listen((item) {
+      if (!mounted) return;
+      setState(() => _notificationUnreadCount++);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${item.title}: ${item.body}'),
+        action: SnackBarAction(
+          label: 'VIEW',
+          onPressed: () => Navigator.of(context).pushNamed(AppRoutes.notificationInbox),
+        ),
+      ));
+    });
+    _refreshNotificationCount();
     _subscribeInbox();
     _listenForCalls();
     // Realtime can miss the insert. A poll is what makes a computer call
@@ -103,6 +120,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void dispose() {
     _incomingCalls?.cancel();
+    _notificationEvents?.cancel();
+    _notificationService.dispose();
     _chatSearchController.dispose();
     _incomingPoll?.cancel();
     _callService.dispose();
@@ -242,6 +261,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   /// New messages and read-cursor changes both mean "the badges are stale".
+  Future<void> _refreshNotificationCount() async {
+    try {
+      final count = await _notificationService.unreadCount();
+      if (mounted) setState(() => _notificationUnreadCount = count);
+    } catch (e, st) {
+      AppLogger.error(e, st, {'where': 'notification_count'});
+    }
+  }
+
   void _subscribeInbox() {
     final userId = SupabaseClient.instance.userId;
     if (userId == null) return;
@@ -400,6 +428,31 @@ class _ChatListScreenState extends State<ChatListScreen> {
         title: const Text('MailChat'),
         actions: [
           IconButton(
+            tooltip: 'Notifications',
+            onPressed: () => Navigator.of(context)
+                .pushNamed(AppRoutes.notificationInbox)
+                .then((_) => _refreshNotificationCount()),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_outlined),
+                if (_notificationUnreadCount > 0)
+                  Positioned(
+                    right: -7,
+                    top: -7,
+                    child: CircleAvatar(
+                      radius: 8,
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                      child: Text(
+                        _notificationUnreadCount > 9 ? '9+' : '$_notificationUnreadCount',
+                        style: const TextStyle(fontSize: 9, color: Colors.white),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
             tooltip: 'Search users',
             icon: const Icon(Icons.search),
             onPressed: () =>
@@ -424,13 +477,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: 0,
         onDestinationSelected: (index) {
-          if (index == 1) Navigator.of(context).pushNamed(AppRoutes.callHistory);
+          if (index == 1) Navigator.of(context).pushNamed(AppRoutes.status);
+          if (index == 2) Navigator.of(context).pushNamed(AppRoutes.callHistory);
         },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
             label: 'Chats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.circle_outlined),
+            selectedIcon: Icon(Icons.circle),
+            label: 'Updates',
           ),
           NavigationDestination(
             icon: Icon(Icons.call_outlined),

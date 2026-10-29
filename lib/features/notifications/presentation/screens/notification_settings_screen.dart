@@ -37,6 +37,12 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     _load();
   }
 
+  @override
+  void dispose() {
+    _service.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     NotificationPreferences? stored;
     try {
@@ -111,6 +117,22 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                 ? (v) => _save(_preferences.copyWith(reactions: v))
                 : null,
           ),
+          SwitchListTile(
+            title: const Text('Missed calls'),
+            subtitle: const Text('Alert me when a call is not answered.'),
+            value: _preferences.calls,
+            onChanged: enabled
+                ? (v) => _save(_preferences.copyWith(calls: v))
+                : null,
+          ),
+          SwitchListTile(
+            title: const Text('System updates'),
+            subtitle: const Text('Alert me about conversation and account events.'),
+            value: _preferences.system,
+            onChanged: enabled
+                ? (v) => _save(_preferences.copyWith(system: v))
+                : null,
+          ),
           const Divider(),
           SwitchListTile(
             title: const Text('Sound'),
@@ -127,11 +149,11 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              'The three message switches are saved to your account. Sound and '
-              'vibration apply to this device only. Push delivery requires '
-              'Firebase Cloud Messaging credentials for Android and iOS — '
-              'without them, in-app updates still arrive over realtime, but no '
-              'OS-level notification is sent.',
+              'Message, missed-call, and system-event switches are saved to '
+              'your account. Sound and vibration currently apply only in this '
+              'screen. The durable inbox and foreground realtime alerts work '
+              'without Firebase; background or OS push still requires a trusted '
+              'Firebase Cloud Messaging sender and project credentials.',
               style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             ),
           ),

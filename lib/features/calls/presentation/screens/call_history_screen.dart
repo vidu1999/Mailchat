@@ -197,7 +197,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: 1,
+        selectedIndex: 2,
         onDestinationSelected: (index) {
           if (index == 0) {
             Navigator.of(context).pushNamedAndRemoveUntil(
@@ -205,12 +205,18 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               (_) => false,
             );
           }
+          if (index == 1) Navigator.of(context).pushReplacementNamed(AppRoutes.status);
         },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
             label: 'Chats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.circle_outlined),
+            selectedIcon: Icon(Icons.circle),
+            label: 'Updates',
           ),
           NavigationDestination(
             icon: Icon(Icons.call_outlined),

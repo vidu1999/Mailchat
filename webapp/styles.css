@@ -505,3 +505,35 @@ details summary { cursor: pointer; }
 .call-missed { color: var(--bad); }
 .call-row .avatar { overflow: hidden; border-radius: 50%; }
 .call-row .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+/* Account-based WhatsApp-style Updates, stored in MailChat rather than the OS. */
+.status-panel h2 { margin: 8px 0 12px; font-size: 1.3rem; }
+.status-person { display: flex; align-items: center; gap: 12px; cursor: pointer; color: var(--text); }
+.status-avatar { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 50%; overflow: hidden; }
+.status-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.status-avatar.unseen { outline: 2px solid var(--good); outline-offset: 2px; }
+.status-dots { flex: 0 0 auto; display: grid; place-items: center; min-width: 26px; height: 26px; padding: 0 5px; border-radius: 99px; color: #052e16; background: var(--good); font-size: .78rem; font-weight: 700; }
+.status-compose { margin: 18px 0 22px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: rgba(30, 41, 59, .55); }
+.status-compose h3 { margin: 0 0 10px; }
+.status-compose textarea { min-height: 88px; }
+.status-compose-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.status-compose-actions input[type=color] { width: 48px; height: 42px; padding: 4px; }
+.status-file-label { display: inline-flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.status-file-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.status-photo-stage { margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+.status-photo-stage img { width: 86px; height: 86px; border-radius: 12px; object-fit: cover; }
+.status-recent-title { margin-top: 20px !important; }
+.status-add-mark { display: grid; place-items: center; flex: 0 0 38px; height: 38px; }
+.status-viewer { min-height: 0; flex: 1; padding: 16px; display: flex; flex-direction: column; align-items: stretch; gap: 14px; overflow: auto; }
+.status-view-head { display: flex; align-items: center; gap: 12px; }
+.status-view-head > span:nth-child(2) { display: grid; gap: 4px; flex: 1; }
+.status-view-head small { color: var(--muted); }
+.status-view-image { width: min(100%, 520px); max-height: 68dvh; align-self: center; border-radius: 18px; object-fit: contain; background: #05070b; }
+.status-view-text { min-height: 50dvh; display: grid; place-items: center; padding: 30px; border-radius: 18px; color: white; font-weight: 700; font-size: clamp(1.5rem, 5vw, 2.5rem); text-align: center; white-space: pre-wrap; }
+.status-caption { text-align: center; }
+.shell.is-status .side, .shell.is-status-viewer .side { display: none; }
+
+.icon-btn { position: relative; }
+.notification-count { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; display: grid; place-items: center; border-radius: 99px; background: var(--bad); color: white; font-size: 10px; font-weight: 800; }
+.notification-row { width: 100%; text-align: left; }
+.notification-unread { background: rgba(96, 165, 250, .12); }

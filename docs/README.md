@@ -32,9 +32,10 @@ versus what actually exists.
 | [search.md](search.md) | Finding people by username, display name or exact email | 🧪 built |
 | [presence.md](presence.md) | Online status, last seen, typing, and the privacy switch | 🧪 built |
 | [privacy.md](privacy.md) | Blocking, reporting, discoverability, what is saved and what is not | 🧪 built |
-| [notifications.md](notifications.md) | In-app notification preferences; why push is not delivered yet | 🟡 preferences real, delivery not |
+| [notifications.md](notifications.md) | Durable message/call/system inbox, foreground realtime, tap-through, and FCM gap | 🧪 code built; migration 0013 needs applying |
 | [calls.md](calls.md) | Voice and video calls: signalling, WebRTC media, TURN, what is unverified | 🟡 built, unverified on a device |
-| [web.md](web.md) | The browser client: same accounts, chats and calls as the phone | 🧪 built, not a Flutter web build |
+| [status.md](status.md) | Updates/stories: photo and text sharing, 24-hour expiry, audience and setup | 🧪 code built; migration needs applying |
+| [web.md](web.md) | The browser client: same accounts, chats, Updates and calls as the phone | 🧪 built, not a Flutter web build |
 
 ### Design
 
