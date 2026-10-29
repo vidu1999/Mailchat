@@ -528,12 +528,19 @@ class SupabaseClient {
     final uri = Uri.parse(
       '${AppConfig.instance.supabaseUrl}/storage/v1/object/sign/$bucket/$path',
     );
-    final data = await _postUri(uri, body: {'expires_in': expiresIn}, authRequired: true);
+    final data = await _postUri(uri, body: {'expiresIn': expiresIn}, authRequired: true);
     final signedUrl = data['signedUrl'] ?? data['signedURL'];
     if (signedUrl == null) {
       throw StorageException('Failed to create signed URL', original: data);
     }
-    return signedUrl as String;
+
+    final rawUrl = signedUrl as String;
+    if (Uri.tryParse(rawUrl)?.hasScheme ?? false) return rawUrl;
+
+    final baseUrl = AppConfig.instance.supabaseUrl.replaceFirst(RegExp(r'/$'), '');
+    if (rawUrl.startsWith('/storage/v1/')) return '$baseUrl$rawUrl';
+    final path = rawUrl.startsWith('/') ? rawUrl : '/$rawUrl';
+    return '$baseUrl/storage/v1$path';
   }
 
   // ------------------------------------------------------------------
