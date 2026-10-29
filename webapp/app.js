@@ -2404,7 +2404,9 @@
     subscribeInbox();
     try { await loadProfile(); } catch (err) { toast(err.message); }
     await loadChats(true);
-    try { await loadNotifications(); } catch (err) { toast(err.message); }
+    // Notifications are optional until migration 0013 is applied. Keep chat
+    // startup usable against an older Supabase schema without a noisy toast.
+    try { await loadNotifications(); } catch (err) { /* notification migration pending */ }
     touchPresence();
     clearInterval(presenceTimer);
     presenceTimer = setInterval(function () {

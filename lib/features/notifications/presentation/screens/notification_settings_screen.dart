@@ -26,8 +26,6 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   final _service = NotificationService();
 
   NotificationPreferences _preferences = const NotificationPreferences();
-  bool _sound = true;
-  bool _vibration = true;
   bool _saving = false;
   bool _loaded = false;
 
@@ -134,26 +132,14 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                 : null,
           ),
           const Divider(),
-          SwitchListTile(
-            title: const Text('Sound'),
-            subtitle: const Text('This device only.'),
-            value: _sound,
-            onChanged: (v) => setState(() => _sound = v),
-          ),
-          SwitchListTile(
-            title: const Text('Vibration'),
-            subtitle: const Text('This device only.'),
-            value: _vibration,
-            onChanged: (v) => setState(() => _vibration = v),
-          ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
               'Message, missed-call, and system-event switches are saved to '
-              'your account. Sound and vibration currently apply only in this '
-              'screen. The durable inbox and foreground realtime alerts work '
-              'without Firebase; background or OS push still requires a trusted '
-              'Firebase Cloud Messaging sender and project credentials.',
+              'your account. The durable inbox and foreground realtime alerts '
+              'work without Firebase. Sound, vibration, and background or OS '
+              'push are not yet wired; OS push requires a trusted Firebase Cloud '
+              'Messaging sender and project credentials.',
               style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             ),
           ),
