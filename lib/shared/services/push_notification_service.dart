@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -6,12 +7,14 @@ import 'package:flutter/foundation.dart';
 
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/network/supabase_client.dart';
+import 'package:mailchat/shared/services/android_notification_controller.dart';
 
 /// Registers this Android installation's FCM token in the owner's RLS-protected
 /// `user_devices` rows. The token is a routing address, never an FCM credential.
 ///
-/// OS display in the background is handled by Firebase/Android from the
-/// notification payload. Foreground behavior remains MailChat's in-app UI.
+/// Background FCM data messages are displayed by
+/// [AndroidNotificationController], with per-chat grouping and Android action
+/// buttons. Foreground behavior remains MailChat's in-app UI.
 class PushNotificationService {
   PushNotificationService();
 
@@ -115,16 +118,17 @@ class PushNotificationService {
   }
 }
 
-/// Entry point retained by the VM for FCM background delivery. FCM's
-/// notification payload is rendered by Android itself while the app is in the
-/// background; this handler intentionally does not create a duplicate alert.
+/// Entry point retained by the VM for FCM data-only background delivery.
 @pragma('vm:entry-point')
 Future<void> mailChatFcmBackgroundHandler(RemoteMessage message) async {
-  if (Firebase.apps.isEmpty) {
-    try {
-      await Firebase.initializeApp();
-    } catch (_) {
-      // Android's native FCM renderer can still show notification payloads.
-    }
+  // The old sender used visible FCM notification payloads. Let Android render
+  // those during rollout; creating a local copy would show a duplicate.
+  if (message.notification != null) return;
+  DartPluginRegistrant.ensureInitialized();
+  try {
+    if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+    await AndroidNotificationController.instance.showFromFcm(message);
+  } catch (error, stack) {
+    AppLogger.error(error, stack, {'where': 'fcm_background_notification'});
   }
 }

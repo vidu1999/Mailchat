@@ -42,6 +42,8 @@ dependencies:
   # Supabase Edge Function, never in the client app.
   firebase_core: ^4.0.0
   firebase_messaging: ^16.0.0
+  # Android action buttons and grouped Inbox-style notifications.
+  flutter_local_notifications: ^19.4.2
 
 dev_dependencies:
   flutter_test:

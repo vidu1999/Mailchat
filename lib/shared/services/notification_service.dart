@@ -86,6 +86,50 @@ class NotificationService {
         data: {'read_at': DateTime.now().toUtc().toIso8601String()},
       );
 
+  Future<void> markConversationRead(String conversationId) async {
+    final userId = _supabase.userId;
+    if (userId == null || conversationId.isEmpty) return;
+    await _supabase.update(
+      'user_notifications',
+      filter: {
+        'eq': 'user_id,$userId,conversation_id,$conversationId',
+        'is': 'read_at,null',
+      },
+      data: {'read_at': DateTime.now().toUtc().toIso8601String()},
+    );
+  }
+
+  /// Mutes this conversation for eight hours; the database preference expires
+  /// naturally, so there is no need to find a hidden unmute control.
+  Future<void> muteConversation(String conversationId) async {
+    final userId = _supabase.userId;
+    if (userId == null || conversationId.isEmpty) return;
+    final mutedUntil = DateTime.now()
+        .toUtc()
+        .add(const Duration(hours: 8))
+        .toIso8601String();
+    final existing = await _supabase.select(
+      'notification_preferences',
+      select: 'id',
+      filter: {'eq': 'user_id,$userId,conversation_id,$conversationId'},
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await _supabase.insert('notification_preferences', data: {
+        'user_id': userId,
+        'conversation_id': conversationId,
+        'muted': false,
+        'muted_until': mutedUntil,
+      });
+    } else {
+      await _supabase.update(
+        'notification_preferences',
+        filter: {'eq': 'id,${existing.first['id']}'},
+        data: {'muted': false, 'muted_until': mutedUntil},
+      );
+    }
+  }
+
   Future<void> markAllRead() async {
     final userId = _supabase.userId;
     if (userId == null) return;

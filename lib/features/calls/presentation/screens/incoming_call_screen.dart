@@ -38,6 +38,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
   bool _busy = false;
   bool _answered = false;
+  bool _autoAccept = false;
 
   @override
   void initState() {
@@ -48,8 +49,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _callerId = (args['callerId'] as String?) ?? '';
     _callerName = (args['callerName'] as String?) ?? 'Unknown';
     _isVideo = (args['isVideo'] as bool?) ?? false;
+    _autoAccept = args['autoAccept'] as bool? ?? false;
     _selfId = (args['selfId'] as String?) ??
         (SupabaseClient.instance.userId ?? '');
+    if (_autoAccept) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _accept();
+      });
+    }
   }
 
   Future<void> _decline() async {

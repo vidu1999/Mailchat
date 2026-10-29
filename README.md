@@ -42,9 +42,9 @@ already handles, and the gaps that are still real.
 
 ## Project status
 
-This is a **work in progress**, not a shippable app: one large feature (call
-media) and one integration (push delivery) are missing, and the parts that exist
-have not been exercised against a live database from the build environment.
+This is a **work in progress**, not a shippable app: the newly added Android
+notification actions still need a rebuilt-client/device test, and live database,
+network, and call reliability checks remain incomplete.
 
 | Area | State |
 |---|---|
@@ -63,7 +63,7 @@ have not been exercised against a live database from the build environment.
 | Notifications | Database-backed inbox, foreground realtime alerts, message/missed-call events, read state, and tap-through navigation (migrations 0013–0014 required; OS push not yet wired) |
 | Voice / video calls | `flutter_webrtc` signaling/media flow plus account-based recent/missed call history on mobile and browser, with profile-name call-back. Calls are still unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
 | Browser client | `webapp/index.html` — same Supabase accounts, chats, Updates and calls as the phone. Not a Flutter web build. See `docs/web.md` |
-| Android OS/background push (FCM) | Code and sender function are present; requires Firebase config, Edge secrets, deployment and webhook setup before delivery works. Not device-verified; see `docs/notifications.md` |
+| Android OS/background push (FCM) | Android action notifications, per-chat message summaries, and incoming-call actions are implemented in code. Requires Firebase config, Edge secrets, and webhooks for `user_notifications` and `calls`; latest action flow needs a fresh build and device verification. See `docs/notifications.md` |
 | End-to-end encryption | **Not implemented** — and not claimed |
 | Database schema, RLS, triggers, seed | Written; applied by hand in one paste (`supabase/apply_all.sql`) |
 | `flutter analyze` | **Clean** in CI |
@@ -183,7 +183,7 @@ index, or go straight to:
 | `docs/groups.md`, `docs/search.md` | Groups; finding people by handle or exact email |
 | `docs/presence.md` | Online status, last seen, typing, and the privacy switch |
 | `docs/privacy.md` | Blocking, reporting, discoverability |
-| `docs/notifications.md` | Durable inbox, realtime foreground alerts, tap-through, and OS-push limitations |
+| `docs/notifications.md` | Durable inbox, grouped Android notifications, quick actions, call push, and setup |
 | `docs/calls.md` | Voice and video calls and account-based call history |
 | `docs/status.md` | Updates/stories: sharing, audience, expiry and Supabase setup |
 | `docs/architecture.md`, `docs/security.md` | Components, schema, trust boundary |

@@ -19,6 +19,7 @@ import 'package:mailchat/shared/models/receipt_state.dart';
 import 'package:mailchat/shared/services/attachment_service.dart';
 import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/message_service.dart';
+import 'package:mailchat/shared/services/notification_service.dart';
 import 'package:mailchat/shared/services/presence_service.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
@@ -866,6 +867,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     try {
       final remaining =
           await ConversationService().markConversationRead(_conversationId);
+      await NotificationService().markConversationRead(_conversationId);
       if (remaining == null) {
         AppLogger.warning('chat_mark_read_unreadable_reply', details: {
           'conversationId': _conversationId,

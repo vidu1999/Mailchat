@@ -1,13 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/deeplink/app_links.dart';
 import 'package:mailchat/core/deeplink/auth_deep_link.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/supabase_client.dart';
+import 'package:mailchat/features/calls/domain/call_service.dart';
+import 'package:mailchat/shared/services/conversation_service.dart';
+import 'package:mailchat/shared/services/android_notification_controller.dart';
+import 'package:mailchat/shared/services/message_service.dart';
+import 'package:mailchat/shared/services/notification_service.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/core/theme/app_theme.dart';
 import 'package:mailchat/shared/services/auth_service.dart';
@@ -32,6 +40,9 @@ class _MailChatAppState extends State<MailChatApp> {
 
   StreamSubscription<String>? _linkSubscription;
   StreamSubscription<RemoteMessage>? _pushTapSubscription;
+  StreamSubscription<NotificationResponse>? _notificationActionSubscription;
+  StreamSubscription<dynamic>? _notificationAuthSubscription;
+  final List<NotificationResponse> _pendingNotificationActions = [];
 
   @override
   void initState() {
@@ -41,6 +52,13 @@ class _MailChatAppState extends State<MailChatApp> {
     // splash has routed would land on the wrong screen, so it is handled first
     // and replaces the stack.
     _linkSubscription = AppLinks.links.listen(_handleLink);
+    _notificationActionSubscription =
+        AndroidNotificationController.instance.responses.listen(
+      (response) => unawaited(_handleNotificationResponse(response)),
+    );
+    _notificationAuthSubscription = AuthService().userStream.listen((user) {
+      if (user != null) unawaited(_drainPendingNotificationActions());
+    });
     if (Firebase.apps.isNotEmpty) {
       _pushTapSubscription =
           FirebaseMessaging.onMessageOpenedApp.listen(_handlePushTap);
@@ -51,6 +69,11 @@ class _MailChatAppState extends State<MailChatApp> {
       if (initial != null) {
         await _handleLink(initial);
         return;
+      }
+      final notificationAction =
+          AndroidNotificationController.instance.takeLaunchResponse();
+      if (notificationAction != null) {
+        await _handleNotificationResponse(notificationAction);
       }
       if (Firebase.apps.isNotEmpty) {
         final notification = await FirebaseMessaging.instance.getInitialMessage();
@@ -65,28 +88,157 @@ class _MailChatAppState extends State<MailChatApp> {
   void dispose() {
     _linkSubscription?.cancel();
     _pushTapSubscription?.cancel();
+    _notificationActionSubscription?.cancel();
+    _notificationAuthSubscription?.cancel();
     super.dispose();
   }
 
-  void _handlePushTap(RemoteMessage message) {
+  Future<void> _handleNotificationResponse(
+    NotificationResponse response,
+  ) async {
+    if (!AuthService().isAuthenticated) {
+      _pendingNotificationActions.add(response);
+      return;
+    }
+    await _processNotificationResponse(response);
+  }
+
+  Future<void> _drainPendingNotificationActions() async {
+    if (!AuthService().isAuthenticated || _pendingNotificationActions.isEmpty) {
+      return;
+    }
+    // On cold start the splash may still be replacing its route after session
+    // restoration. Let that navigation finish before a call action pushes UI.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted || !AuthService().isAuthenticated) return;
+    final queued = List<NotificationResponse>.of(_pendingNotificationActions);
+    _pendingNotificationActions.clear();
+    for (final response in queued) {
+      await _processNotificationResponse(response);
+    }
+  }
+
+  Future<void> _processNotificationResponse(
+    NotificationResponse response,
+  ) async {
+    Map<String, dynamic> data;
+    try {
+      final decoded = jsonDecode(response.payload ?? '{}');
+      if (decoded is! Map) return;
+      data = Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return;
+    }
+    final userId = SupabaseClient.instance.userId;
+    if (userId == null ||
+        (data['recipientId'] is String && data['recipientId'] != userId)) {
+      return;
+    }
+    final conversationId = data['conversationId'] as String? ?? '';
+    final callId = data['callId'] as String? ?? '';
+    final action = response.actionId;
+    try {
+      switch (action) {
+        case 'reply':
+          final text = response.input?.trim() ?? '';
+          if (text.isNotEmpty && conversationId.isNotEmpty) {
+            await MessageService().sendText(
+              conversationId: conversationId,
+              senderId: userId,
+              text: text,
+            );
+            await NotificationService().markConversationRead(conversationId);
+            await ConversationService().markConversationRead(conversationId);
+          }
+          break;
+        case 'mark_read':
+          await NotificationService().markConversationRead(conversationId);
+          await ConversationService().markConversationRead(conversationId);
+          break;
+        case 'mute_chat':
+          await NotificationService().muteConversation(conversationId);
+          break;
+        case 'decline_call':
+          if (callId.isNotEmpty) {
+            final calls = CallService();
+            try {
+              await calls.decline(callId);
+            } finally {
+              calls.dispose();
+            }
+          }
+          break;
+        case 'answer_call':
+          final navigator = _navigatorKey.currentState;
+          if (navigator == null || callId.isEmpty) return;
+          navigator.pushNamed(AppRoutes.incomingCall, arguments: {
+            'callId': callId,
+            'conversationId': conversationId,
+            'callerId': data['callerId'] ?? data['actorId'] ?? '',
+            'callerName': data['callerName'] ?? 'MailChat user',
+            'selfId': userId,
+            'isVideo': data['isVideo'] == 'true',
+            'autoAccept': true,
+          });
+          break;
+        default:
+          _routeNotificationData(
+            data,
+            fallbackTitle: data['title'] as String? ?? 'Chat',
+          );
+      }
+    } catch (error, stack) {
+      AppLogger.error(error, stack, {'where': 'notification_action'});
+    }
+  }
+
+  void _handlePushTap(RemoteMessage message) => _routeNotificationData(
+        message.data,
+        fallbackTitle: message.notification?.title ??
+            message.data['title'] as String? ??
+            'Chat',
+      );
+
+  Future<void> _markNotificationInboxRead(String conversationId) async {
+    try {
+      await NotificationService().markConversationRead(conversationId);
+    } catch (error, stack) {
+      AppLogger.error(error, stack, {'where': 'notification_open_mark_read'});
+    }
+  }
+
+  void _routeNotificationData(
+    Map<String, dynamic> data, {
+    required String fallbackTitle,
+  }) {
     final navigator = _navigatorKey.currentState;
     if (navigator == null) return;
-    final data = message.data;
     final type = data['notificationType'] ?? data['type'];
     if (type == 'missed_call') {
       navigator.pushNamed(AppRoutes.callHistory);
       return;
     }
+    if (type == 'incoming_call') {
+      navigator.pushNamed(AppRoutes.incomingCall, arguments: {
+        'callId': data['callId'] ?? '',
+        'conversationId': data['conversationId'] ?? '',
+        'callerId': data['callerId'] ?? '',
+        'callerName': data['callerName'] ?? 'MailChat user',
+        'selfId': data['recipientId'] ?? SupabaseClient.instance.userId ?? '',
+        'isVideo': data['isVideo'] == 'true',
+        'autoAccept': false,
+      });
+      return;
+    }
     final conversationId = data['conversationId'];
     if (conversationId is! String || conversationId.isEmpty) return;
+    unawaited(_markNotificationInboxRead(conversationId));
     final isGroup = data['conversationType'] == 'group';
     final name = data['conversationName'];
     navigator.pushNamed(AppRoutes.directChat, arguments: {
       'conversationId': conversationId,
       'isGroup': isGroup,
-      'title': name is String && name.isNotEmpty
-          ? name
-          : (message.notification?.title ?? 'Chat'),
+      'title': name is String && name.isNotEmpty ? name : fallbackTitle,
       if (data['actorId'] is String) 'otherUserId': data['actorId'],
     });
   }

@@ -7,6 +7,7 @@ import 'package:mailchat/app.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/calls/domain/call_trace.dart';
+import 'package:mailchat/shared/services/android_notification_controller.dart';
 import 'package:mailchat/shared/services/push_notification_service.dart';
 
 /// Entry point of the MailChat application.
@@ -32,6 +33,7 @@ Future<void> main() async {
     try {
       await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(mailChatFcmBackgroundHandler);
+      await AndroidNotificationController.instance.initialize();
     } catch (error, stack) {
       AppLogger.warning('firebase_push_not_configured', details: {
         'error': error.toString(),

@@ -45,7 +45,7 @@ Legend:
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
 | Image / file sharing | 🧪 | Picked files stay staged until Send. `AttachmentService` uploads a set and creates one message with multiple `message_attachments`; image selections render as an inline album in one bubble with private signed URLs. 10 MB per file, up to 10 files per message. Browser has the same staged-send and album behavior. Uses first-party `file_selector` on Flutter (see §4) |
 | Message/missed-call notification inbox | 🧪 | Migrations 0013–0014 create RLS-protected message and missed-call events; system/group-update notifications are disabled. Mobile/browser subscribe in realtime and tap through to chat or call history. |
-| Android background push (FCM) | 🧪 | Flutter token registration, Android Firebase initialization, tap-through, and a Supabase Edge Function sender are in the repo. Requires `google-services.json`, Edge secrets, function deployment, and a Database Webhook; end-to-end delivery has not been verified. No iOS or web-background sender is included. |
+| Android background push (FCM) | 🧪 | Data-only FCM rendered as per-chat Inbox notifications with inline Reply, Mark as read, Mute for 8 hours, and incoming-call Answer/Decline actions. Requires updated client, sender deployment, and webhooks on `user_notifications` and `calls`; the new action paths need device verification. No iOS or web-background sender is included. |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |
 | Groups | ✅ | Create, members, roles, add/remove, leave, **and a message thread**: groups now open the same chat screen as direct chats (the screen was always conversation-agnostic), so group messages can be read and sent and the group badge can clear. `group_details_screen.dart` is reached from the chat's info button |
@@ -130,6 +130,6 @@ live project can be checked in one paste.
 3. ~~Reply UI~~ — done: reply strip, quoted parent in the bubble.
 4. ~~Notification settings~~ — global message and missed-call switches persist to `notification_preferences`; system-event alerts were removed. See [notifications.md](notifications.md) for the remaining FCM/background-push gap.
 5. ~~Media~~ — done: `file_picker` → `AttachmentService` → storage → attachment row.
-6. **FCM** — Android code is present; finish the Firebase client config, Edge secrets, function deployment and Database Webhook in [notifications.md](notifications.md), then verify on two real Android accounts.
+6. **FCM** — Deploy the updated `send-fcm` function, keep the `user_notifications` webhook, add the `calls` INSERT webhook, rebuild the Android client, and verify message/call actions on two real Android accounts; see [notifications.md](notifications.md).
 7. **Calls** — signalling first (`calls`, `ice_candidates`), then `flutter_webrtc`, then TURN. The only item that cannot be finished without two real devices.
 8. **Stories** — text/photo Updates are implemented in Flutter and browser; migration 0012 needs applying and live RLS/media verification. Multi-device, monitoring and environments remain v2 work.
