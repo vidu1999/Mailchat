@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show Color;
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -71,12 +72,14 @@ class AndroidNotificationController {
             AndroidNotificationAction(
               'answer_call',
               'Answer',
+              titleColor: const Color(0xFF2E7D32),
               showsUserInterface: true,
               cancelNotification: true,
             ),
             AndroidNotificationAction(
               'decline_call',
               'Decline',
+              titleColor: const Color(0xFFC62828),
               showsUserInterface: true,
               cancelNotification: true,
             ),

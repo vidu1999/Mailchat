@@ -47,7 +47,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final PushNotificationService _pushNotifications = PushNotificationService();
   late final LastSeenHeartbeat _heartbeat;
   StreamSubscription<MailNotification>? _notificationEvents;
-  int _notificationUnreadCount = 0;
 
   /// Set while an incoming-call prompt is on screen, so a burst of realtime
   /// events for the same call cannot stack two prompts.
@@ -56,8 +55,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   List<ConversationListItem> _items = const [];
   final TextEditingController _chatSearchController = TextEditingController();
-  String _chatFilter = 'All';
-  String _chatKind = 'All chats';
 
   /// Online state per direct-chat peer, from `get_presence()`.
   Map<String, PeerPresence> _presence = const {};
@@ -96,7 +93,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
     _notificationService.subscribe();
     _notificationEvents = _notificationService.newNotifications.listen((item) {
       if (!mounted) return;
-      setState(() => _notificationUnreadCount++);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('${item.title}: ${item.body}'),
         action: SnackBarAction(
@@ -105,7 +101,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
       ));
     });
-    _refreshNotificationCount();
     _subscribeInbox();
     _listenForCalls();
     // Realtime can miss the insert. A poll is what makes a computer call
@@ -267,16 +262,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return 'Incoming call';
   }
 
-  /// New messages and read-cursor changes both mean "the badges are stale".
-  Future<void> _refreshNotificationCount() async {
-    try {
-      final count = await _notificationService.unreadCount();
-      if (mounted) setState(() => _notificationUnreadCount = count);
-    } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'notification_count'});
-    }
-  }
-
   void _subscribeInbox() {
     final userId = SupabaseClient.instance.userId;
     if (userId == null) return;
@@ -435,31 +420,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
         title: const Text('MailChat'),
         actions: [
           IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => Navigator.of(context)
-                .pushNamed(AppRoutes.notificationInbox)
-                .then((_) => _refreshNotificationCount()),
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Icon(Icons.notifications_outlined),
-                if (_notificationUnreadCount > 0)
-                  Positioned(
-                    right: -7,
-                    top: -7,
-                    child: CircleAvatar(
-                      radius: 8,
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                      child: Text(
-                        _notificationUnreadCount > 9 ? '9+' : '$_notificationUnreadCount',
-                        style: const TextStyle(fontSize: 9, color: Colors.white),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          IconButton(
             tooltip: 'Search users',
             icon: const Icon(Icons.search),
             onPressed: () =>
@@ -517,11 +477,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
   List<ConversationListItem> get _visibleItems {
     final query = _chatSearchController.text.trim().toLowerCase();
     final items = _items.where((item) {
-      final isGroup = item.conversation.isGroup;
-      if (_chatFilter == 'Unread' && item.unreadCount == 0) return false;
-      if (_chatFilter == 'Favourites' && !item.isFavorite) return false;
-      if (_chatKind == 'Groups' && !isGroup) return false;
-      if (_chatKind == 'Direct' && isGroup) return false;
       if (query.isNotEmpty &&
           !'${item.title} ${_previewText(item)}'.toLowerCase().contains(query)) {
         return false;
@@ -601,60 +556,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
               ),
             ),
           ),
-          SizedBox(
-            height: 48,
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (final filter in ['All', 'Unread', 'Favourites'])
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: ChoiceChip(
-                      label: Text(
-                        filter == 'Unread'
-                            ? 'Unread ${_items.fold<int>(
-                                0,
-                                (sum, item) => sum + item.unreadCount,
-                              )}'
-                            : filter,
-                      ),
-                      selected: _chatFilter == filter,
-                      onSelected: (_) => setState(() => _chatFilter = filter),
-                    ),
-                  ),
-                PopupMenuButton<String>(
-                  tooltip: 'Filter chats',
-                  initialValue: _chatKind,
-                  onSelected: (value) => setState(() => _chatKind = value),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'All chats', child: Text('All chats')),
-                    PopupMenuItem(value: 'Direct', child: Text('Direct chats')),
-                    PopupMenuItem(value: 'Groups', child: Text('Groups')),
-                  ],
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Icon(
-                      Icons.filter_list,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
           const Divider(height: 1),
           if (items.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 48, 24, 48),
               child: AppEmptyState(
-                icon: _chatFilter == 'Favourites'
-                    ? Icons.star_border_rounded
-                    : Icons.forum_outlined,
+                icon: Icons.forum_outlined,
                 title: _items.isEmpty ? 'No conversations yet' : 'No matching chats',
                 subtitle: _items.isEmpty
                     ? 'Start a chat by searching for a username or email.'
-                    : 'Try another filter or search term.',
+                    : 'Try another search term.',
               ),
             )
           else
