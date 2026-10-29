@@ -140,6 +140,14 @@ dependencies {
       expect(patched, contains('    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }'));
       expect(patched, contains("coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"));
     });
+
+    test('creates dependencies block when generated scaffold omits it', () {
+      const app = 'plugins { id "com.android.application" }\n'
+          'android {\n    compileOptions {\n    }\n}\n';
+      final patched = enableCoreLibraryDesugaring(app);
+      expect(patched, contains('dependencies {\n    coreLibraryDesugaring'));
+      expect(enableCoreLibraryDesugaring(patched), patched);
+    });
   });
 
   group('pinCompileSdk', () {

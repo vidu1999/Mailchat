@@ -408,9 +408,14 @@ String enableCoreLibraryDesugaring(
     dependencyPattern,
     (match) => '${match.group(1)}$dependency',
   );
+  final dependenciesPattern = RegExp(r'\bdependencies\s*\{');
+  if (!dependenciesPattern.hasMatch(output)) {
+    final separator = output.endsWith('\n') ? '' : '\n';
+    return '$output${separator}dependencies {\n    $dependency\n}\n';
+  }
   return _ensureLineInGradleBlock(
     output,
-    blockPattern: RegExp(r'\bdependencies\s*\{'),
+    blockPattern: dependenciesPattern,
     linePattern: RegExp(r'\bcoreLibraryDesugaring\b.*desugar_jdk_libs'),
     line: dependency,
   );
