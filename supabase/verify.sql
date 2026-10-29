@@ -77,8 +77,8 @@ from storage.buckets where id in ('avatars', 'attachments', 'status-media')
 
 union all
 select '06. tables published for realtime',
-       case when count(*) = 7 then 'ok'
-            else count(*)::text || ' - expected 7 (including call signalling and user_statuses)' end
+       case when count(*) = 8 then 'ok'
+            else count(*)::text || ' - expected 8 (includes call signalling, user_statuses, and user_notifications)' end
 from pg_publication_tables
 where pubname = 'supabase_realtime' and schemaname = 'public'
 
@@ -174,7 +174,7 @@ select '07. policies on public tables',
 from pg_policies where schemaname = 'public'
 
 union all
-select '08. notification inbox',
+select '18. notification inbox (0013)',
        case when to_regclass('public.user_notifications') is not null
          and exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'user_notifications')
          and exists (select 1 from pg_trigger where tgrelid = 'public.messages'::regclass and tgname = 'messages_create_notifications' and not tgisinternal)
