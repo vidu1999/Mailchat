@@ -208,15 +208,27 @@
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
   }
 
-  function dayLabel(iso) {
+  function messageTime(iso) {
     var date = new Date(iso);
     if (isNaN(date.getTime())) return '';
-    var now = new Date();
-    if (date.toDateString() === now.toDateString()) return 'Today';
-    var yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-    return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function dayLabel(iso, nowValue) {
+    var date = new Date(iso);
+    if (isNaN(date.getTime())) return '';
+    var now = nowValue ? new Date(nowValue) : new Date();
+    var today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    var messageDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    var difference = Math.floor((today - messageDay) / 86400000);
+    if (difference === 0) return 'Today';
+    if (difference === 1) return 'Yesterday';
+    if (difference >= 2 && difference < 7) {
+      return date.toLocaleDateString([], { weekday: 'long' });
+    }
+    var day = String(date.getDate()).padStart(2, '0');
+    var month = String(date.getMonth() + 1).padStart(2, '0');
+    return day + '/' + month + '/' + date.getFullYear();
   }
 
   function sanitiseFileName(name) {
@@ -283,6 +295,7 @@
     friendlyError: friendlyError,
     rpcMissing: rpcMissing,
     formatWhen: formatWhen,
+    messageTime: messageTime,
     dayLabel: dayLabel,
     sanitiseFileName: sanitiseFileName,
     ringIsFresh: ringIsFresh,

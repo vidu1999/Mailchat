@@ -125,3 +125,12 @@ it is not held and delivered later. That stays in [Known gaps](#known-gaps).
 * Reactions are limited to the fixed palette in `message_bubble.dart`.
 * Nothing here is E2EE: the server stores plaintext `messages.text`. See
   [security.md](security.md) for the reasoning and what an E2EE phase would need.
+
+## Chat timeline timestamps
+
+The message list groups consecutive messages by the device's local calendar day.
+Headings read **Today**, **Yesterday**, a weekday for recent history, or
+`dd/MM/yyyy` for older history. Every bubble shows the exact local send time
+next to its receipt ticks; the date heading is separate from the per-message
+time. Formatting lives in `core/utils/formatters.dart` and the timeline is built
+in `features/messaging/presentation/screens/direct_chat_screen.dart`.

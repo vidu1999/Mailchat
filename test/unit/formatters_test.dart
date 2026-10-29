@@ -32,6 +32,36 @@ void main() {
     });
   });
 
+  group('AppFormatters.chatDayLabel', () {
+    final now = DateTime(2026, 6, 15, 12, 0);
+
+    test('labels today and yesterday', () {
+      expect(
+        AppFormatters.chatDayLabel(DateTime(2026, 6, 15, 8), now: now),
+        'Today',
+      );
+      expect(
+        AppFormatters.chatDayLabel(DateTime(2026, 6, 14, 23), now: now),
+        'Yesterday',
+      );
+    });
+
+    test('uses weekday for recent history and a numeric date for older history', () {
+      expect(
+        AppFormatters.chatDayLabel(DateTime(2026, 6, 12, 9), now: now),
+        'Friday',
+      );
+      expect(
+        AppFormatters.chatDayLabel(DateTime(2026, 5, 1, 9), now: now),
+        '01/05/2026',
+      );
+    });
+  });
+
+  test('message time always includes the sent time', () {
+    expect(AppFormatters.messageTime(DateTime(2026, 6, 15, 20, 23)), '8:23 PM');
+  });
+
   group('AppFormatters.fileSize', () {
     test('formats bytes, kilobytes and megabytes', () {
       expect(AppFormatters.fileSize(512), contains('B'));

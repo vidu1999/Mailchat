@@ -73,6 +73,12 @@ assert(!L.ringIsFresh('2026-10-27T11:00:00Z', now), 'old ring');
 assert(L.ringShouldClear('2026-10-27T11:00:00Z', true, now), 'clear old incoming');
 assert(!L.ringShouldClear('2026-10-27T11:59:00Z', false, now), 'keep a live outgoing ring');
 assert(L.sdpForPhone('v=0\r\na=extmap-allow-mixed\r\n').indexOf('extmap-allow-mixed') === -1, 'sdp line dropped');
+const dayNow = new Date(2026, 5, 15, 12, 0, 0);
+assert(L.dayLabel(new Date(2026, 5, 15, 8).toISOString(), dayNow) === 'Today', 'today chat heading');
+assert(L.dayLabel(new Date(2026, 5, 14, 8).toISOString(), dayNow) === 'Yesterday', 'yesterday chat heading');
+assert(L.dayLabel(new Date(2026, 5, 12, 8).toISOString(), dayNow) === 'Friday', 'weekday chat heading');
+assert(L.dayLabel(new Date(2026, 4, 1, 8).toISOString(), dayNow) === '01/05/2026', 'older chat heading');
+assert(L.messageTime(new Date(2026, 5, 15, 20, 23).toISOString()).length > 0, 'message time');
 
 assert(L.esc('<b>"') === '&lt;b&gt;&quot;', 'escape');
 assert(L.sanitiseFileName('../a b.png') === 'a_b.png', 'file name');

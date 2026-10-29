@@ -8,6 +8,7 @@ import 'package:mailchat/core/constants/app_constants.dart';
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/core/routing/app_router.dart';
+import 'package:mailchat/core/utils/formatters.dart';
 import 'package:mailchat/features/calls/domain/call_model.dart';
 import 'package:mailchat/features/calls/presentation/screens/active_call_screen.dart';
 import 'package:mailchat/shared/models/message.dart';
@@ -842,13 +843,54 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       );
     }
 
+    final timeline = <_ChatTimelineItem>[];
+    DateTime? previousDay;
+    for (final message in _messages) {
+      final localDate = message.createdAt.toLocal();
+      final sameDay = previousDay != null &&
+          previousDay.year == localDate.year &&
+          previousDay.month == localDate.month &&
+          previousDay.day == localDate.day;
+      if (!sameDay) {
+        timeline.add(_ChatTimelineItem.day(
+          AppFormatters.chatDayLabel(localDate),
+        ));
+      }
+      timeline.add(_ChatTimelineItem.message(message));
+      previousDay = localDate;
+    }
+
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      itemCount: _messages.length,
+      itemCount: timeline.length,
       itemBuilder: (context, index) {
-        final message = _messages[index];
+        final entry = timeline[index];
+        if (entry.dayLabel != null) {
+          final colors = Theme.of(context).colorScheme;
+          return Center(
+            child: Container(
+              key: ValueKey('chat-day-${entry.dayLabel}-$index'),
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Text(
+                entry.dayLabel!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ),
+          );
+        }
+        final message = entry.message!;
         return MessageBubble(
+          key: ValueKey(message.id),
           message: message,
           isMe: message.senderId == _currentUserId,
           showStatus: message.senderId == _currentUserId,
@@ -1004,4 +1046,13 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       ),
     );
   }
+}
+
+/// One row in the chat timeline: a day heading or a message bubble.
+class _ChatTimelineItem {
+  const _ChatTimelineItem.day(this.dayLabel) : message = null;
+  const _ChatTimelineItem.message(this.message) : dayLabel = null;
+
+  final String? dayLabel;
+  final Message? message;
 }

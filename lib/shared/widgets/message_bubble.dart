@@ -222,7 +222,7 @@ class MessageBubble extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      AppFormatters.chatTimestamp(message.createdAt),
+                      AppFormatters.messageTime(message.createdAt),
                       style: TextStyle(
                         fontSize: 11,
                         color: textColor.withAlphaFactor(0.7),

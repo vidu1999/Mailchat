@@ -1529,7 +1529,7 @@
       quote + text + files +
       (reactions ? '<div class="reactions">' + reactions + '</div>' : '') +
       tools +
-      '<div class="meta"><span>' + L.esc(L.formatWhen(msg.created_at)) + (msg.edited_at ? ' · edited' : '') + '</span>' +
+      '<div class="meta"><span>' + L.esc(L.messageTime(msg.created_at)) + (msg.edited_at ? ' · edited' : '') + '</span>' +
       (mine ? '<span class="tick ' + status + '">' + L.tick(status) + '</span>' : '') +
       '</div></article>';
   }
