@@ -54,6 +54,94 @@ plugins {
     });
   });
 
+  group('ensureNotificationActionReceiver', () {
+    test('inserts the receiver under application exactly once', () {
+      const manifest = '''
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="MailChat">
+        <activity android:name=".MainActivity" />
+    </application>
+</manifest>
+''';
+      final once = ensureNotificationActionReceiver(manifest);
+      final twice = ensureNotificationActionReceiver(once);
+      expect(once, contains('<application android:label="MailChat">\n        <receiver'));
+      expect(once, contains('com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver'));
+      expect(twice, once);
+    });
+
+    test('leaves a manifest without application unchanged', () {
+      const manifest = '<manifest />';
+      expect(ensureNotificationActionReceiver(manifest), manifest);
+    });
+  });
+
+  group('enableCoreLibraryDesugaring', () {
+    test('adds Groovy compile option and dependency exactly once', () {
+      const app = '''
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'some:library:1.0'
+}
+''';
+      final once = enableCoreLibraryDesugaring(app);
+      final twice = enableCoreLibraryDesugaring(once);
+      expect(once, contains('coreLibraryDesugaringEnabled true'));
+      expect(once, contains("coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"));
+      expect(twice, once);
+    });
+
+    test('adds Kotlin DSL configuration while preserving Java version', () {
+      const app = '''
+android {
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+dependencies {
+    implementation("some:library:1.0")
+}
+''';
+      final patched = enableCoreLibraryDesugaring(app, kotlinDsl: true);
+      expect(patched, contains('isCoreLibraryDesugaringEnabled = true'));
+      expect(patched, contains('sourceCompatibility = JavaVersion.VERSION_17'));
+      expect(patched, contains('coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'));
+    });
+
+    test('corrects a disabled option and an older desugaring dependency', () {
+      const app = '''
+android {
+    compileOptions {
+        coreLibraryDesugaringEnabled false
+    }
+}
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'
+}
+''';
+      final patched = enableCoreLibraryDesugaring(app);
+      expect(patched, contains('coreLibraryDesugaringEnabled true'));
+      expect(patched, isNot(contains('coreLibraryDesugaringEnabled false')));
+      expect(patched, contains("coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"));
+      expect(patched, isNot(contains('desugar_jdk_libs:2.0.3')));
+    });
+
+    test('creates a missing compileOptions block inside android', () {
+      const app = 'android {\n    defaultConfig { }\n}\n'
+          'dependencies {\n}\n';
+      final patched = enableCoreLibraryDesugaring(app);
+      expect(patched, contains('    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }'));
+      expect(patched, contains("coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"));
+    });
+  });
+
   group('pinCompileSdk', () {
     test('rewrites the old Groovy form', () {
       const gradle = '''

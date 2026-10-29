@@ -18,7 +18,7 @@ environment, so "the tests pass" is not the same as "the app works".
 | `dart run tool/fix_android_build.dart --check` | Yes | The Flutter SDK is new enough for `flutter_webrtc` (≥ 3.35) |
 | `dart run tool/check_migrations.dart` | Yes | Every migration is re-runnable; `apply_all.sql` has not drifted |
 | `dart run tool/check_docs.dart` | Yes | Every document is linked and every path it names exists |
-| `dart run tool/fix_android_build.dart` (APK job) | Yes | Pins `compileSdk`, adds the deep-link intent filter, adds camera/mic permissions |
+| `dart run tool/fix_android_build.dart` (APK job) | Yes | Pins `compileSdk`, enables Android core-library desugaring, applies Firebase when configured, and adds deep links/call permissions |
 | `flutter test --coverage` | Yes | Unit and widget tests |
 | `flutter build apk --debug --split-per-abi` | Yes | An installable APK exists; Gradle's "What went wrong" is re-emitted as an annotation |
 

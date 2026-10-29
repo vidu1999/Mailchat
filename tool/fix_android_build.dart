@@ -43,6 +43,11 @@
 //      incremental caches ... this and base files have different roots". The
 //      cure is `kotlin.incremental=false` in android/gradle.properties.
 //
+//   5. `flutter_local_notifications` needs Android core library desugaring.
+//      Without the compile option and `desugar_jdk_libs` dependency Gradle fails
+//      at `:app:checkDebugAarMetadata`; this tool adds both idempotently for
+//      Groovy and Kotlin DSL files.
+//
 // Idempotent: running it twice changes nothing.
 
 import 'dart:convert';
@@ -155,6 +160,8 @@ void main(List<String> args) {
   // present. This keeps public/CI builds compilable without client config while
   // enabling FCM on a configured Android install.
   _applyGoogleServicesPlugin(androidDir);
+  _applyCoreLibraryDesugaring(androidDir);
+  _applyNotificationActionReceiver(androidDir);
 
   // ---- 4. compileSdk -----------------------------------------------------
   final gradleFiles = [
@@ -286,6 +293,163 @@ String ensureGoogleServicesPlugin(
   final closeIndent = source.substring(lineStart, close);
   final indent = closeIndent.isEmpty ? '    ' : closeIndent;
   return '${source.substring(0, lineStart)}$indent$line\n${source.substring(lineStart)}';
+}
+
+// ---------------------------------------------------------------------------
+// Core library desugaring for Android notification actions
+// ---------------------------------------------------------------------------
+
+/// Configures the local-notifications Android dependency's required
+/// `coreLibraryDesugaring` support for Groovy and Kotlin DSL app modules.
+void _applyCoreLibraryDesugaring(Directory androidDir) {
+  final appFiles = [
+    File('${androidDir.path}/app/build.gradle'),
+    File('${androidDir.path}/app/build.gradle.kts'),
+  ].where((file) => file.existsSync()).toList();
+  if (appFiles.isEmpty) return;
+
+  for (final file in appFiles) {
+    final before = file.readAsStringSync();
+    final after = enableCoreLibraryDesugaring(
+      before,
+      kotlinDsl: file.path.endsWith('.kts'),
+    );
+    if (after == before) {
+      stdout.writeln('• ${file.path}: core library desugaring already enabled');
+    } else {
+      file.writeAsStringSync(after);
+      stdout.writeln('✓ ${file.path}: core library desugaring enabled');
+    }
+  }
+}
+
+/// Ensures the AndroidX notification action receiver is merged into the app
+/// manifest. `flutter_local_notifications` requires this receiver for remote
+/// input and action buttons to reach the Flutter callback.
+void _applyNotificationActionReceiver(Directory androidDir) {
+  final manifest = File(
+    '${androidDir.path}/app/src/main/AndroidManifest.xml',
+  );
+  if (!manifest.existsSync()) return;
+  final before = manifest.readAsStringSync();
+  final after = ensureNotificationActionReceiver(before);
+  if (after == before) {
+    stdout.writeln('• AndroidManifest.xml: notification action receiver already present');
+  } else {
+    manifest.writeAsStringSync(after);
+    stdout.writeln('✓ AndroidManifest.xml: notification action receiver added');
+  }
+}
+
+/// Adds the local-notifications action receiver under `<application>`, once.
+String ensureNotificationActionReceiver(String manifest) {
+  const receiver =
+      '<receiver android:exported="false" '
+      'android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />';
+  if (manifest.contains('com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver')) {
+    return manifest;
+  }
+  final application = RegExp(r'<application\b[^>]*>').firstMatch(manifest);
+  if (application == null) return manifest;
+  final lineEnd = manifest.indexOf('\n', application.end);
+  final insertAt = lineEnd < 0 ? application.end : lineEnd + 1;
+  final eol = manifest.contains('\r\n') ? '\r\n' : '\n';
+  return '${manifest.substring(0, insertAt)}        $receiver$eol${manifest.substring(insertAt)}';
+}
+
+/// Enables desugaring and adds the matching desugaring library dependency.
+///
+/// This is required by `flutter_local_notifications` on Android. It is
+/// idempotent, preserves all existing compile options/dependencies, and handles
+/// both the Groovy and Kotlin Gradle DSLs.
+String enableCoreLibraryDesugaring(
+  String source, {
+  bool kotlinDsl = false,
+}) {
+  final compileSetting = kotlinDsl
+      ? 'isCoreLibraryDesugaringEnabled = true'
+      : 'coreLibraryDesugaringEnabled true';
+  final dependency = kotlinDsl
+      ? 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+      : "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'";
+  const compileOptionsPattern = r'\bcompileOptions\s*\{';
+
+  final optionPattern = RegExp(
+    r'^([ \t]*)(?:is)?coreLibraryDesugaringEnabled\b[ \t]*(?:=?[ \t]*(?:true|false))?[ \t]*$',
+    multiLine: true,
+    caseSensitive: false,
+  );
+  var output = source.replaceAllMapped(
+    optionPattern,
+    (match) => '${match.group(1)}$compileSetting',
+  );
+  output = _ensureLineInGradleBlock(
+    output,
+    blockPattern: RegExp(compileOptionsPattern),
+    linePattern: RegExp(
+      r'\b(?:is)?coreLibraryDesugaringEnabled\b',
+      caseSensitive: false,
+    ),
+    line: compileSetting,
+  );
+  if (output == source && !RegExp(compileOptionsPattern).hasMatch(source)) {
+    output = _ensureLineInGradleBlock(
+      output,
+      blockPattern: RegExp(r'\bandroid\s*\{'),
+      linePattern: RegExp(compileOptionsPattern),
+      line: 'compileOptions {\n    $compileSetting\n}',
+    );
+  }
+  final dependencyPattern = RegExp(
+    r'^([ \t]*)coreLibraryDesugaring\b[^\r\n]*$',
+    multiLine: true,
+  );
+  output = output.replaceAllMapped(
+    dependencyPattern,
+    (match) => '${match.group(1)}$dependency',
+  );
+  return _ensureLineInGradleBlock(
+    output,
+    blockPattern: RegExp(r'\bdependencies\s*\{'),
+    linePattern: RegExp(r'\bcoreLibraryDesugaring\b.*desugar_jdk_libs'),
+    line: dependency,
+  );
+}
+
+/// Inserts [line] into the first matching Gradle block unless [linePattern]
+/// already appears inside that block. Brace matching keeps the insertion inside
+/// nested `android { compileOptions { ... } }` and `dependencies { ... }` blocks.
+String _ensureLineInGradleBlock(
+  String source, {
+  required RegExp blockPattern,
+  required RegExp linePattern,
+  required String line,
+}) {
+  final start = blockPattern.firstMatch(source);
+  if (start == null) return source;
+  var depth = 1;
+  var close = -1;
+  for (var i = start.end; i < source.length; i++) {
+    if (source[i] == '{') depth++;
+    if (source[i] == '}') depth--;
+    if (depth == 0) {
+      close = i;
+      break;
+    }
+  }
+  if (close < 0) return source;
+
+  final block = source.substring(start.end, close);
+  if (linePattern.hasMatch(block)) return source;
+  final lineStart = source.lastIndexOf('\n', close) + 1;
+  final closingLine = source.substring(lineStart, close);
+  final closeIndent = RegExp(r'^\s*').firstMatch(closingLine)!.group(0)!;
+  final indent = '${closeIndent}    ';
+  final inserted = line
+      .split('\n')
+      .map((part) => '$indent$part')
+      .join('\n');
+  return '${source.substring(0, lineStart)}$inserted\n${source.substring(lineStart)}';
 }
 
 // ---------------------------------------------------------------------------

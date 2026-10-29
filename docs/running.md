@@ -320,6 +320,27 @@ building, so it cannot hand you an APK that opens a configuration-error screen.
 There is also a manual CI workflow that builds an APK against your project with
 no local Android setup. Both are documented in **`docs/release.md`**.
 
+### Android build fails on `flutter_local_notifications` AAR metadata
+
+Symptom:
+
+```text
+Dependency ':flutter_local_notifications' requires core library desugaring to be enabled for :app.
+Execution failed for task ':app:checkDebugAarMetadata'.
+```
+
+The build helper now idempotently enables `coreLibraryDesugaring` and adds the
+matching `desugar_jdk_libs` dependency for Groovy and Kotlin Gradle files. The
+APK script runs this helper automatically; update the repository and rebuild:
+
+```powershell
+git pull origin arena/3c0fee10-mailchat
+.\tool\build_apk.ps1 -Abi arm64-v8a
+```
+
+It also adds the local-notifications action receiver to the generated manifest.
+No manual Gradle edits are needed.
+
 ### `flutter_webrtc` will not compile
 
 Symptom, from `flutter run` or `flutter build apk`:
