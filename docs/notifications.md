@@ -9,7 +9,7 @@
 
 ## Android setup
 
-1. Add the Android Firebase app with package name `com.mailchat.mailchat` and place its `google-services.json` at `android/app/google-services.json`. This file is gitignored. The Android scaffold is generated locally; the build helper applies Google's Gradle plugin when the file exists, enables core library desugaring, and adds the notification-action receiver.
+1. Add the Android Firebase app with package name `com.mailchat.mailchat` and place its `google-services.json` at `android/app/google-services.json`. This file is gitignored. The Android scaffold is generated locally; the build helper applies Google's Gradle plugin when the file exists, enables core library desugaring, adds the notification-action receiver, and installs the MailChat launcher and notification icons from `assets/`.
 2. `main.dart` initializes Firebase when configured. After sign-in, the app asks for notification permission, registers the FCM token in the signed-in user's RLS-protected `user_devices` row, and updates it on token refresh. Sign-out removes this installation's token.
 3. **Install the updated Android client before changing the sender.** From the repository root, run `flutter pub get`, build and install a new APK, open MailChat while signed in, and allow notification permission. This ordering avoids a delivery gap: the old sender still sends OS-rendered notification payloads until the new client is installed.
 4. Deploy the updated trusted sender from the repository root:

@@ -53,25 +53,12 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                color: colors.primary,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: const Icon(Icons.mark_email_unread_rounded,
-                  size: 48, color: Colors.white),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'MailChat',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-                color: colors.onSurface,
-              ),
+            Image.asset(
+              'assets/images/mailchat_brand.jpg',
+              width: 280,
+              height: 153,
+              fit: BoxFit.contain,
+              semanticLabel: 'Flutter MailChat',
             ),
             const SizedBox(height: 8),
             Text(

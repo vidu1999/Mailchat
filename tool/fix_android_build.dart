@@ -162,6 +162,7 @@ void main(List<String> args) {
   _applyGoogleServicesPlugin(androidDir);
   _applyCoreLibraryDesugaring(androidDir);
   _applyNotificationActionReceiver(androidDir);
+  _applyMailchatBrandAssets(androidDir);
 
   // ---- 4. compileSdk -----------------------------------------------------
   final gradleFiles = [
@@ -321,6 +322,74 @@ void _applyCoreLibraryDesugaring(Directory androidDir) {
       stdout.writeln('✓ ${file.path}: core library desugaring enabled');
     }
   }
+}
+
+/// Copies the committed MailChat artwork into the generated Android resources
+/// and selects it for the launcher and locally rendered notification icon.
+void _applyMailchatBrandAssets(Directory androidDir) {
+  final projectDir = androidDir.parent;
+  final resourceDir = Directory('${androidDir.path}/app/src/main/res');
+  if (!resourceDir.existsSync()) return;
+
+  final resources = <(String, String, String)>[
+    (
+      '${projectDir.path}/assets/images/mailchat_app_icon.png',
+      'mipmap-nodpi',
+      'ic_mailchat_launcher.png',
+    ),
+    (
+      '${projectDir.path}/assets/icons/ic_mailchat_notification.xml',
+      'drawable',
+      'ic_mailchat_notification.xml',
+    ),
+    (
+      '${projectDir.path}/assets/icons/mailchat_notification_large.png',
+      'drawable-nodpi',
+      'mailchat_notification_large.png',
+    ),
+  ];
+  for (final (sourcePath, resourceFolder, fileName) in resources) {
+    final source = File(sourcePath);
+    if (!source.existsSync()) {
+      _fail('Required MailChat brand asset is missing: $sourcePath');
+    }
+    final destinationDir = Directory('${resourceDir.path}/$resourceFolder');
+    destinationDir.createSync(recursive: true);
+    source.copySync('${destinationDir.path}/$fileName');
+  }
+
+  final manifest = File('${androidDir.path}/app/src/main/AndroidManifest.xml');
+  if (manifest.existsSync()) {
+    final before = manifest.readAsStringSync();
+    final after = ensureMailchatLauncherIcon(before);
+    if (after != before) manifest.writeAsStringSync(after);
+  }
+  stdout.writeln('✓ Android launcher and notification branding applied');
+}
+
+/// Changes Flutter's generated launcher icon reference without touching any
+/// other application attributes. Safe to apply repeatedly.
+String ensureMailchatLauncherIcon(String manifest) {
+  const iconAttribute = 'android:icon="@mipmap/ic_mailchat_launcher"';
+  final application = RegExp(r'<application\b[^>]*>').firstMatch(manifest);
+  if (application == null) return manifest;
+  final tag = application.group(0)!;
+  if (tag.contains(iconAttribute)) return manifest;
+  final iconPattern = RegExp(r'android:icon\s*=\s*"[^"]*"');
+  var updatedTag = iconPattern.hasMatch(tag)
+      ? tag.replaceFirst(iconPattern, iconAttribute)
+      : tag.replaceFirst('>', ' $iconAttribute>');
+  const roundIconAttribute =
+      'android:roundIcon="@mipmap/ic_mailchat_launcher"';
+  final roundIconPattern = RegExp(r'android:roundIcon\s*=\s*"[^"]*"');
+  if (roundIconPattern.hasMatch(updatedTag)) {
+    updatedTag = updatedTag.replaceFirst(
+      roundIconPattern,
+      roundIconAttribute,
+    );
+  }
+  return '${manifest.substring(0, application.start)}$updatedTag'
+      '${manifest.substring(application.end)}';
 }
 
 /// Ensures the AndroidX notification action receiver is merged into the app

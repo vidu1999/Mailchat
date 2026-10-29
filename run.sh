@@ -23,4 +23,8 @@ elif [[ ! -f "$target" ]]; then
 fi
 
 cd "$root"
+if [[ ! -f .dart_tool/package_config.json ]]; then
+  flutter pub get
+fi
+dart run tool/fix_android_build.dart
 exec flutter run "$@"

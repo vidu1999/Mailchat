@@ -54,6 +54,26 @@ plugins {
     });
   });
 
+  group('ensureMailchatLauncherIcon', () {
+    test('selects the generated MailChat icon exactly once', () {
+      const manifest = '''
+<manifest>
+    <application android:label="MailChat" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round">
+    </application>
+</manifest>
+''';
+      final once = ensureMailchatLauncherIcon(manifest);
+      expect(once, contains('android:icon="@mipmap/ic_mailchat_launcher"'));
+      expect(once, contains('android:roundIcon="@mipmap/ic_mailchat_launcher"'));
+      expect(ensureMailchatLauncherIcon(once), once);
+    });
+
+    test('leaves a manifest without application unchanged', () {
+      const manifest = '<manifest />';
+      expect(ensureMailchatLauncherIcon(manifest), manifest);
+    });
+  });
+
   group('ensureNotificationActionReceiver', () {
     test('inserts the receiver under application exactly once', () {
       const manifest = '''

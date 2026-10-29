@@ -25,7 +25,7 @@ class AndroidNotificationController {
   Future<void> initialize({bool captureLaunchResponse = true}) async {
     if (_initialized) return;
     const settings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('ic_mailchat_notification'),
     );
     await _plugin.initialize(
       settings,
@@ -127,6 +127,9 @@ class AndroidNotificationController {
           category: isCall
               ? AndroidNotificationCategory.call
               : AndroidNotificationCategory.message,
+          largeIcon: const DrawableResourceAndroidBitmap(
+            'mailchat_notification_large',
+          ),
           groupKey: isCall ? 'mailchat_calls' : 'mailchat_chat_$conversationId',
           onlyAlertOnce: false,
           styleInformation: isCall || lines.length < 2

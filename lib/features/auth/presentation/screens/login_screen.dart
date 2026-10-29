@@ -91,8 +91,15 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(Icons.mark_email_unread_rounded,
-                      size: 56, color: colors.primary),
+                  Center(
+                    child: Image.asset(
+                      'assets/images/mailchat_brand.jpg',
+                      width: 260,
+                      height: 142,
+                      fit: BoxFit.contain,
+                      semanticLabel: 'Flutter MailChat',
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   Text(
                     'Welcome back',

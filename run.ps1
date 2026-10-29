@@ -28,6 +28,12 @@ elseif (-not (Test-Path $target)) {
 
 Push-Location $root
 try {
+    if (-not (Test-Path (Join-Path $root '.dart_tool/package_config.json'))) {
+        flutter pub get
+        if ($LASTEXITCODE -ne 0) { throw "flutter pub get failed." }
+    }
+    dart run tool/fix_android_build.dart
+    if ($LASTEXITCODE -ne 0) { throw "Preparing the Android project failed. See docs/running.md." }
     flutter run @RunArgs
     exit $LASTEXITCODE
 }
