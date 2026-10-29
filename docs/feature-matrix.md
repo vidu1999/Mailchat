@@ -43,7 +43,7 @@ Legend:
 | Reactions | ✅ | Fixed this branch: one per user, chips rendered, realtime updates, DB constraint in 0006 |
 | Delete message | ✅ | Soft delete, confirm dialog, realtime propagation, "This message was deleted" |
 | Edit message | ✅ | `editMessage()`, bubbles show "edited" |
-| Image / file sharing | 🧪 | `AttachmentService`: picker → private bucket → `message_attachments` row → message. Bubbles render the file card; tapping fetches a signed URL and opens the viewer (images inline; other types are described, since handing a file to the OS is not implemented). 10 MB limit. Uses first-party `file_selector` (see §4) |
+| Image / file sharing | 🧪 | Picked files stay staged until Send. `AttachmentService` uploads a set and creates one message with multiple `message_attachments`; image selections render as an inline album in one bubble with private signed URLs. 10 MB per file, up to 10 files per message. Browser has the same staged-send and album behavior. Uses first-party `file_selector` on Flutter (see §4) |
 | Push notifications (FCM) | 🟡 | No Firebase dependency and no send path — that needs a Firebase project. The **preferences are now real**: `NotificationService` reads and writes `notification_preferences`, so the switches survive a restart instead of being local state |
 | Block / report | ✅ | `user_blocks`, `user_reports`, enforcement trigger, `blocked_users_screen.dart`, `report_user_screen.dart` |
 | Responsive / professional UI | 🟡 | One breakpoint-aware theme, Material 3; the wireframe's tablet layout is not implemented |

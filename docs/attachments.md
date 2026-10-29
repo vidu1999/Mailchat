@@ -16,18 +16,19 @@ policies), `0001_core_schema.sql` (`message_attachments`)
 
 | Step | Implementation |
 | --- | --- |
-| Pick | `file_selector` → `openFile(acceptedTypeGroups: […])`, then `readAsBytes()` |
-| Size gate | 10 MB in `AttachmentService.maxBytes`, checked before any upload |
-| Upload | `storage/v1/object/attachments/<conversationId>/<millis>_<name>` |
-| Message | A `messages` row with `type = 'image'` for `image/*`, otherwise `'file'`, and `text = null` |
-| Metadata | A `message_attachments` row: path, name, MIME type, size |
-| Render | Image types preview inline; everything else renders a file card with name and size |
+| Pick | `file_selector` → multiple images or one file; selections are staged in the composer and previewed locally |
+| Send | Nothing uploads when a file is picked. Pressing **Send** uploads all staged files and creates one message with multiple attachment rows (an image album for photos); a caption can be sent with it |
+| Size gate | 10 MB per file in `AttachmentService.maxBytes`, checked before any upload; up to 10 files per message |
+| Upload | `storage/v1/object/attachments/<conversationId>/<unique-name>` |
+| Message | One `messages` row for the album; type is `image` when all files are images, otherwise `file` |
+| Metadata | One `message_attachments` row per file: path, name, MIME type and size |
+| Render | Images show inline together in the same bubble and open in the media viewer; other types render a file card |
 | Open | Tapping fetches a 5-minute signed URL; images open in the viewer, other types are described |
 
 ## Order of operations, and why
 
 ```text
-bytes → Storage object → messages row → message_attachments row
+staged bytes → Send tap → Storage objects → one messages row → one metadata row per file
 ```
 
 The bytes go up **first**. A failed upload therefore cannot leave a message
@@ -81,7 +82,7 @@ needs no Gradle edits. This is recorded in
 | "Files must be under 10 MB" | Size check | Refused before upload; nothing is sent |
 | "That file is empty" | Zero-byte pick | Refused |
 | Upload fails | Network or policy | Snack with the reason; no message row is created |
-| Image does not render | Signed URL expired or object missing | The bubble falls back to the file card; the error is logged |
+| Image does not render | Signed URL expired or object missing | Inline album tile shows an image-error placeholder; tap to retry opening in the viewer |
 | Orphaned objects | Attachment row insert failed after a successful upload | Harmless; a bucket sweep can remove them |
 
 ## Known gaps

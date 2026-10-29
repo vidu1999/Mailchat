@@ -33,6 +33,8 @@
     pane: 'list',
     authMode: 'login',
     chats: [],
+    pendingFiles: [],
+    sendingFiles: false,
     chatFilter: 'All',
     chatKind: 'All chats',
     chatQuery: '',
@@ -215,6 +217,7 @@
   }
 
   async function signOutLocal() {
+    discardPendingFiles();
     saveSession(null);
     closeSocket();
     state.thread = null;
@@ -481,6 +484,8 @@
   }
 
   async function openChat(id) {
+    if (state.sendingFiles) { toast('Wait for the files to finish sending.'); return; }
+    if (state.thread && state.thread.id !== id) discardPendingFiles();
     var chat = state.chats.filter(function (item) { return item.id === id || item.conversation_id === id; })[0];
     state.pane = 'thread';
     state.reply = null;
@@ -565,10 +570,77 @@
     var box = $('draft');
     if (!box || !state.thread) return;
     var text = box.value.trim();
-    if (!text) return;
+    if (!text && !state.pendingFiles.length) return;
     if (text.length > 4000) { toast('Message is too long.'); return; }
+    if (state.editing && state.pendingFiles.length) {
+      toast('Send or remove staged files before editing a message.');
+      return;
+    }
     var send = $('send');
     if (send) send.disabled = true;
+    if (state.pendingFiles.length) {
+      var threadId = state.thread.id;
+      state.sendingFiles = true;
+      if (send) { send.disabled = true; send.textContent = 'Sending…'; }
+      if (box) box.readOnly = true;
+      var fileInput = $('file');
+      if (fileInput) fileInput.disabled = true;
+      try {
+        var files = state.pendingFiles.slice();
+        var uploaded = [];
+        for (var i = 0; i < files.length; i++) {
+          var item = files[i];
+          var safe = L.sanitiseFileName(item.file.name);
+          var path = threadId + '/' + Date.now() + '_' + i + '_' + safe;
+          await api('/storage/v1/object/attachments/' + path.split('/').map(encodeURIComponent).join('/'), {
+            method: 'POST', body: await item.file.arrayBuffer(),
+            headers: { 'Content-Type': item.mime, 'x-upsert': 'false' },
+            prefer: 'return=minimal',
+          });
+          uploaded.push({ path: path, name: safe, mime: item.mime, size: item.file.size });
+        }
+        var allImages = uploaded.every(function (file) { return file.mime.indexOf('image/') === 0; });
+        var body = {
+          conversation_id: threadId,
+          sender_id: me(),
+          type: allImages ? 'image' : 'file',
+          text: text || null,
+          client_id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
+        };
+        if (state.reply) body.reply_to_message_id = state.reply.id;
+        var inserted = await api('/rest/v1/messages', { method: 'POST', body: body });
+        var message = rowsOf(inserted)[0];
+        if (!message) throw new Error('The message was not created.');
+        for (var j = 0; j < uploaded.length; j++) {
+          var file = uploaded[j];
+          await api('/rest/v1/message_attachments', {
+            method: 'POST',
+            body: {
+              message_id: message.id,
+              storage_path: file.path,
+              file_name: file.name,
+              mime_type: file.mime,
+              file_size: file.size,
+            },
+          });
+        }
+        box.value = '';
+        state.reply = null;
+        discardPendingFiles();
+        sendTyping(false);
+        render();
+        await loadThread(threadId, true);
+        loadChats(true);
+      } catch (err) { toast(err.message); }
+      state.sendingFiles = false;
+      var currentSend = $('send');
+      if (currentSend) { currentSend.disabled = false; currentSend.textContent = 'Send'; }
+      var currentDraft = $('draft');
+      if (currentDraft) currentDraft.readOnly = false;
+      var currentFileInput = $('file');
+      if (currentFileInput) currentFileInput.disabled = false;
+      return;
+    }
     var body = {
       conversation_id: state.thread.id,
       sender_id: me(),
@@ -603,47 +675,33 @@
     if (send) send.disabled = false;
   }
 
-  async function sendFile(file) {
-    if (!file || !state.thread) return;
-    if (file.size > 10 * 1024 * 1024) { toast('Files must be under 10 MB.'); return; }
-    if (!file.size) { toast('That file is empty.'); return; }
-    toast('Sending file…');
-    var safe = L.sanitiseFileName(file.name);
-    var path = state.thread.id + '/' + Date.now() + '_' + safe;
-    var mime = file.type || 'application/octet-stream';
-    var bytes = await file.arrayBuffer();
-    try {
-      await api('/storage/v1/object/attachments/' + path.split('/').map(encodeURIComponent).join('/'), {
-        method: 'POST',
-        body: bytes,
-        headers: { 'Content-Type': mime, 'x-upsert': 'false' },
-        prefer: 'return=minimal',
-      });
-      var inserted = await api('/rest/v1/messages', {
-        method: 'POST',
-        body: {
-          conversation_id: state.thread.id,
-          sender_id: me(),
-          type: mime.indexOf('image/') === 0 ? 'image' : 'file',
-          client_id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
-        },
-      });
-      var message = rowsOf(inserted)[0];
-      if (!message) throw new Error('The message was not created.');
-      await api('/rest/v1/message_attachments', {
-        method: 'POST',
-        body: {
-          message_id: message.id,
-          storage_path: path,
-          file_name: safe,
-          mime_type: mime,
-          file_size: file.size,
-        },
-      });
-      await loadThread(state.thread.id, true);
-      loadChats(true);
-    } catch (err) { toast(err.message); }
+  function stageFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (state.pendingFiles.length + files.length > 10) {
+      toast('You can attach up to 10 files to one message.');
+      files = files.slice(0, Math.max(0, 10 - state.pendingFiles.length));
+    }
+    files.forEach(function (file) {
+      if (!file.size) { toast(file.name + ' is empty.'); return; }
+      if (file.size > 10 * 1024 * 1024) { toast(file.name + ' is over 10 MB.'); return; }
+      var ext = (file.name.split('.').pop() || '').toLowerCase();
+      var known = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic' };
+      var mime = file.type || known[ext] || 'application/octet-stream';
+      state.pendingFiles.push({ file: file, mime: mime, previewUrl: URL.createObjectURL(file) });
+    });
+    render();
+    var draft = $('draft');
+    if (draft) draft.focus();
   }
+
+  function removePendingFile(index) {
+    var item = state.pendingFiles[index];
+    if (!item) return;
+    URL.revokeObjectURL(item.previewUrl);
+    state.pendingFiles.splice(index, 1);
+    render();
+  }
+
 
   async function signedUrl(path) {
     var data = await api(
@@ -1510,9 +1568,27 @@
       '<div class="messages" id="messages">' + messagesHtml() + '</div>' +
       (state.reply ? '<div class="reply-strip" id="reply-strip">Replying · ' + L.esc(snippet(state.reply)) +
         '<button type="button" class="icon-btn" data-act="clear-reply">×</button></div>' : '') +
-      '<form class="composer" data-act="send"><label class="file-btn btn ghost">File<input type="file" id="file" data-act="file"></label>' +
-      '<textarea id="draft" rows="1" placeholder="Message"></textarea>' +
-      '<button class="btn" id="send" type="submit">Send</button></form></div>';
+      pendingFilesHtml() +
+      '<form class="composer" data-act="send"><label class="file-btn btn ghost">＋<input type="file" id="file" data-act="file" multiple' + (state.sendingFiles ? ' disabled' : '') + '></label>' +
+      '<textarea id="draft" rows="1" placeholder="Message"' + (state.sendingFiles ? ' readonly' : '') + '></textarea>' +
+      '<button class="btn" id="send" type="submit"' + (state.sendingFiles ? ' disabled' : '') + '>' +
+      (state.sendingFiles ? 'Sending…' : 'Send') + '</button></form></div>';
+  }
+
+  function pendingFilesHtml() {
+    if (!state.pendingFiles.length) return '';
+    return '<div class="pending-files">' + state.pendingFiles.map(function (item, index) {
+      var preview = item.mime.indexOf('image/') === 0
+        ? '<img src="' + L.esc(item.previewUrl) + '" alt="' + L.esc(item.file.name) + '">'
+        : '<span class="pending-file-icon">📎</span><span class="pending-file-name">' + L.esc(item.file.name) + '</span>';
+      return '<div class="pending-file">' + preview +
+        '<button type="button" data-act="remove-pending-file" data-index="' + index + '" title="Remove">×</button></div>';
+    }).join('') + '<span class="pending-hint">Send to share these files</span></div>';
+  }
+
+  function discardPendingFiles() {
+    state.pendingFiles.forEach(function (item) { URL.revokeObjectURL(item.previewUrl); });
+    state.pendingFiles = [];
   }
 
   function snippet(msg) {
@@ -1539,18 +1615,25 @@
     var person = names[msg.sender_id] || {};
     var text = msg.deleted_at
       ? '<p class="deleted">This message was deleted</p>'
-      : '<p>' + L.esc(msg.text || '') + '</p>';
+      : (msg.text ? '<p>' + L.esc(msg.text) + '</p>' : '');
     var quote = '';
     if (msg.reply_to_message_id) {
       var parent = (state.thread.messages || []).filter(function (item) { return item.id === msg.reply_to_message_id; })[0];
       quote = '<div class="quote">' + L.esc(snippet(parent)) + '</div>';
     }
-    var files = (msg.message_attachments || []).map(function (file) {
-      if ((file.mime_type || '').indexOf('image/') === 0) {
-        return '<img class="preview" alt="' + L.esc(file.file_name) + '" data-path="' + L.esc(file.storage_path) + '">';
-      }
-      return '<a class="attach" href="#" data-path="' + L.esc(file.storage_path) + '" data-act="open-file">' + L.esc(file.file_name) + '</a>';
-    }).join('');
+    var attachments = msg.deleted_at ? [] : (msg.message_attachments || []);
+    var imageFiles = attachments.filter(function (file) {
+      return (file.mime_type || '').indexOf('image/') === 0;
+    });
+    var otherFiles = attachments.filter(function (file) {
+      return (file.mime_type || '').indexOf('image/') !== 0;
+    });
+    var files = (imageFiles.length
+      ? '<div class="media-album">' + imageFiles.map(function (file) {
+        return '<img class="preview" alt="' + L.esc(file.file_name) + '" data-act="open-file" data-path="' + L.esc(file.storage_path) + '">';
+      }).join('') + '</div>' : '') + otherFiles.map(function (file) {
+        return '<a class="attach" href="#" data-path="' + L.esc(file.storage_path) + '" data-act="open-file">' + L.esc(file.file_name) + '</a>';
+      }).join('');
     var reactions = groupReactions(msg.message_reactions || []).map(function (item) {
       return '<button type="button" class="chip' + (item.mine ? ' on' : '') + '" data-act="react" data-id="' +
         L.esc(msg.id) + '" data-emoji="' + L.esc(item.emoji) + '">' + L.esc(item.emoji) + ' ' + item.count + '</button>';
@@ -1649,6 +1732,10 @@
       return;
     }
     if (act === 'go') {
+      if (state.sendingFiles) {
+        toast('Wait for the files to finish sending.');
+        return;
+      }
       state.pane = el.dataset.pane;
       state.error = '';
       if (state.pane === 'blocked') {
@@ -1680,6 +1767,12 @@
           });
         await loadChats(true);
       } catch (err) { toast('Could not update chat preference: ' + err.message); }
+      return;
+    }
+    if (act === 'remove-pending-file') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      removePendingFile(Number(el.dataset.index));
       return;
     }
     if (act === 'open') { openChat(el.dataset.id); return; }
@@ -1944,8 +2037,8 @@
 
   async function onChange(ev) {
     var el = ev.target;
-    if (el.dataset.act === 'file' && el.files && el.files[0]) {
-      await sendFile(el.files[0]);
+    if (el.dataset.act === 'file' && el.files && el.files.length) {
+      stageFiles(el.files);
       el.value = '';
       return;
     }

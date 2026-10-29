@@ -18,12 +18,14 @@ class MessageBubble extends StatelessWidget {
   /// reactions looks exactly as it did before reactions existed.
   final List<ReactionChip> reactionChips;
 
-  /// Attachment to render inside the bubble, if this message carries one.
-  final MessageAttachment? attachment;
+  /// Files carried by this message. Several images render together as one album.
+  final List<MessageAttachment> attachments;
 
-  /// Tapping the attachment card: the caller fetches a signed URL and opens the
-  /// viewer, because the bucket is private and the bubble has no async work.
-  final VoidCallback? onAttachmentTap;
+  /// Resolves the private storage object to a short-lived signed URL.
+  final Future<String> Function(MessageAttachment)? attachmentUrl;
+
+  /// Opens a selected attachment in the media viewer.
+  final ValueChanged<MessageAttachment>? onAttachmentTap;
 
   /// One-line preview of the message this one replies to. Null for an ordinary
   /// message; when the parent is not loaded the caller passes a placeholder
@@ -40,7 +42,8 @@ class MessageBubble extends StatelessWidget {
     this.onRetry,
     this.reactionChips = const [],
     this.replyPreview,
-    this.attachment,
+    this.attachments = const [],
+    this.attachmentUrl,
     this.onAttachmentTap,
   });
 
@@ -109,57 +112,70 @@ class MessageBubble extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (attachment != null && !message.isDeleted)
-                  InkWell(
-                    onTap: onAttachmentTap,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withAlphaFactor(0.14),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            attachment!.isImage
-                                ? Icons.image_outlined
-                                : (attachment!.isVideo
-                                    ? Icons.videocam_outlined
-                                    : Icons.insert_drive_file_outlined),
-                            size: 20,
-                            color: textColor,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  attachment!.fileName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      color: textColor,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                                Text(
-                                  attachment!.isImage
-                                      ? 'Tap to view'
-                                      : 'Tap to open',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: textColor.withAlphaFactor(0.75),
+                if (attachments.isNotEmpty && !message.isDeleted)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final file in attachments)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: file.isImage
+                                ? InkWell(
+                                    onTap: onAttachmentTap == null
+                                        ? null
+                                        : () {
+                                            onAttachmentTap!(file);
+                                          },
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: _SignedImageAttachment(
+                                      futureUrl: attachmentUrl?.call(file),
+                                      width: MediaQuery.of(context).size.width * .64,
+                                    ),
+                                  )
+                                : InkWell(
+                                    onTap: onAttachmentTap == null
+                                        ? null
+                                        : () {
+                                            onAttachmentTap!(file);
+                                          },
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withAlphaFactor(0.14),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            file.isVideo
+                                                ? Icons.videocam_outlined
+                                                : Icons.insert_drive_file_outlined,
+                                            size: 20,
+                                            color: textColor,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              file.fileName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: textColor,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                 // Soft-deleted messages must never render their old content.
@@ -269,6 +285,68 @@ class MessageBubble extends StatelessWidget {
       _ => const _Status(Icons.error, Colors.redAccent),
     };
     return Icon(data.icon, size: 16, color: data.color);
+  }
+}
+
+class _SignedImageAttachment extends StatelessWidget {
+  const _SignedImageAttachment({
+    required this.futureUrl,
+    required this.width,
+  });
+  final Future<String>? futureUrl;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: width,
+        height: width * 9 / 16,
+        child: futureUrl == null
+            ? ColoredBox(
+                color: colors.surfaceContainerHighest,
+                child: const Icon(Icons.broken_image_outlined),
+              )
+            : FutureBuilder<String>(
+                future: futureUrl,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return ColoredBox(
+                      color: colors.surfaceContainerHighest,
+                      child: const Center(
+                        child: Icon(Icons.broken_image_outlined),
+                      ),
+                    );
+                  }
+                  if (!snapshot.hasData) {
+                    return ColoredBox(
+                      color: colors.surfaceContainerHighest,
+                      child: const Center(
+                        child: SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  }
+                  return Image.network(
+                    snapshot.data!,
+                    width: width,
+                    height: width * 9 / 16,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => ColoredBox(
+                      color: colors.surfaceContainerHighest,
+                      child: const Center(
+                        child: Icon(Icons.broken_image_outlined),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
   }
 }
 

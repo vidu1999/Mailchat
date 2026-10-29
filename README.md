@@ -55,7 +55,7 @@ have not been exercised against a live database from the build environment.
 | Inbox search, unread/favourites filters, pinning | Implemented on phone and browser; per-user preferences require migration 0011 |
 | Groups (create, roles, thread, leave) | Implemented; groups now open a real message thread |
 | Reactions, receipts, edit/delete, replies | Implemented; never exercised |
-| Attachments (photos and files) | Implemented: `file_selector` → private bucket → `message_attachments` |
+| Attachments (photos and files) | Photos/files preview in the composer; Send uploads them as one message, with multi-image albums on phone and browser |
 | Online status, last seen, typing | Implemented: live presence channel + a 30 s heartbeat (0008) |
 | Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
 | Search by username, display name, exact email | Implemented (`search_users`, 0005) |

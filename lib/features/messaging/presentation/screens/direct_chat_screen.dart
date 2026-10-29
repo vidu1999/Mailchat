@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +59,8 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   StreamSubscription<String>? _receiptEvents;
   Message? _replyTo;
   final _attachments = AttachmentService();
+  final Map<String, Future<String>> _signedAttachmentUrls = {};
+  final List<_PendingAttachment> _pendingAttachments = <_PendingAttachment>[];
   bool _sendingAttachment = false;
 
   final _presence = PresenceService();
@@ -133,6 +136,9 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                 existing.clientId == message.clientId);
         if (!same) continue;
         next = message.copyWith(
+          attachments: message.attachments.isEmpty
+              ? existing.attachments
+              : message.attachments,
           status: ReceiptState.keepStatus(
             previous: existing.status,
             incoming: message.status,
@@ -298,7 +304,57 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
 
   Future<void> _send() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (_sending || _sendingAttachment) return;
+    if (text.isEmpty && _pendingAttachments.isEmpty) return;
+
+    if (_pendingAttachments.isNotEmpty) {
+      final staged = List<_PendingAttachment>.of(_pendingAttachments);
+      setState(() {
+        _sending = true;
+        _sendingAttachment = true;
+      });
+      try {
+        final message = await _attachments.sendAttachments(
+          conversationId: _conversationId,
+          senderId: _currentUserId,
+          attachments: staged
+              .map(
+                (file) => AttachmentUpload(
+                  fileName: file.fileName,
+                  mimeType: file.mimeType,
+                  bytes: file.bytes,
+                ),
+              )
+              .toList(),
+          text: text,
+          replyToMessageId: _replyTo?.id,
+        );
+        if (!mounted) return;
+        setState(() {
+          _messages = [
+            ..._messages.where((existing) => existing.id != message.id),
+            message,
+          ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          _pendingAttachments.clear();
+          _messageController.clear();
+          _sending = false;
+          _sendingAttachment = false;
+          _replyTo = null;
+        });
+        _stopTyping();
+        _scrollToBottom();
+      } catch (e, st) {
+        AppLogger.error(e, st, {'where': 'chat_send_attachment_album'});
+        if (!mounted) return;
+        setState(() {
+          _sending = false;
+          _sendingAttachment = false;
+        });
+        _showSnack('Could not send the selected files. ${_reason(e)}');
+      }
+      return;
+    }
+
     setState(() => _sending = true);
     _messageController.clear();
     try {
@@ -319,6 +375,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     } catch (e, st) {
       AppLogger.error(e, st, {'where': 'chat_send'});
       if (!mounted) return;
+      _messageController.text = text;
       setState(() => _sending = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -628,87 +685,97 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
-  /// Offers the two ways to send a file, then uploads it.
-  ///
-  /// The picker hands back bytes directly (`withData`), which avoids a second
-  /// platform call and keeps this working on Android and desktop alike. The size
-  /// limit lives in AttachmentService so it applies to every caller.
+  /// Stages selected files in the composer. Nothing is uploaded until Send.
   Future<void> _pickAttachment() async {
-    if (_sendingAttachment || _conversationId.isEmpty) return;
-
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Photo'),
-              onTap: () => Navigator.of(context).pop('image'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.insert_drive_file_outlined),
-              title: const Text('File'),
-              subtitle: const Text('Up to 10 MB'),
-              onTap: () => Navigator.of(context).pop('file'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == null) return;
-
-    XFile? file;
-    try {
-      file = await openFile(
-        acceptedTypeGroups: choice == 'image'
-            ? const [
-                XTypeGroup(
-                  label: 'Images',
-                  extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'],
-                )
-              ]
-            : const [],
-      );
-    } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'chat_pick_attachment'});
-      _showSnack('Could not open the file picker.');
-      return;
-    }
-    if (file == null) return;
-
-    List<int> bytes;
-    try {
-      bytes = await file.readAsBytes();
-    } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'chat_read_attachment'});
-      _showSnack('That file could not be read.');
-      return;
-    }
-
+    if (_sendingAttachment || _sending || _conversationId.isEmpty) return;
     setState(() => _sendingAttachment = true);
     try {
-      final message = await _attachments.sendAttachment(
-        conversationId: _conversationId,
-        senderId: _currentUserId,
-        fileName: file.name,
-        mimeType: AttachmentService.mimeTypeFor(file.name),
-        bytes: bytes,
+      final choice = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.image_outlined),
+                title: const Text('Photos'),
+                subtitle: const Text('Select multiple images for one album'),
+                onTap: () => Navigator.of(context).pop('image'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.insert_drive_file_outlined),
+                title: const Text('File'),
+                subtitle: const Text('Up to 10 MB per file'),
+                onTap: () => Navigator.of(context).pop('file'),
+              ),
+            ],
+          ),
+        ),
       );
-      if (!mounted) return;
-      setState(() {
-        _messages = [..._messages, message];
-        _sendingAttachment = false;
-      });
-      _scrollToBottom();
+      if (!mounted || choice == null) return;
+
+      final List<XFile> files;
+      if (choice == 'image') {
+        files = await openFiles(
+          acceptedTypeGroups: const [
+            XTypeGroup(
+              label: 'Images',
+              extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'],
+            ),
+          ],
+        );
+      } else {
+        final file = await openFile();
+        files = file == null ? <XFile>[] : <XFile>[file];
+      }
+      if (files.isEmpty) return;
+      if (_pendingAttachments.length + files.length > 10) {
+        _showSnack('You can attach up to 10 files to one message.');
+        return;
+      }
+
+      final staged = <_PendingAttachment>[];
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty) {
+          _showSnack('${file.name} is empty and was not added.');
+          continue;
+        }
+        if (bytes.length > AttachmentService.maxBytes) {
+          _showSnack('${file.name} is over 10 MB and was not added.');
+          continue;
+        }
+        staged.add(
+          _PendingAttachment(
+            fileName: file.name,
+            mimeType: AttachmentService.mimeTypeFor(file.name),
+            bytes: bytes,
+          ),
+        );
+      }
+      if (staged.isNotEmpty && mounted) {
+        setState(() => _pendingAttachments.addAll(staged));
+      }
     } catch (e, st) {
-      AppLogger.error(e, st, {'where': 'chat_send_attachment'});
-      if (!mounted) return;
-      setState(() => _sendingAttachment = false);
-      _showSnack('Could not send that file. ${_reason(e)}');
+      AppLogger.error(e, st, {'where': 'chat_stage_attachment'});
+      if (mounted) _showSnack('Could not add the selected files.');
+    } finally {
+      if (mounted) setState(() => _sendingAttachment = false);
     }
+  }
+
+  void _removePendingAttachment(int index) {
+    if (index < 0 || index >= _pendingAttachments.length) return;
+    setState(() => _pendingAttachments.removeAt(index));
+  }
+
+  /// Resolves private storage URLs once per attachment for inline previews.
+  Future<String> _attachmentUrl(MessageAttachment attachment) {
+    return _signedAttachmentUrls.putIfAbsent(
+      attachment.storagePath,
+      () => _attachments.signedUrl(attachment),
+    );
   }
 
   /// Opens one attachment. The bucket is private, so a signed URL is fetched
@@ -897,11 +964,9 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           reactionChips:
               ReactionSummary.chips(message.reactions, _currentUserId),
           replyPreview: _replyPreviewFor(message),
-          attachment:
-              message.attachments.isEmpty ? null : message.attachments.first,
-          onAttachmentTap: message.attachments.isEmpty
-              ? null
-              : () => _openAttachment(message.attachments.first),
+          attachments: message.attachments,
+          attachmentUrl: _attachmentUrl,
+          onAttachmentTap: _openAttachment,
           onLongPress: () => _showMessageActions(message),
         );
       },
@@ -975,6 +1040,59 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
+  Widget _pendingAttachmentStrip() {
+    if (_pendingAttachments.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 84,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        scrollDirection: Axis.horizontal,
+        itemCount: _pendingAttachments.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final file = _pendingAttachments[index];
+          return Stack(
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: file.isImage
+                    ? Image.memory(
+                        file.bytes,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.broken_image_outlined,
+                        ),
+                      )
+                    : Tooltip(
+                        message: file.fileName,
+                        child: const Icon(Icons.insert_drive_file_outlined),
+                      ),
+              ),
+              Positioned(
+                top: 0,
+                right: 0,
+                child: IconButton.filledTonal(
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(width: 26, height: 26),
+                  padding: EdgeInsets.zero,
+                  tooltip: 'Remove ${file.fileName}',
+                  onPressed: () => _removePendingAttachment(index),
+                  icon: const Icon(Icons.close, size: 16),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildComposer() {
     final colors = Theme.of(context).colorScheme;
     return SafeArea(
@@ -989,6 +1107,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _replyStrip(colors),
+            _pendingAttachmentStrip(),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Row(
@@ -1002,11 +1121,14 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.attach_file),
-                    onPressed: _sendingAttachment ? null : _pickAttachment,
+                    onPressed: (_sendingAttachment || _sending)
+                        ? null
+                        : _pickAttachment,
                   ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
+                      readOnly: _sending,
                       minLines: 1,
                       maxLines: 5,
                       textCapitalization: TextCapitalization.sentences,
@@ -1036,7 +1158,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                                 strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.send_rounded),
-                    onPressed: _sending ? null : _send,
+                    onPressed: (_sending || _sendingAttachment) ? null : _send,
                   ),
                 ],
               ),
@@ -1055,4 +1177,19 @@ class _ChatTimelineItem {
 
   final String? dayLabel;
   final Message? message;
+}
+
+
+class _PendingAttachment {
+  const _PendingAttachment({
+    required this.fileName,
+    required this.mimeType,
+    required this.bytes,
+  });
+
+  final String fileName;
+  final String mimeType;
+  final Uint8List bytes;
+
+  bool get isImage => mimeType.startsWith('image/');
 }
