@@ -151,6 +151,11 @@ void main(List<String> args) {
     if (result != 0) exit(result);
   }
 
+  // Apply Google's plugin only when the local/private Firebase app config is
+  // present. This keeps public/CI builds compilable without client config while
+  // enabling FCM on a configured Android install.
+  _applyGoogleServicesPlugin(androidDir);
+
   // ---- 4. compileSdk -----------------------------------------------------
   final gradleFiles = [
     File('${androidDir.path}/app/build.gradle'),
@@ -206,6 +211,81 @@ void main(List<String> args) {
   }
   stdout.writeln('Android build ready. Next:');
   stdout.writeln('  flutter clean && flutter run');
+}
+
+// ---------------------------------------------------------------------------
+// Firebase Android Gradle plugin
+// ---------------------------------------------------------------------------
+
+/// Applies the Google Services plugin when the ignored client config exists.
+///
+/// Without google-services.json, normal builds still compile and Firebase
+/// initialization is skipped at runtime. With the file, the plugin generates
+/// the resources Firebase Messaging needs to register and receive FCM tokens.
+void _applyGoogleServicesPlugin(Directory androidDir) {
+  final config = File('${androidDir.path}/app/google-services.json');
+  if (!config.existsSync()) {
+    stdout.writeln('• Firebase Android: google-services.json not present; FCM disabled');
+    return;
+  }
+
+  final settingsFiles = [
+    File('${androidDir.path}/settings.gradle'),
+    File('${androidDir.path}/settings.gradle.kts'),
+  ].where((file) => file.existsSync()).toList();
+  final appFiles = [
+    File('${androidDir.path}/app/build.gradle'),
+    File('${androidDir.path}/app/build.gradle.kts'),
+  ].where((file) => file.existsSync()).toList();
+  if (settingsFiles.isEmpty || appFiles.isEmpty) {
+    stderr.writeln('! Firebase config exists, but generated Gradle files were not found.');
+    return;
+  }
+
+  for (final file in settingsFiles) {
+    final before = file.readAsStringSync();
+    final after = ensureGoogleServicesPlugin(
+      before,
+      line: 'id("com.google.gms.google-services") version "4.4.2" apply false',
+      pluginId: 'com.google.gms.google-services',
+    );
+    if (after != before) file.writeAsStringSync(after);
+  }
+  for (final file in appFiles) {
+    final before = file.readAsStringSync();
+    final after = ensureGoogleServicesPlugin(
+      before,
+      line: 'id("com.google.gms.google-services")',
+      pluginId: 'com.google.gms.google-services',
+    );
+    if (after != before) file.writeAsStringSync(after);
+  }
+  stdout.writeln('✓ Firebase Android: Google Services plugin is configured');
+}
+
+/// Inserts a Gradle plugin line into the first `plugins {}` block, once.
+/// Returns [source] unchanged when the plugin is already present or no block
+/// can be found.
+String ensureGoogleServicesPlugin(
+  String source, {
+  required String line,
+  required String pluginId,
+}) {
+  if (source.contains(pluginId)) return source;
+  final start = RegExp(r'\bplugins\s*\{').firstMatch(source);
+  if (start == null) return source;
+  var depth = 1;
+  var close = -1;
+  for (var i = start.end; i < source.length; i++) {
+    if (source[i] == '{') depth++;
+    if (source[i] == '}') depth--;
+    if (depth == 0) { close = i; break; }
+  }
+  if (close < 0) return source;
+  final lineStart = source.lastIndexOf('\n', close) + 1;
+  final closeIndent = source.substring(lineStart, close);
+  final indent = closeIndent.isEmpty ? '    ' : closeIndent;
+  return '${source.substring(0, lineStart)}$indent$line\n${source.substring(lineStart)}';
 }
 
 // ---------------------------------------------------------------------------

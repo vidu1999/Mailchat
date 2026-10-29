@@ -2292,8 +2292,8 @@ $$;
 -- ==========================================================================
 
 -- Durable per-account notification inbox and realtime event generation.
--- OS/background push is deliberately not claimed here: it needs a trusted FCM
--- sender and Firebase credentials, neither of which belongs in the mobile app.
+-- Android OS/background push is provided separately by the trusted FCM Edge
+-- Function; Firebase credentials never belong in the mobile app.
 
 alter table public.notification_preferences
   add column if not exists calls_enabled boolean not null default true,

@@ -38,6 +38,10 @@ dependencies:
   # needs no Gradle edits — only the runtime permissions, added by
   # tool/enable_call_permissions.dart.
   flutter_webrtc: ^1.6.3
+  # Android background OS notifications (FCM); secrets stay in the trusted
+  # Supabase Edge Function, never in the client app.
+  firebase_core: ^4.0.0
+  firebase_messaging: ^16.0.0
 
 dev_dependencies:
   flutter_test:

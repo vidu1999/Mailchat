@@ -32,7 +32,7 @@ versus what actually exists.
 | [search.md](search.md) | Finding people by username, display name or exact email | 🧪 built |
 | [presence.md](presence.md) | Online status, last seen, typing, and the privacy switch | 🧪 built |
 | [privacy.md](privacy.md) | Blocking, reporting, discoverability, what is saved and what is not | 🧪 built |
-| [notifications.md](notifications.md) | Message/missed-call inbox, foreground realtime, and FCM gap; system events removed | 🧪 code built; migrations 0013–0014 |
+| [notifications.md](notifications.md) | Message/missed-call inbox; Android FCM registration, sender deployment and setup | 🧪 code built; live delivery not verified |
 | [calls.md](calls.md) | Voice and video calls: signalling, WebRTC media, TURN, what is unverified | 🟡 built, unverified on a device |
 | [status.md](status.md) | Updates/stories: photo and text sharing, 24-hour expiry, audience and setup | 🧪 code built; migration needs applying |
 | [web.md](web.md) | The browser client: same accounts, chats, Updates and calls as the phone | 🧪 built, not a Flutter web build |

@@ -17,6 +17,7 @@ import 'package:mailchat/shared/services/last_seen_heartbeat.dart';
 import 'package:mailchat/shared/services/message_service.dart';
 import 'package:mailchat/shared/services/notification_service.dart';
 import 'package:mailchat/shared/services/presence_service.dart';
+import 'package:mailchat/shared/services/push_notification_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
 import 'package:mailchat/shared/widgets/app_loading.dart';
@@ -43,6 +44,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   final PresenceService _presenceService = PresenceService();
   final CallService _callService = CallService();
   final NotificationService _notificationService = NotificationService();
+  final PushNotificationService _pushNotifications = PushNotificationService();
   late final LastSeenHeartbeat _heartbeat;
   StreamSubscription<MailNotification>? _notificationEvents;
   int _notificationUnreadCount = 0;
@@ -87,6 +89,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
     // goes stale, "last seen".
     _heartbeat = LastSeenHeartbeat()..start();
     _load();
+    final signedInUserId = SupabaseClient.instance.userId;
+    if (signedInUserId != null) {
+      unawaited(_pushNotifications.registerForUser(signedInUserId));
+    }
     _notificationService.subscribe();
     _notificationEvents = _notificationService.newNotifications.listen((item) {
       if (!mounted) return;
@@ -121,6 +127,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   void dispose() {
     _incomingCalls?.cancel();
     _notificationEvents?.cancel();
+    _pushNotifications.dispose();
     _notificationService.dispose();
     _chatSearchController.dispose();
     _incomingPoll?.cancel();

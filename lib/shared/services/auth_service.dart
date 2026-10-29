@@ -5,6 +5,7 @@ import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/services/session_store.dart';
 import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
+import 'package:mailchat/shared/services/push_notification_service.dart';
 import 'package:mailchat/core/utils/validators.dart';
 
 /// Authentication business logic.
@@ -224,6 +225,7 @@ class AuthService {
 
   /// Signs out and clears the persisted session.
   Future<void> signOut() async {
+    await PushNotificationService().unregisterCurrentUser();
     await _supabase.signOut();
     await _store.clear();
     AppLogger.info('auth_signed_out');

@@ -72,10 +72,10 @@ These are real and should block a production launch:
 3. **Presence is coarse.** A heartbeat older than 75 seconds is "offline", so a
    user whose phone slept looks away even if they are reading. That is honest,
    but it is not the same as an accurate session state.
-4. **OS/background push.** The database-backed inbox and foreground realtime
-   alerts do not deliver anything while the app is closed or disconnected. No
-   FCM credentials, token registration, or server-side sender exist yet. See
-   [notifications.md](notifications.md).
+4. **OS/background push is not live-verified.** Android FCM token registration
+   and a server-side sender are implemented, but the Firebase config, Edge
+   secrets, deployed function, Database Webhook, and a real device test are still
+   required. See [notifications.md](notifications.md).
 5. **Rate limiting.** Auth endpoints are rate-limited by Supabase, but message,
    attachment and call-creation rate limiting is not implemented — nothing stops
    a member from flooding a conversation or ringing in a loop.

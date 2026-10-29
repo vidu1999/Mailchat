@@ -63,7 +63,7 @@ have not been exercised against a live database from the build environment.
 | Notifications | Database-backed inbox, foreground realtime alerts, message/missed-call events, read state, and tap-through navigation (migrations 0013–0014 required; OS push not yet wired) |
 | Voice / video calls | `flutter_webrtc` signaling/media flow plus account-based recent/missed call history on mobile and browser, with profile-name call-back. Calls are still unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
 | Browser client | `webapp/index.html` — same Supabase accounts, chats, Updates and calls as the phone. Not a Flutter web build. See `docs/web.md` |
-| OS/background push (FCM) | **Not implemented** — needs Firebase credentials, token registration, and a trusted server-side sender |
+| Android OS/background push (FCM) | Code and sender function are present; requires Firebase config, Edge secrets, deployment and webhook setup before delivery works. Not device-verified; see `docs/notifications.md` |
 | End-to-end encryption | **Not implemented** — and not claimed |
 | Database schema, RLS, triggers, seed | Written; applied by hand in one paste (`supabase/apply_all.sql`) |
 | `flutter analyze` | **Clean** in CI |

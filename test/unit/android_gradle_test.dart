@@ -20,6 +20,40 @@ import '../../tool/fix_android_build.dart';
 /// `tool/fix_android_build.dart` fixes the first and refuses to pretend it can
 /// fix the second.
 void main() {
+  group('ensureGoogleServicesPlugin', () {
+    test('adds the plugin line to a settings plugins block exactly once', () {
+      const settings = '''
+plugins {
+    id("dev.flutter.flutter-plugin-loader") version "1.0.0"
+    id("com.android.application") version "8.11.1" apply false
+}
+''';
+      final once = ensureGoogleServicesPlugin(
+        settings,
+        line: 'id("com.google.gms.google-services") version "4.4.2" apply false',
+        pluginId: 'com.google.gms.google-services',
+      );
+      final twice = ensureGoogleServicesPlugin(
+        once,
+        line: 'id("com.google.gms.google-services") version "4.4.2" apply false',
+        pluginId: 'com.google.gms.google-services',
+      );
+      expect(once, contains('id("com.google.gms.google-services") version "4.4.2" apply false'));
+      expect(twice, once);
+      expect(RegExp('com.google.gms.google-services').allMatches(twice), hasLength(1));
+    });
+
+    test('adds the app plugin to Groovy and preserves the closing brace', () {
+      const app = 'plugins {\n    id "com.android.application"\n}\n';
+      final patched = ensureGoogleServicesPlugin(
+        app,
+        line: 'id("com.google.gms.google-services")',
+        pluginId: 'com.google.gms.google-services',
+      );
+      expect(patched, contains('    id("com.google.gms.google-services")\n}'));
+    });
+  });
+
   group('pinCompileSdk', () {
     test('rewrites the old Groovy form', () {
       const gradle = '''

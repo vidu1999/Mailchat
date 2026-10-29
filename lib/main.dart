@@ -1,9 +1,13 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:mailchat/app.dart';
 import 'package:mailchat/core/config/app_config.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
 import 'package:mailchat/features/calls/domain/call_trace.dart';
+import 'package:mailchat/shared/services/push_notification_service.dart';
 
 /// Entry point of the MailChat application.
 ///
@@ -21,6 +25,20 @@ Future<void> main() async {
 
   await AppConfig.load();
   AppLogger.init();
+
+  // Firebase is optional until the Android app's google-services.json is
+  // configured. Missing Firebase setup must not prevent normal chat startup.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await Firebase.initializeApp();
+      FirebaseMessaging.onBackgroundMessage(mailChatFcmBackgroundHandler);
+    } catch (error, stack) {
+      AppLogger.warning('firebase_push_not_configured', details: {
+        'error': error.toString(),
+      });
+      AppLogger.error(error, stack, {'where': 'firebase_initialize'});
+    }
+  }
 
   // A trace left behind means the previous process died during a call — the one
   // piece of evidence a native kill leaves. Logged once, then removed.

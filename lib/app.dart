@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import 'package:mailchat/core/config/app_config.dart';
@@ -29,6 +31,7 @@ class _MailChatAppState extends State<MailChatApp> {
       GlobalKey<NavigatorState>();
 
   StreamSubscription<String>? _linkSubscription;
+  StreamSubscription<RemoteMessage>? _pushTapSubscription;
 
   @override
   void initState() {
@@ -38,12 +41,20 @@ class _MailChatAppState extends State<MailChatApp> {
     // splash has routed would land on the wrong screen, so it is handled first
     // and replaces the stack.
     _linkSubscription = AppLinks.links.listen(_handleLink);
+    if (Firebase.apps.isNotEmpty) {
+      _pushTapSubscription =
+          FirebaseMessaging.onMessageOpenedApp.listen(_handlePushTap);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await AppLinks.initialLink();
       if (!mounted) return;
       if (initial != null) {
         await _handleLink(initial);
         return;
+      }
+      if (Firebase.apps.isNotEmpty) {
+        final notification = await FirebaseMessaging.instance.getInitialMessage();
+        if (notification != null) _handlePushTap(notification);
       }
       // No link: normal start. The splash screen is the initial route and
       // decides between login and the chat list.
@@ -53,7 +64,31 @@ class _MailChatAppState extends State<MailChatApp> {
   @override
   void dispose() {
     _linkSubscription?.cancel();
+    _pushTapSubscription?.cancel();
     super.dispose();
+  }
+
+  void _handlePushTap(RemoteMessage message) {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
+    final data = message.data;
+    final type = data['notificationType'] ?? data['type'];
+    if (type == 'missed_call') {
+      navigator.pushNamed(AppRoutes.callHistory);
+      return;
+    }
+    final conversationId = data['conversationId'];
+    if (conversationId is! String || conversationId.isEmpty) return;
+    final isGroup = data['conversationType'] == 'group';
+    final name = data['conversationName'];
+    navigator.pushNamed(AppRoutes.directChat, arguments: {
+      'conversationId': conversationId,
+      'isGroup': isGroup,
+      'title': name is String && name.isNotEmpty
+          ? name
+          : (message.notification?.title ?? 'Chat'),
+      if (data['actorId'] is String) 'otherUserId': data['actorId'],
+    });
   }
 
   /// Exchanges a link for a session and routes to wherever it belongs.

@@ -1,31 +1,52 @@
 # Notifications
 
-**Current scope:** message and missed-call notifications only. System/group-update notifications were removed by migration 0014. The durable inbox and foreground realtime handling are implemented. **Background/OS push is still not implemented**: the Firebase SDK, token registration, and trusted FCM sender are absent.
+**Events:** new messages and missed calls only. System/group-update events were removed in migration 0014. The database inbox and foreground realtime handling are implemented. Android background FCM code is now present, but delivery is only active after its private Firebase config, Edge Function, and Database Webhook are set up.
 
-**Code:** `lib/shared/services/notification_service.dart`,
-`lib/features/notifications/presentation/screens/notification_inbox_screen.dart`,
-`lib/features/notifications/presentation/screens/notification_settings_screen.dart`,
-`webapp/app.js`
+**Code:** `lib/shared/services/push_notification_service.dart`,
+`supabase/functions/send-fcm/index.ts`, and
+`lib/features/notifications/presentation/screens/notification_inbox_screen.dart`
 **Database:** migrations `0013_notifications.sql` and `0014_remove_system_notifications.sql`
 
-## Current behavior
+## Android setup
 
-| Event | Behavior |
-| --- | --- |
-| New message | A database trigger writes an inbox event for conversation members other than the sender, subject to global/per-chat message settings and mutes. |
-| Missed call | A transition to `missed` writes an event for both participants, subject to call settings and mutes. |
-| System/group update | Disabled. System chat messages and membership changes do not create notification events. |
-| Foreground | The connected app receives realtime events and can show its inbox/foreground alert. This is not an Android notification while MailChat is backgrounded or closed. |
-| Tap-through | Inbox message events open the conversation; missed-call events open call history. |
+1. Add the Android Firebase app with package name `com.mailchat.mailchat` and place its `google-services.json` at `android/app/google-services.json`. This file is gitignored. The Android scaffold is generated locally; after adding the file, run `dart run tool/fix_android_build.dart` so the Google Services Gradle plugin is applied.
+2. `main.dart` initializes Firebase when configured. After sign-in, the app asks for notification permission, registers the FCM token in the signed-in user's RLS-protected `user_devices` row, and updates it on token refresh. Sign-out removes this installation's token.
+3. Deploy the trusted sender from the repository root:
 
-## Why background/OS push does not work yet
+   ```powershell
+   supabase functions deploy send-fcm --project-ref YOUR_PROJECT_REF --no-verify-jwt
+   ```
 
-`FCM_PROJECT_ID` identifies the Firebase project and `FCM_VAPID_KEY` is for browser push; neither sends notifications. This repository does not yet register FCM device tokens, include the Firebase messaging client SDK/native setup, or deploy a trusted server-side FCM sender. The `user_devices` table is not currently used for token registration.
+   The function requires `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_JSON`, and `FCM_WEBHOOK_SECRET` Edge Function secrets. Supabase supplies its own `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the function. The service-account JSON must stay in Edge Function secrets, never in the app or Git.
+4. Create a random webhook secret, and save it as the `FCM_WEBHOOK_SECRET` Edge Function secret. Use the same value as the webhook header described below. Never put it in the client `.env`.
+5. In Supabase **Database → Webhooks**, create a webhook for `public.user_notifications`, **INSERT** only, method **POST**, URL:
 
-A working Android background path needs Firebase Android app configuration, the Flutter messaging integration and notification handling, token registration, and a deployed server/Edge Function that reads eligible message/missed-call events and sends them through FCM. Store the Firebase service-account credential as a Supabase server secret, never in the app `.env`, APK, or Git. iOS additionally needs APNs setup; web background push needs its own service worker and browser permission.
+   ```text
+   https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-fcm
+   ```
 
-## Database and security
+   Add headers `Content-Type: application/json` and `x-mailchat-webhook-secret: YOUR_RANDOM_WEBHOOK_SECRET`. The function validates this header, reads Android device tokens server-side, obtains a short-lived Google OAuth token from the service-account key, and sends FCM HTTP v1 notification payloads. It removes tokens only when FCM explicitly reports them as unregistered.
+6. If building from GitHub Actions, save the contents of `google-services.json` as a base64-encoded repository secret named `FIREBASE_ANDROID_JSON_BASE64`. Local builds use the ignored file directly.
+7. Run `flutter pub get`, build/install the APK, open MailChat once while signed in (to register the token), allow Android notification permission, then put the receiving app in the background and send a **new** message from another account. Missed-call push is sent when the call row transitions to `missed`.
 
-The one-paste bundle `supabase/apply_all.sql` includes migrations 0013 and 0014 and the verification query. Migration 0014 removes existing system-event inbox rows, the membership-event trigger, and the system preference. Inbox rows remain RLS-protected by owner; clients may change only `read_at`. Message previews are capped at 240 characters and do not contain email addresses or device tokens.
+Use Firebase Console → Project settings → Service accounts to create the service-account JSON. In PowerShell, a random webhook secret can be generated with:
 
-The inbox is a normal server-side database record. Do not describe it as end-to-end encrypted or as OS/background push.
+```powershell
+$secret = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+$secret
+```
+
+Paste that same value into the Edge Function secret and the webhook header. Do not send either secret in chat.
+
+## Delivery behavior and limitations
+
+* Android background notification payloads are displayed by Android/Google Play services; MailChat does not create a duplicate local alert. Tapping a message opens its conversation; tapping a missed-call alert opens call history.
+* Android foreground behavior remains MailChat's realtime inbox/foreground alert. The request here removed system-update events, not message/call foreground behavior.
+* This sends regular Android FCM notifications. Android/Samsung controls exact notification appearance and grouping; reproducing WhatsApp's exact stacked `MessagingStyle` requires extra native notification rendering and is not claimed here.
+* Android force-stop prevents delivery until the app is opened again; Android 13+ permission must be granted. Samsung battery restrictions can delay delivery.
+* The VAPID key is web-only and is not used by this Android sender. iOS requires APNs configuration; web background push needs its own service worker.
+* FCM delivery itself is generally free, but Supabase Edge Function/database usage is subject to the project's plan quotas.
+
+## Security and data
+
+Message and missed-call rows are generated only for eligible recipients by database triggers that honor notification preferences and mutes. The Edge Function uses the service role only server-side to read token rows and delete expired tokens. No Firebase service-account key, FCM access token, or Supabase service-role key is included in the APK. Notification previews are capped at 240 characters; no email address is included.
