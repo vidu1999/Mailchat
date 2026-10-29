@@ -539,8 +539,8 @@ class SupabaseClient {
 
     final baseUrl = AppConfig.instance.supabaseUrl.replaceFirst(RegExp(r'/$'), '');
     if (rawUrl.startsWith('/storage/v1/')) return '$baseUrl$rawUrl';
-    final path = rawUrl.startsWith('/') ? rawUrl : '/$rawUrl';
-    return '$baseUrl/storage/v1$path';
+    final relativePath = rawUrl.startsWith('/') ? rawUrl : '/$rawUrl';
+    return '$baseUrl/storage/v1$relativePath';
   }
 
   // ------------------------------------------------------------------
