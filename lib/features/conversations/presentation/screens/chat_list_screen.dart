@@ -619,53 +619,73 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ),
       ),
       trailing: SizedBox(
-        width: 94,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        width: 112,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            if (item.lastMessageAt != null)
-              AppText.caption(AppFormatters.chatTimestamp(item.lastMessageAt!)),
-            const SizedBox(height: 3),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (item.isPinned)
-                  Icon(Icons.push_pin, size: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                if (item.isMuted)
-                  Icon(Icons.notifications_off_outlined, size: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                if (item.unreadCount > 0) ...[
-                  const SizedBox(width: 5),
-                  _UnreadBadge(count: item.unreadCount, muted: item.isMuted),
-                ] else if (item.isFavorite)
-                  Icon(Icons.star_rounded, size: 16,
-                      color: Theme.of(context).colorScheme.primary),
-                PopupMenuButton<String>(
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 180),
-                  iconSize: 18,
-                  tooltip: 'Chat options',
-                  onSelected: (value) {
-                    if (value == 'favorite') {
-                      _setListPreference(item, favorite: !item.isFavorite);
-                    } else {
-                      _setListPreference(item, pinned: !item.isPinned);
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: 'favorite',
-                      child: Text(item.isFavorite
-                          ? 'Remove from favourites'
-                          : 'Add to favourites'),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (item.lastMessageAt != null)
+                    AppText.caption(
+                      AppFormatters.chatTimestamp(item.lastMessageAt!),
                     ),
-                    PopupMenuItem(
-                      value: 'pin',
-                      child: Text(item.isPinned ? 'Unpin chat' : 'Pin chat'),
-                    ),
-                  ],
+                  const SizedBox(height: 3),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (item.isPinned)
+                        Icon(
+                          Icons.push_pin,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      if (item.isMuted)
+                        Icon(
+                          Icons.notifications_off_outlined,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      if (item.isFavorite)
+                        Icon(
+                          Icons.star_rounded,
+                          size: 15,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      if (item.unreadCount > 0) ...[
+                        const SizedBox(width: 4),
+                        _UnreadBadge(count: item.unreadCount, muted: item.isMuted),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 180),
+              iconSize: 18,
+              tooltip: 'Chat options',
+              onSelected: (value) {
+                if (value == 'favorite') {
+                  _setListPreference(item, favorite: !item.isFavorite);
+                } else {
+                  _setListPreference(item, pinned: !item.isPinned);
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'favorite',
+                  child: Text(item.isFavorite
+                      ? 'Remove from favourites'
+                      : 'Add to favourites'),
+                ),
+                PopupMenuItem(
+                  value: 'pin',
+                  child: Text(item.isPinned ? 'Unpin chat' : 'Pin chat'),
                 ),
               ],
             ),
