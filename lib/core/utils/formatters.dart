@@ -67,6 +67,30 @@ class AppFormatters {
     return '$day/$month/${localDate.year}';
   }
 
+  /// Formats a call history timestamp like `Today, 07:43` or
+  /// `27 October, 12:34`. Call history uses the local wall clock, as the OS
+  /// dialer does, but never displays phone-number-based identity.
+  static String callTimestamp(DateTime dateTime, {DateTime? now}) {
+    final local = dateTime.toLocal();
+    final reference = (now ?? DateTime.now()).toLocal();
+    final today = DateTime(reference.year, reference.month, reference.day);
+    final callDay = DateTime(local.year, local.month, local.day);
+    final clock =
+        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+    if (callDay == today) return 'Today, $clock';
+    if (callDay == today.subtract(const Duration(days: 1))) {
+      return 'Yesterday, $clock';
+    }
+    const months = <String>[
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    final date = '${local.day} ${months[local.month - 1]}';
+    return local.year == reference.year
+        ? '$date, $clock'
+        : '$date ${local.year}, $clock';
+  }
+
   /// Formats a last-seen timestamp for a presence line.
   ///
   /// Today shows the clock time ("10:41 AM"), yesterday the word, anything

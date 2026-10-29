@@ -24,6 +24,7 @@ import 'package:mailchat/features/profile/presentation/screens/edit_profile_scre
 import 'package:mailchat/features/profile/presentation/screens/profile_screen.dart';
 import 'package:mailchat/features/calls/presentation/screens/incoming_call_screen.dart';
 import 'package:mailchat/features/calls/presentation/screens/active_call_screen.dart';
+import 'package:mailchat/features/calls/presentation/screens/call_history_screen.dart';
 import 'package:mailchat/features/settings/presentation/screens/application_settings_screen.dart';
 
 /// Named routes used across MailChat.
@@ -55,6 +56,7 @@ class AppRoutes {
   static const String applicationSettings = '/application-settings';
   static const String incomingCall = '/incoming-call';
   static const String activeCall = '/active-call';
+  static const String callHistory = '/call-history';
 }
 
 /// Observes route changes for analytics / deep-link handling.
@@ -93,7 +95,13 @@ class AppRouter {
       case AppRoutes.chatList:
         return _materialRoute(const ChatListScreen(), settings);
       case AppRoutes.searchUsers:
-        return _materialRoute(const SearchUsersScreen(), settings);
+        return _materialRoute(
+          SearchUsersScreen(
+            callMode: _args(settings)?['callMode'] as bool? ?? false,
+            isVideoCall: _args(settings)?['isVideoCall'] as bool? ?? false,
+          ),
+          settings,
+        );
       case AppRoutes.newConversation:
         return _materialRoute(const NewConversationScreen(), settings);
       case AppRoutes.directChat:
@@ -130,6 +138,8 @@ class AppRouter {
         return _materialRoute(IncomingCallScreen(arguments: _args(settings)), settings);
       case AppRoutes.activeCall:
         return _materialRoute(ActiveCallScreen(arguments: _args(settings)), settings);
+      case AppRoutes.callHistory:
+        return _materialRoute(const CallHistoryScreen(), settings);
       default:
         return MaterialPageRoute(
           builder: (_) => const Scaffold(

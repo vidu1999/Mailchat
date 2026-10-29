@@ -60,7 +60,7 @@ have not been exercised against a live database from the build environment.
 | Blocking, reporting, discoverability | Implemented in the database; read-receipt toggle is device-local |
 | Search by username, display name, exact email | Implemented (`search_users`, 0005) |
 | Notification preferences | Implemented and persisted; **nothing is pushed** |
-| Voice / video calls | Built on `flutter_webrtc`: real peer connection, offer/answer/ICE via the database, ring/accept/decline/hang-up. Unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
+| Voice / video calls | `flutter_webrtc` signaling/media flow plus account-based recent/missed call history on mobile and browser, with profile-name call-back. Calls are still unverified on a device, and mobile data needs a TURN relay — see `docs/calls.md` |
 | Browser client | `webapp/index.html` — same Supabase accounts, chats and calls as the phone. Not a Flutter web build. See `docs/web.md` |
 | Push notifications (FCM) | **Not implemented** — needs a Firebase project |
 | End-to-end encryption | **Not implemented** — and not claimed |

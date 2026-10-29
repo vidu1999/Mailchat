@@ -34,6 +34,28 @@ void main() {
     });
   });
 
+  group('AppFormatters.callTimestamp', () {
+    final now = DateTime(2026, 10, 29, 12, 0);
+
+    test('labels today and yesterday in local 24-hour time', () {
+      expect(
+        AppFormatters.callTimestamp(DateTime(2026, 10, 29, 7, 43), now: now),
+        'Today, 07:43',
+      );
+      expect(
+        AppFormatters.callTimestamp(DateTime(2026, 10, 28, 19, 56), now: now),
+        'Yesterday, 19:56',
+      );
+    });
+
+    test('uses a readable date for older calls', () {
+      expect(
+        AppFormatters.callTimestamp(DateTime(2026, 10, 27, 12, 34), now: now),
+        '27 October, 12:34',
+      );
+    });
+  });
+
   group('AppFormatters.chatDayLabel', () {
     final now = DateTime(2026, 6, 15, 12, 0);
 

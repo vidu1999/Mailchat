@@ -104,6 +104,21 @@ class CallService {
     return placed;
   }
 
+  /// Newest calls involving [userId], for the Calls history screen.
+  ///
+  /// RLS still restricts the result to the signed-in participant; the filter
+  /// narrows the request and the fixed limit keeps the log light on mobile.
+  Future<List<Call>> history(String userId, {int limit = 100}) async {
+    final rows = await _supabase.select(
+      'calls',
+      select: '*',
+      filter: {'or': '(caller_id.eq.$userId,callee_id.eq.$userId)'},
+      order: 'created_at.desc',
+      limit: limit,
+    );
+    return rows.map(Call.fromJson).toList();
+  }
+
   /// Reads one call. Used to resync after a reconnect, since a dropped socket
   /// can miss the events that matter.
   Future<Call?> fetch(String callId) async {

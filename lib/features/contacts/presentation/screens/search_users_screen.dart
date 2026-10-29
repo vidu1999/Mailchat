@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import 'package:mailchat/core/errors/app_exception.dart';
 import 'package:mailchat/core/logging/app_logger.dart';
+import 'package:mailchat/core/network/supabase_client.dart';
 import 'package:mailchat/core/routing/app_router.dart';
 import 'package:mailchat/shared/models/profile.dart';
 import 'package:mailchat/shared/models/profile_search.dart';
+import 'package:mailchat/shared/services/conversation_service.dart';
 import 'package:mailchat/shared/services/profile_service.dart';
 import 'package:mailchat/shared/widgets/app_avatar.dart';
 import 'package:mailchat/shared/widgets/app_error.dart';
@@ -12,7 +14,14 @@ import 'package:mailchat/shared/widgets/app_loading.dart';
 
 /// User search by username or email (email-based discovery, no phone contacts).
 class SearchUsersScreen extends StatefulWidget {
-  const SearchUsersScreen({super.key});
+  final bool callMode;
+  final bool isVideoCall;
+
+  const SearchUsersScreen({
+    super.key,
+    this.callMode = false,
+    this.isVideoCall = false,
+  });
 
   @override
   State<SearchUsersScreen> createState() => _SearchUsersScreenState();
@@ -65,6 +74,53 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
     }
   }
 
+  Future<void> _startCall(Profile profile) async {
+    final selfId = SupabaseClient.instance.userId;
+    if (selfId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in before starting a call.')),
+      );
+      return;
+    }
+    try {
+      final conversation = await ConversationService().getOrCreateDirectConversation(
+        currentUserId: selfId,
+        otherUserId: profile.id,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).pushNamed(
+        AppRoutes.activeCall,
+        arguments: {
+          'conversationId': conversation.id,
+          'peerId': profile.id,
+          'peerName': profile.displayNameOrUsername,
+          'selfId': selfId,
+          'isVideo': widget.isVideoCall,
+          'isCaller': true,
+        },
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start the call: $error')),
+      );
+    }
+  }
+
+  void _openProfile(Profile profile) {
+    if (widget.callMode) {
+      _startCall(profile);
+      return;
+    }
+    Navigator.of(context).pushNamed(
+      AppRoutes.directChat,
+      arguments: {
+        'otherUserId': profile.id,
+        'title': profile.displayNameOrUsername,
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -74,8 +130,10 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
           controller: _controller,
           autofocus: true,
           textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            hintText: 'Search username or email',
+          decoration: InputDecoration(
+            hintText: widget.callMode
+                ? 'Find someone to call by username or email'
+                : 'Search username or email',
             border: InputBorder.none,
           ),
           onChanged: _search,
@@ -95,7 +153,7 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
     if (!_hasSearched) {
       return AppEmptyState(
         icon: Icons.person_search_outlined,
-        title: 'Find people',
+        title: widget.callMode ? 'Choose someone to call' : 'Find people',
         // Explains the email rule up front: typing an address only works if
         // that person allows email discovery, so it should not look broken.
         // An empty field already yields the general hint, so no branch here.
@@ -122,18 +180,19 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
-            profile.matchedBy == 'email'
-                ? '@${profile.username} · matched by email'
-                : '@${profile.username}',
+            widget.callMode
+                ? '@${profile.username} · MailChat account'
+                : (profile.matchedBy == 'email'
+                    ? '@${profile.username} · matched by email'
+                    : '@${profile.username}'),
           ),
-          trailing: const Icon(Icons.chat_bubble_outline, size: 20),
-          onTap: () => Navigator.of(context).pushNamed(
-            AppRoutes.directChat,
-            arguments: {
-              'otherUserId': profile.id,
-              'title': profile.displayNameOrUsername,
-            },
+          trailing: Icon(
+            widget.callMode
+                ? (widget.isVideoCall ? Icons.videocam_outlined : Icons.call_outlined)
+                : Icons.chat_bubble_outline,
+            size: 20,
           ),
+          onTap: () => _openProfile(profile),
         );
       },
     );

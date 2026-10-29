@@ -421,6 +421,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
           Expanded(child: _buildBody()),
         ],
       ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: 0,
+        onDestinationSelected: (index) {
+          if (index == 1) Navigator.of(context).pushNamed(AppRoutes.callHistory);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble),
+            label: 'Chats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.call_outlined),
+            selectedIcon: Icon(Icons.call),
+            label: 'Calls',
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'New conversation',
         onPressed: () =>

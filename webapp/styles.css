@@ -402,7 +402,8 @@ details summary { cursor: pointer; }
   .shell.is-group .side,
   .shell.is-settings .side,
   .shell.is-blocked .side,
-  .shell.is-report .side { display: none; }
+  .shell.is-report .side,
+  .shell.is-calls .side { display: none; }
 }
 
 /* Inbox controls and WhatsApp-style chat-row metadata. */
@@ -492,3 +493,15 @@ details summary { cursor: pointer; }
 .pending-file-icon { font-size: 1.25rem; }
 .pending-file-name { position: absolute; bottom: 0; left: 0; right: 0; font-size: .55rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(0, 0, 0, .6); }
 .pending-hint { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+
+.side-nav { display: flex; gap: 8px; padding: 10px 14px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.side-nav button { flex: 1; padding: 10px; border: 0; border-radius: 12px; background: var(--elev); color: var(--text); font-weight: 650; }
+.side-nav button:hover { background: var(--elev-2); }
+.call-row { display: flex; align-items: center; gap: 12px; }
+.call-row .avatar { flex: 0 0 40px; }
+.call-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.call-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-copy .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-missed { color: var(--bad); }
+.call-row .avatar { overflow: hidden; border-radius: 50%; }
+.call-row .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

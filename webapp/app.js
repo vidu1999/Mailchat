@@ -33,6 +33,10 @@
     pane: 'list',
     authMode: 'login',
     chats: [],
+    callHistory: [],
+    callHistoryLoading: false,
+    callPicking: false,
+    callVideo: false,
     pendingFiles: [],
     sendingFiles: false,
     chatFilter: 'All',
@@ -437,6 +441,29 @@
     }
   }
 
+  async function loadCallHistory() {
+    state.callHistoryLoading = true;
+    render();
+    try {
+      var filter = encodeURIComponent('(caller_id.eq.' + me() + ',callee_id.eq.' + me() + ')');
+      var data = await api('/rest/v1/calls?select=*&or=' + filter + '&order=created_at.desc&limit=100');
+      state.callHistory = rowsOf(data);
+      var ids = [];
+      state.callHistory.forEach(function (row) {
+        var peer = row.caller_id === me() ? row.callee_id : row.caller_id;
+        if (peer && !names[peer]) ids.push(peer);
+      });
+      ids = Array.from(new Set(ids));
+      if (ids.length) {
+        var profileFilter = encodeURIComponent('(' + ids.join(',') + ')');
+        var profiles = await api('/rest/v1/profiles?select=id,username,display_name,avatar_path&id=in.' + profileFilter);
+        rowsOf(profiles).forEach(function (profile) { names[profile.id] = profile; });
+      }
+    } catch (err) { toast('Could not load calls: ' + err.message); }
+    state.callHistoryLoading = false;
+    render();
+  }
+
   function rememberParticipant(chat) {
     var other = chat.other_participant;
     if (other && other.id) names[other.id] = other;
@@ -703,9 +730,10 @@
   }
 
 
-  async function signedUrl(path) {
+  async function signedUrl(path, bucket) {
+    bucket = bucket || 'attachments';
     var data = await api(
-      '/storage/v1/object/sign/attachments/' + path.split('/').map(encodeURIComponent).join('/'),
+      '/storage/v1/object/sign/' + encodeURIComponent(bucket) + '/' + path.split('/').map(encodeURIComponent).join('/'),
       { method: 'POST', body: { expiresIn: 3600 } }
     );
     var signed = data && (data.signedURL || data.signedUrl);
@@ -1408,7 +1436,9 @@
       '<select id="chat-kind" aria-label="Chat type"><option' + (state.chatKind === 'All chats' ? ' selected' : '') + '>All chats</option>' +
       '<option' + (state.chatKind === 'Direct' ? ' selected' : '') + '>Direct</option>' +
       '<option' + (state.chatKind === 'Groups' ? ' selected' : '') + '>Groups</option></select></div></div>' +
-      '<div class="list" id="chat-list">' + chatsHtml() + '</div>';
+      '<div class="list" id="chat-list">' + chatsHtml() + '</div>' +
+      '<nav class="side-nav"><button type="button" data-act="go" data-pane="list">▣ <span>Chats</span></button>' +
+      '<button type="button" data-act="go" data-pane="calls">☎ <span>Calls</span></button></nav>';
   }
 
   function filteredChats() {
@@ -1459,6 +1489,7 @@
   }
 
   function mainHtml() {
+    if (state.pane === 'calls') return callHistoryPane();
     if (state.pane === 'search') return searchPane();
     if (state.pane === 'group') return groupPane();
     if (state.pane === 'settings') return settingsPane();
@@ -1468,11 +1499,41 @@
     return '<div class="empty"><h2>Choose a chat</h2><p>Messages and calls here are the same ones on the phone.</p></div>';
   }
 
+
+  function callHistoryPane() {
+    var rows = state.callHistory || [];
+    var content = state.callHistoryLoading ? '<div class="empty"><h2>Loading calls…</h2></div>' :
+      (!rows.length ? '<div class="empty"><h2>No calls yet</h2><p>MailChat voice and video calls will appear here.</p></div>' :
+        rows.map(function (row) {
+          var outgoing = row.caller_id === me();
+          var peerId = outgoing ? row.callee_id : row.caller_id;
+          var person = names[peerId] || {};
+          var name = person.display_name || person.username || 'MailChat member';
+          var avatar = typeof person.avatar_path === 'string' && person.avatar_path
+            ? (/^https?:\/\//i.test(person.avatar_path)
+              ? '<img src="' + L.esc(person.avatar_path) + '" alt="">'
+              : '<img data-path="' + L.esc(person.avatar_path) + '" data-bucket="avatars" alt="">')
+            : '';
+          var missed = row.status === 'missed' || row.status === 'declined' || row.status === 'failed';
+          var kind = row.kind === 'video' ? 'Video' : 'Voice';
+          var direction = row.status === 'missed' ? (outgoing ? 'No answer' : 'Missed') :
+            row.status === 'declined' ? (outgoing ? 'Declined' : 'You declined') :
+            row.status === 'failed' ? 'Could not connect' : (outgoing ? 'Outgoing' : 'Incoming');
+          var stamp = '';
+          try { stamp = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.created_at)); } catch (err) { stamp = row.created_at || ''; }
+          return '<div class="person call-row"><span class="avatar">' + avatar + L.esc(String(name).slice(0, 1).toUpperCase()) + '</span>' +
+            '<span class="call-copy"><strong class="' + (missed ? 'call-missed' : '') + '">' + L.esc(name) + '</strong><span class="sub">' + L.esc(direction + ' · ' + kind + ' call · ' + stamp) + '</span></span>' +
+            '<button type="button" class="icon-btn" title="Call back" data-act="call-back" data-id="' + L.esc(row.conversation_id) + '" data-video="' + (row.kind === 'video') + '">' + (row.kind === 'video' ? '▣' : '☎') + '</button></div>';
+        }).join(''));
+    return panelHead('Calls') + '<div class="panel"><div class="row"><button type="button" class="btn" data-act="call-new" data-video="false">☎ Voice call</button><button type="button" class="btn ghost" data-act="call-new" data-video="true">▣ Video call</button></div>' + content + '</div>';
+  }
+
   function searchPane() {
-    return panelHead('New chat') +
+    var title = state.callPicking ? (state.callVideo ? 'Start a video call' : 'Start a voice call') : 'New chat';
+    return panelHead(title) +
       '<div class="panel"><form data-act="search" class="row"><input id="q" placeholder="Username or exact email" autocomplete="off"><button class="btn" type="submit">Search</button></form>' +
       '<div id="results">' + resultsHtml() + '</div>' +
-      '<button type="button" class="btn ghost full" data-act="go" data-pane="group">New group</button></div>';
+      (state.callPicking ? '' : '<button type="button" class="btn ghost full" data-act="go" data-pane="group">New group</button>') + '</div>';
   }
 
   function resultsHtml() {
@@ -1700,7 +1761,7 @@
       if (node.dataset.loaded) continue;
       node.dataset.loaded = '1';
       try {
-        var url = await signedUrl(node.dataset.path);
+        var url = await signedUrl(node.dataset.path, node.dataset.bucket || 'attachments');
         if (node.tagName === 'IMG') node.src = url;
         else node.href = url;
       } catch (err) { node.dataset.loaded = ''; }
@@ -1738,6 +1799,7 @@
       }
       state.pane = el.dataset.pane;
       state.error = '';
+      if (state.pane === 'calls') { await loadCallHistory(); return; }
       if (state.pane === 'blocked') {
         try { await loadBlocked(); } catch (err) { toast(err.message); }
       }
@@ -1776,8 +1838,18 @@
       return;
     }
     if (act === 'open') { openChat(el.dataset.id); return; }
+    if (act === 'call-new') { state.pane = 'search'; state.callPicking = true; state.callVideo = el.dataset.video === 'true'; state.search = []; render(); return; }
+    if (act === 'call-back') {
+      var chatId = el.dataset.id;
+      var video = el.dataset.video === 'true';
+      try { await openChat(chatId); if (!state.thread || state.thread.id !== chatId) return; await startCall(video); } catch (err) { toast(err.message); }
+      return;
+    }
     if (act === 'direct') {
-      try { await openDirect(el.dataset.id); } catch (err) { toast(err.message); }
+      try {
+        await openDirect(el.dataset.id);
+        if (state.callPicking) { var videoCall = state.callVideo; state.callPicking = false; await startCall(videoCall); }
+      } catch (err) { toast(err.message); }
       return;
     }
     if (act === 'pick') {

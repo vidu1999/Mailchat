@@ -13,7 +13,7 @@ rather than a silent call.
 **Code:** `lib/features/calls/domain/call_model.dart`,
 `call_media.dart`, `call_service.dart`,
 `lib/features/calls/presentation/screens/incoming_call_screen.dart` and
-`active_call_screen.dart`
+`active_call_screen.dart`, and `call_history_screen.dart`
 **Database:** `supabase/migrations/0007_call_signalling.sql` and
 `0010_call_write.sql` (`place_call`, `set_call_status`). A member saves the
 call through those functions, so a bad or missing policy cannot refuse the row.
@@ -31,7 +31,8 @@ call through those functions, so a bad or missing policy cannot refuse the row.
 | RLS | 0007 | Participants only; the caller alone may insert, inside their own conversation |
 | Realtime | 0007 | Both tables added to the publication, guarded like 0004 |
 | `Call` model | `call_model.dart` | `canAccept`, `canDecline`, `canEnd`, `canSetOffer`, `canSetAnswer`, and a `duration` that refuses to invent a length for a call that never connected |
-| `CallService` | `call_service.dart` | `placeCall`, `fetch`, `accept`, `decline`, `end`, `markMissed`, `reportFailure`, `sendIceCandidate`, `iceCandidates`, `listenForCalls` |
+| `CallService` | `call_service.dart` | `placeCall`, `history` (newest 100 for the signed-in participant), `fetch`, `accept`, `decline`, `end`, `markMissed`, `reportFailure`, `sendIceCandidate`, `iceCandidates`, `listenForCalls` |
+| Call history | `call_history_screen.dart`; browser `webapp/app.js` | Account-based recent/missed list with profile names/avatars, local timestamps, search, voice/video call-back and person picker. Uses the shared `calls` table. No phone number, SMS, SIM, OS call log, or device contacts. Call media remains unverified on devices. |
 
 ## The state machine
 
