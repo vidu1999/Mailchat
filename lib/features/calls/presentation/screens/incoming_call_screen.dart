@@ -72,6 +72,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       _busy = true;
       _answered = true;
     });
+    final onAnswerStarted = widget.arguments?['onAnswerStarted'];
+    if (onAnswerStarted is void Function()) onAnswerStarted();
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => ActiveCallScreen(
@@ -83,6 +85,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
             'selfId': _selfId,
             'isVideo': _isVideo,
             'isCaller': false,
+            'onActiveCallClosed': widget.arguments?['onActiveCallClosed'],
           },
         ),
       ),

@@ -189,6 +189,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _showIncomingCall(Call call, String userId) async {
     final callerName = _nameFor(call.callerId);
     AppLogger.info('incoming_call_shown', details: {'callId': call.id});
+    var answerStarted = false;
+    void releaseCallSlot() {
+      if (!mounted || _ringingCallId != call.id) return;
+      _ringingCallId = null;
+      unawaited(_pollIncoming());
+    }
+
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => IncomingCallScreen(
@@ -199,12 +206,20 @@ class _ChatListScreenState extends State<ChatListScreen> {
             'callerName': callerName,
             'selfId': userId,
             'isVideo': call.isVideo,
+            // pushReplacement completes this prompt's route future as soon as
+            // ActiveCallScreen replaces it. Keep the inbox slot reserved until
+            // that active call actually closes, or a still-ringing row is
+            // immediately presented again as a second accept/decline prompt.
+            'onAnswerStarted': () => answerStarted = true,
+            'onActiveCallClosed': releaseCallSlot,
           },
         ),
       ),
     );
     if (!mounted) return;
-    _ringingCallId = null;
+    if (!answerStarted && _ringingCallId == call.id) {
+      _ringingCallId = null;
+    }
     // The prompt was answered or declined; the preview may now be stale.
     await _load(quiet: true);
   }

@@ -54,6 +54,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   bool _micOn = true;
   bool _cameraOn = true;
   bool _finishing = false;
+  VoidCallback? _onActiveCallClosed;
 
   Timer? _ticker;
   Duration _elapsed = Duration.zero;
@@ -91,6 +92,10 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     _isCaller = (args['isCaller'] as bool?) ?? true;
     _conversationId = (args['conversationId'] as String?) ?? '';
     _callId = args['callId'] as String?;
+    final onActiveCallClosed = args['onActiveCallClosed'];
+    if (onActiveCallClosed is VoidCallback) {
+      _onActiveCallClosed = onActiveCallClosed;
+    }
     _start();
   }
 
@@ -406,6 +411,9 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     _calls.unwatchCall();
     _calls.dispose();
     _media.dispose();
+    final onActiveCallClosed = _onActiveCallClosed;
+    _onActiveCallClosed = null;
+    onActiveCallClosed?.call();
     super.dispose();
   }
 
