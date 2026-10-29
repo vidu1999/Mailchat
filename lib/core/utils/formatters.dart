@@ -58,7 +58,13 @@ class AppFormatters {
     if (messageDay == yesterday) {
       return 'Yesterday';
     }
-    return '${_monthName(localDate.month)} ${localDate.day}, ${localDate.year}';
+    final difference = today.difference(messageDay).inDays;
+    if (difference >= 2 && difference < 7) {
+      return chatDayLabel(localDate, now: reference);
+    }
+    final day = localDate.day.toString().padLeft(2, '0');
+    final month = localDate.month.toString().padLeft(2, '0');
+    return '$day/$month/${localDate.year}';
   }
 
   /// Formats a last-seen timestamp for a presence line.

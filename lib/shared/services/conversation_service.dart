@@ -40,6 +40,25 @@ class ConversationService {
     return _fillMissingPreviews(items);
   }
 
+  /// Updates only this user's chat-list preferences for one conversation.
+  Future<void> setListPreference({
+    required String conversationId,
+    bool? isFavorite,
+    bool? isPinned,
+  }) async {
+    final userId = _supabase.userId;
+    if (userId == null) throw AuthorizationException('Not authenticated');
+    final data = <String, dynamic>{};
+    if (isFavorite != null) data['is_favorite'] = isFavorite;
+    if (isPinned != null) data['is_pinned'] = isPinned;
+    if (data.isEmpty) return;
+    await _supabase.update(
+      'conversation_members',
+      filter: {'eq': 'conversation_id,$conversationId,user_id,$userId'},
+      data: data,
+    );
+  }
+
   /// Fills in a preview for conversations the view reported as empty.
   ///
   /// `conversation_list` builds `last_message_text` from a lateral join over
@@ -105,6 +124,8 @@ class ConversationService {
         lastMessageSenderId: row['sender_id'] as String?,
         unreadCount: item.unreadCount,
         isMuted: item.isMuted,
+        isFavorite: item.isFavorite,
+        isPinned: item.isPinned,
       );
     }).toList();
   }

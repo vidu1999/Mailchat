@@ -119,6 +119,8 @@ class ConversationListItem {
   final String? lastMessageSenderId;
   final int unreadCount;
   final bool isMuted;
+  final bool isFavorite;
+  final bool isPinned;
 
   ConversationListItem({
     required this.conversation,
@@ -128,6 +130,8 @@ class ConversationListItem {
     this.lastMessageSenderId,
     this.unreadCount = 0,
     this.isMuted = false,
+    this.isFavorite = false,
+    this.isPinned = false,
   });
 
   String get title {
@@ -141,9 +145,14 @@ class ConversationListItem {
 
   /// Copy with the fields the chat list changes locally.
   ///
-  /// Only [unreadCount] is needed today: the badge is zeroed the moment a chat
-  /// is opened, then confirmed against the server when the screen pops.
-  ConversationListItem copyWith({int? unreadCount, bool? isMuted}) {
+  /// The chat list uses this to update unread badges and optimistic preference
+  /// toggles without rebuilding the server-backed preview fields.
+  ConversationListItem copyWith({
+    int? unreadCount,
+    bool? isMuted,
+    bool? isFavorite,
+    bool? isPinned,
+  }) {
     return ConversationListItem(
       conversation: conversation,
       otherParticipant: otherParticipant,
@@ -152,6 +161,8 @@ class ConversationListItem {
       lastMessageSenderId: lastMessageSenderId,
       unreadCount: unreadCount ?? this.unreadCount,
       isMuted: isMuted ?? this.isMuted,
+      isFavorite: isFavorite ?? this.isFavorite,
+      isPinned: isPinned ?? this.isPinned,
     );
   }
 
@@ -170,6 +181,8 @@ class ConversationListItem {
       lastMessageSenderId: json['last_message_sender_id'] as String?,
       unreadCount: json['unread_count'] as int? ?? 0,
       isMuted: json['is_muted'] as bool? ?? false,
+      isFavorite: json['is_favorite'] as bool? ?? false,
+      isPinned: json['is_pinned'] as bool? ?? false,
     );
   }
 }

@@ -33,6 +33,9 @@
     pane: 'list',
     authMode: 'login',
     chats: [],
+    chatFilter: 'All',
+    chatKind: 'All chats',
+    chatQuery: '',
     thread: null,
     profile: null,
     presence: {},
@@ -1335,25 +1338,65 @@
       '<div class="sub" id="net">' + (socketOpen ? 'Live' : 'Connecting') + '</div></div>' +
       '<button type="button" class="icon-btn" data-act="go" data-pane="search" title="New chat">＋</button>' +
       '<button type="button" class="icon-btn" data-act="go" data-pane="settings" title="Settings">⚙</button></div>' +
-      '<div class="search-wrap"><div class="sub">' + L.esc(profile.display_name || profile.username || session.user.email || '') + '</div></div>' +
+      '<div class="search-wrap"><div class="sub">' + L.esc(profile.display_name || profile.username || session.user.email || '') + '</div>' +
+      '<input id="chat-search" placeholder="Search or start a new chat" value="' + L.esc(state.chatQuery) + '" autocomplete="off">' +
+      '<div class="chat-filters">' + ['All', 'Unread', 'Favourites'].map(function (name) {
+        var label = name === 'Unread' ? 'Unread ' + state.chats.reduce(function (total, chat) {
+          return total + (Number(chat.unread_count) || 0);
+        }, 0) : name;
+        return '<button type="button" class="filter-chip' + (state.chatFilter === name ? ' on' : '') +
+          '" data-act="chat-filter" data-filter="' + name + '">' + L.esc(label) + '</button>';
+      }).join('') +
+      '<select id="chat-kind" aria-label="Chat type"><option' + (state.chatKind === 'All chats' ? ' selected' : '') + '>All chats</option>' +
+      '<option' + (state.chatKind === 'Direct' ? ' selected' : '') + '>Direct</option>' +
+      '<option' + (state.chatKind === 'Groups' ? ' selected' : '') + '>Groups</option></select></div></div>' +
       '<div class="list" id="chat-list">' + chatsHtml() + '</div>';
   }
 
+  function filteredChats() {
+    var query = String(state.chatQuery || '').trim().toLowerCase();
+    return state.chats.filter(function (chat) {
+      var unread = Number(chat.unread_count) || 0;
+      var group = chat.conversation && chat.conversation.type === 'group';
+      if (state.chatFilter === 'Unread' && unread <= 0) return false;
+      if (state.chatFilter === 'Favourites' && !chat.is_favorite) return false;
+      if (state.chatKind === 'Direct' && group) return false;
+      if (state.chatKind === 'Groups' && !group) return false;
+      if (query && (chatTitle(chat) + ' ' + previewText(chat)).toLowerCase().indexOf(query) < 0) return false;
+      return true;
+    }).sort(function (a, b) {
+      if (!!a.is_pinned !== !!b.is_pinned) return a.is_pinned ? -1 : 1;
+      return Date.parse(b.last_message_at || 0) - Date.parse(a.last_message_at || 0);
+    });
+  }
+
   function chatsHtml() {
-    if (!state.chats.length) {
-      return '<div class="empty"><h2>No chats yet</h2><p>Tap ＋ and search by username or the other person’s exact email.</p></div>';
+    var chats = filteredChats();
+    if (!chats.length) {
+      var empty = state.chatFilter === 'Favourites' ? 'No favourite chats yet' :
+        (state.chats.length ? 'No matching chats' : 'No chats yet');
+      return '<div class="empty"><h2>' + L.esc(empty) + '</h2><p>' +
+        (state.chats.length ? 'Try another filter or search term.' : 'Tap ＋ and search by username or the other person’s exact email.') + '</p></div>';
     }
-    return state.chats.map(function (chat) {
+    return chats.map(function (chat) {
       var id = chat.id || chat.conversation_id;
       var peer = chatPeer(chat);
       var online = peer && state.presence[peer] && state.presence[peer].online === true;
       var unread = Number(chat.unread_count) || 0;
       var initial = chatTitle(chat).slice(0, 1).toUpperCase();
+      var stamp = chat.last_message_at ? L.dayLabel(chat.last_message_at) : '';
+      if (stamp === 'Today') stamp = L.messageTime(chat.last_message_at);
+      var preview = chat.last_message_sender_id === me() ? '✓ ' + previewText(chat) : previewText(chat);
       return '<button type="button" class="chat' + (state.thread && state.thread.id === id ? ' on' : '') +
         '" data-act="open" data-id="' + L.esc(id) + '"><span class="avatar">' + L.esc(initial) +
-        (online ? '<i class="dot"></i>' : '') + '</span><span><div class="chat-name">' + L.esc(chatTitle(chat)) +
-        '</div><div class="chat-preview">' + L.esc(previewText(chat)) + '</div></span>' +
-        (unread ? '<span class="badge">' + unread + '</span>' : '<span></span>') + '</button>';
+        (online ? '<i class="dot"></i>' : '') + '</span><span class="chat-copy"><span class="chat-topline"><span class="chat-name">' +
+        L.esc(chatTitle(chat)) + '</span><span class="chat-stamp">' + L.esc(stamp) + '</span></span><span class="chat-bottomline"><span class="chat-preview">' +
+        L.esc(preview) + '</span><span class="chat-indicators">' + (chat.is_pinned ? '📌' : '') + (chat.is_muted ? '🔕' : '') +
+        (unread ? '<span class="badge">' + (unread > 99 ? '99+' : unread) + '</span>' : '') + '</span></span></span>' +
+        '<span class="chat-actions"><span role="button" tabindex="0" title="' + (chat.is_favorite ? 'Remove favourite' : 'Add favourite') +
+        '" data-act="chat-pref" data-id="' + L.esc(id) + '" data-pref="favorite">' + (chat.is_favorite ? '★' : '☆') + '</span>' +
+        '<span role="button" tabindex="0" title="' + (chat.is_pinned ? 'Unpin chat' : 'Pin chat') +
+        '" data-act="chat-pref" data-id="' + L.esc(id) + '" data-pref="pin">' + (chat.is_pinned ? '📌' : '⋯') + '</span></span></button>';
     }).join('');
   }
 
@@ -1548,6 +1591,14 @@
     var box = $('chat-list');
     if (!box) return;
     box.innerHTML = chatsHtml();
+    document.querySelectorAll('.filter-chip').forEach(function (chip) {
+      var name = chip.dataset.filter;
+      var count = state.chats.reduce(function (total, chat) {
+        return total + (Number(chat.unread_count) || 0);
+      }, 0);
+      chip.textContent = name === 'Unread' ? 'Unread ' + count : name;
+      chip.classList.toggle('on', name === state.chatFilter);
+    });
   }
 
   function paintMessages() {
@@ -1607,6 +1658,28 @@
         try { await loadProfile(); } catch (err) { toast(err.message); }
       }
       render();
+      return;
+    }
+    if (act === 'chat-filter') {
+      state.chatFilter = el.dataset.filter;
+      paintChats();
+      var chips = document.querySelectorAll('.filter-chip');
+      chips.forEach(function (chip) { chip.classList.toggle('on', chip.dataset.filter === state.chatFilter); });
+      return;
+    }
+    if (act === 'chat-pref') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var target = state.chats.filter(function (chat) { return (chat.id || chat.conversation_id) === el.dataset.id; })[0];
+      if (!target) return;
+      var field = el.dataset.pref === 'favorite' ? 'is_favorite' : 'is_pinned';
+      try {
+        await api('/rest/v1/conversation_members?conversation_id=eq.' + encodeURIComponent(el.dataset.id) +
+          '&user_id=eq.' + encodeURIComponent(me()), {
+            method: 'PATCH', body: (function () { var data = {}; data[field] = !target[field]; return data; })(),
+          });
+        await loadChats(true);
+      } catch (err) { toast('Could not update chat preference: ' + err.message); }
       return;
     }
     if (act === 'open') { openChat(el.dataset.id); return; }
@@ -1899,10 +1972,22 @@
   }
 
   function onInput(ev) {
+    if (ev.target.id === 'chat-search') {
+      state.chatQuery = ev.target.value;
+      paintChats();
+      return;
+    }
     if (ev.target.id !== 'draft') return;
     sendTyping(true);
     clearTimeout(typingTimer);
     typingTimer = setTimeout(function () { sendTyping(false); }, 2000);
+  }
+
+  function onChange(ev) {
+    if (ev.target.id === 'chat-kind') {
+      state.chatKind = ev.target.value;
+      paintChats();
+    }
   }
 
   async function enterApp() {
@@ -1983,6 +2068,7 @@
     document.body.addEventListener('change', onChange);
     document.body.addEventListener('keydown', onKeydown);
     document.body.addEventListener('input', onInput);
+    document.body.addEventListener('change', onChange);
     startHeartbeat();
     if (link) {
       if (!cfg) {

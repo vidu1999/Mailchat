@@ -8,7 +8,7 @@ from this build environment.
 `lib/shared/widgets/message_bubble.dart`
 **Database:** `supabase/migrations/0001_core_schema.sql` (tables),
 `0002_functions_triggers.sql` (enforcement), `0004_views_storage_realtime.sql`
-(realtime publication)
+(realtime publication), `0011_chat_list_preferences.sql` (favourites and pins)
 **Tests:** `test/unit/models_test.dart`, `test/unit/receipt_state_test.dart`,
 `test/widget/message_bubble_test.dart`
 
@@ -24,6 +24,7 @@ from this build environment.
 | Ticks | Sent / delivered / read, derived from receipt rows, not from a column on the message |
 | Pagination | 50 messages per page, cursor by `created_at` |
 | Offline failure | A send that cannot reach the server shows `failed` rather than pretending |
+| Inbox filters and preferences | All / unread / favourites filters, text search, direct/group filtering, and per-user favourite/pin flags. Pins sort first; backed by migration 0011 and shared between phone and browser. |
 
 ## How a message travels
 

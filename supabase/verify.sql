@@ -28,6 +28,19 @@ select '02. conversation_list.updated_at',
        ) then 'ok' else 'MISSING - 0004 did not apply' end
 
 union all
+select '16. chat list preferences (0011)',
+       case when (
+         select count(*) from information_schema.columns
+         where table_schema = 'public' and table_name = 'conversation_members'
+           and column_name in ('is_favorite', 'is_pinned')
+       ) = 2 and (
+         select count(*) from information_schema.columns
+         where table_schema = 'public' and table_name = 'conversation_list'
+           and column_name in ('is_favorite', 'is_pinned')
+       ) = 2 then 'ok'
+       else 'MISSING - 0011 did not apply: favourites and pins are unavailable' end
+
+union all
 select '03. tables in public',
        count(*)::text || ' ok'
 from pg_tables where schemaname = 'public'

@@ -52,6 +52,7 @@ have not been exercised against a live database from the build environment.
 | Auth (register, verify, sign in, restore, reset, sign out) | Implemented; registration reaches GoTrue against the live project, the rest awaits the manual checklist |
 | Chat list, direct chat, send/receive | Implemented; never exercised against a live database |
 | Unread badges | Implemented; cleared by a database function (0009), not by the phone |
+| Inbox search, unread/favourites filters, pinning | Implemented on phone and browser; per-user preferences require migration 0011 |
 | Groups (create, roles, thread, leave) | Implemented; groups now open a real message thread |
 | Reactions, receipts, edit/delete, replies | Implemented; never exercised |
 | Attachments (photos and files) | Implemented: `file_selector` → private bucket → `message_attachments` |

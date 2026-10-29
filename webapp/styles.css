@@ -404,3 +404,42 @@ details summary { cursor: pointer; }
   .shell.is-blocked .side,
   .shell.is-report .side { display: none; }
 }
+
+/* Inbox controls and WhatsApp-style chat-row metadata. */
+.search-wrap > input {
+  width: 100%;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--elev);
+}
+.chat-filters { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.filter-chip {
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.filter-chip.on { color: var(--text); background: rgba(16, 185, 129, 0.15); border-color: #059669; }
+.chat-filters select {
+  min-width: 72px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: var(--elev);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+.chat-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.chat-topline, .chat-bottomline { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-stamp { flex: none; color: var(--muted); font-size: .75rem; }
+.chat-preview { display: block; min-width: 0; }
+.chat-indicators { display: flex; align-items: center; gap: 4px; flex: none; font-size: .75rem; }
+.chat-actions { display: none; align-items: center; gap: 5px; color: var(--muted); }
+.chat:hover .chat-actions, .chat:focus-visible .chat-actions { display: flex; }
+.chat-actions [data-act="chat-pref"] { padding: 3px; cursor: pointer; }
+.chat .badge { min-width: 21px; text-align: center; }
+@media (max-width: 560px) {
+  .chat-actions { display: flex; }
+  .chat { grid-template-columns: 44px minmax(0, 1fr) auto; }
+}

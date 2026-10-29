@@ -22,13 +22,15 @@ void main() {
       expect(result.toLowerCase(), contains('yesterday'));
     });
 
-    test('shows a short date for older messages', () {
-      final result = AppFormatters.chatTimestamp(
-        DateTime(2026, 3, 2, 8, 0),
-        now: now,
+    test('shows weekday for recent history and numeric date for older chats', () {
+      expect(
+        AppFormatters.chatTimestamp(DateTime(2026, 6, 12, 8), now: now),
+        'Friday',
       );
-      expect(result, isNotEmpty);
-      expect(result.toLowerCase(), isNot(contains('yesterday')));
+      expect(
+        AppFormatters.chatTimestamp(DateTime(2026, 3, 2, 8), now: now),
+        '02/03/2026',
+      );
     });
   });
 

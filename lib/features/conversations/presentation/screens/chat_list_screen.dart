@@ -49,6 +49,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   StreamSubscription<Call>? _incomingCalls;
 
   List<ConversationListItem> _items = const [];
+  final TextEditingController _chatSearchController = TextEditingController();
+  String _chatFilter = 'All';
+  String _chatKind = 'All chats';
 
   /// Online state per direct-chat peer, from `get_presence()`.
   Map<String, PeerPresence> _presence = const {};
@@ -100,6 +103,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   void dispose() {
     _incomingCalls?.cancel();
+    _chatSearchController.dispose();
     _incomingPoll?.cancel();
     _callService.dispose();
     _inboxSubscription?.cancel();
@@ -426,86 +430,252 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
+  List<ConversationListItem> get _visibleItems {
+    final query = _chatSearchController.text.trim().toLowerCase();
+    final items = _items.where((item) {
+      final isGroup = item.conversation.isGroup;
+      if (_chatFilter == 'Unread' && item.unreadCount == 0) return false;
+      if (_chatFilter == 'Favourites' && !item.isFavorite) return false;
+      if (_chatKind == 'Groups' && !isGroup) return false;
+      if (_chatKind == 'Direct' && isGroup) return false;
+      if (query.isNotEmpty &&
+          !'${item.title} ${_previewText(item)}'.toLowerCase().contains(query)) {
+        return false;
+      }
+      return true;
+    }).toList()
+      ..sort((a, b) {
+        if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+        return (b.lastMessageAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.lastMessageAt ?? DateTime.fromMillisecondsSinceEpoch(0));
+      });
+    return items;
+  }
+
+  Future<void> _setListPreference(
+    ConversationListItem item, {
+    bool? favorite,
+    bool? pinned,
+  }) async {
+    final index = _items.indexWhere(
+      (entry) => entry.conversation.id == item.conversation.id,
+    );
+    if (index < 0) return;
+    final updated = item.copyWith(isFavorite: favorite, isPinned: pinned);
+    setState(() => _items[index] = updated);
+    try {
+      await _conversationService.setListPreference(
+        conversationId: item.conversation.id,
+        isFavorite: favorite,
+        isPinned: pinned,
+      );
+      await _load(quiet: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _items[index] = item);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update chat preferences: $error')),
+      );
+    }
+  }
+
   Widget _buildBody() {
     if (_loading) return const AppLoading(message: 'Loading conversations...');
     if (_error != null) return AppError(exception: _error!, onRetry: _load);
-    if (_items.isEmpty) {
-      return const AppEmptyState(
-        icon: Icons.forum_outlined,
-        title: 'No conversations yet',
-        subtitle: 'Start a chat by searching for a username or email.',
-      );
-    }
 
+    final items = _visibleItems;
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.separated(
-        itemCount: _items.length,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 76),
-        itemBuilder: (context, index) {
-          final item = _items[index];
-          final isGroup = item.conversation.type == 'group';
-          final title = isGroup
-              ? (item.conversation.name ?? 'Group')
-              : (item.otherParticipant?.displayNameOrUsername ?? 'Unknown');
-          final subtitle = _previewText(item);
-          final otherId = item.otherParticipant?.id;
-          final presence = otherId == null ? null : _presence[otherId];
-
-          return ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            leading: AppAvatar(
-              profile: isGroup ? null : item.otherParticipant,
-              radius: 24,
-              // Only a known "online" draws the dot: an unknown or hidden peer
-              // must not be shown as offline-grey, and a group has no single
-              // status to show.
-              online: presence?.isOnline ?? false,
-              child: isGroup
-                  ? const Icon(Icons.groups_outlined, size: 24)
-                  : null,
-            ),
-            title: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-            ),
-            subtitle: Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              controller: _chatSearchController,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search or start a new chat',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _chatSearchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _chatSearchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                filled: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
               ),
             ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
+          ),
+          SizedBox(
+            height: 48,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              scrollDirection: Axis.horizontal,
               children: [
-                if (item.lastMessageAt != null)
-                  AppText.caption(
-                      AppFormatters.chatTimestamp(item.lastMessageAt!)),
-                const SizedBox(height: 6),
-                if (item.unreadCount > 0)
-                  _UnreadBadge(
-                    count: item.unreadCount,
-                    muted: item.isMuted,
-                  )
-                else if (item.isMuted)
-                  Icon(Icons.notifications_off_outlined,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                for (final filter in ['All', 'Unread', 'Favourites'])
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: ChoiceChip(
+                      label: Text(
+                        filter == 'Unread'
+                            ? 'Unread ${_items.fold<int>(
+                                0,
+                                (sum, item) => sum + item.unreadCount,
+                              )}'
+                            : filter,
+                      ),
+                      selected: _chatFilter == filter,
+                      onSelected: (_) => setState(() => _chatFilter = filter),
+                    ),
+                  ),
+                PopupMenuButton<String>(
+                  tooltip: 'Filter chats',
+                  initialValue: _chatKind,
+                  onSelected: (value) => setState(() => _chatKind = value),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'All chats', child: Text('All chats')),
+                    PopupMenuItem(value: 'Direct', child: Text('Direct chats')),
+                    PopupMenuItem(value: 'Groups', child: Text('Groups')),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Icon(
+                      Icons.filter_list,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
               ],
             ),
-            onTap: () => _openConversation(item),
-          );
-        },
+          ),
+          const Divider(height: 1),
+          if (items.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 48, 24, 48),
+              child: AppEmptyState(
+                icon: _chatFilter == 'Favourites'
+                    ? Icons.star_border_rounded
+                    : Icons.forum_outlined,
+                title: _items.isEmpty ? 'No conversations yet' : 'No matching chats',
+                subtitle: _items.isEmpty
+                    ? 'Start a chat by searching for a username or email.'
+                    : 'Try another filter or search term.',
+              ),
+            )
+          else
+            for (final item in items) ...[
+              _buildConversationTile(item),
+              const Divider(height: 1, indent: 76),
+            ],
+        ],
       ),
     );
   }
+
+  Widget _buildConversationTile(ConversationListItem item) {
+    final isGroup = item.conversation.isGroup;
+    final title = item.title;
+    final senderIsMe = item.lastMessageSenderId == SupabaseClient.instance.userId;
+    final subtitle = senderIsMe && item.lastMessageText != null
+        ? '✓ ${_previewText(item)}'
+        : _previewText(item);
+    final otherId = item.otherParticipant?.id;
+    final presence = otherId == null ? null : _presence[otherId];
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+      leading: AppAvatar(
+        profile: isGroup ? null : item.otherParticipant,
+        radius: 25,
+        online: presence?.isOnline ?? false,
+        child: isGroup ? const Icon(Icons.groups_outlined, size: 24) : null,
+      ),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontWeight: item.unreadCount > 0 ? FontWeight.w700 : FontWeight.w600,
+          fontSize: 15,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+      trailing: SizedBox(
+        width: 94,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (item.lastMessageAt != null)
+              AppText.caption(AppFormatters.chatTimestamp(item.lastMessageAt!)),
+            const SizedBox(height: 3),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (item.isPinned)
+                  Icon(Icons.push_pin, size: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                if (item.isMuted)
+                  Icon(Icons.notifications_off_outlined, size: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                if (item.unreadCount > 0) ...[
+                  const SizedBox(width: 5),
+                  _UnreadBadge(count: item.unreadCount, muted: item.isMuted),
+                ] else if (item.isFavorite)
+                  Icon(Icons.star_rounded, size: 16,
+                      color: Theme.of(context).colorScheme.primary),
+                PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 180),
+                  iconSize: 18,
+                  tooltip: 'Chat options',
+                  onSelected: (value) {
+                    if (value == 'favorite') {
+                      _setListPreference(item, favorite: !item.isFavorite);
+                    } else {
+                      _setListPreference(item, pinned: !item.isPinned);
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'favorite',
+                      child: Text(item.isFavorite
+                          ? 'Remove from favourites'
+                          : 'Add to favourites'),
+                    ),
+                    PopupMenuItem(
+                      value: 'pin',
+                      child: Text(item.isPinned ? 'Unpin chat' : 'Pin chat'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      onTap: () => _openConversation(item),
+    );
+  }
+
 }
 
 class _UnreadBadge extends StatelessWidget {
