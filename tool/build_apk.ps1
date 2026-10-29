@@ -97,7 +97,14 @@ Without step 3 the release APK is unsigned and Android refuses to install it.
     # --- 3. Build ---------------------------------------------------------
     $apkArgs = @('build', 'apk', "--$Mode")
     if ($Abi) {
-        $apkArgs += "--target-platform=android-$Abi"
+        # Flutter's --target-platform values differ from Android ABI names.
+        $targetPlatform = switch ($Abi.ToLowerInvariant()) {
+            'armeabi-v7a' { 'android-arm' }
+            'arm64-v8a'   { 'android-arm64' }
+            'x86_64'      { 'android-x64' }
+            default { throw "Unsupported Android ABI '$Abi'. Use armeabi-v7a, arm64-v8a, or x86_64." }
+        }
+        $apkArgs += "--target-platform=$targetPlatform"
     } elseif (-not $FatApk) {
         # Per-ABI splits: the fat APK bundles an engine per architecture and is
         # routinely too large for INSTALL_FAILED_INSUFFICIENT_STORAGE.

@@ -67,7 +67,14 @@ fi
 
 args=(build apk "--$mode")
 if [[ -n "$abi" ]]; then
-  args+=("--target-platform=android-$abi")
+  # Flutter's --target-platform values differ from Android ABI names.
+  case "$abi" in
+    armeabi-v7a) target_platform="android-arm" ;;
+    arm64-v8a) target_platform="android-arm64" ;;
+    x86_64) target_platform="android-x64" ;;
+    *) echo "unsupported Android ABI '$abi'; use armeabi-v7a, arm64-v8a, or x86_64" >&2; exit 2 ;;
+  esac
+  args+=("--target-platform=$target_platform")
 elif [[ $fat -eq 0 ]]; then
   args+=(--split-per-abi)
 fi
